@@ -93,7 +93,7 @@ describe('design task leases', () => {
     )
     f.tasks.confirm(task.taskId, 'caller-a')
     expect(() => f.tasks.checkOperation('caller-a', refreshedSession, task.taskId, true)).toThrow(
-      'Read the bound canvas'
+      'The resumed task has not confirmed'
     )
     f.tasks.checkOperation('caller-a', refreshedSession, task.taskId)
     f.tasks.acknowledgeRead(task.taskId, 'caller-a', 1)
@@ -263,7 +263,7 @@ describe('design task leases', () => {
       expect(record.task.epoch).toBe(1)
       expect(() => f.tasks.assertEpoch(task.taskId, 'caller-a', 0)).toThrow('Stale task lease')
       f.tasks.confirm(task.taskId, 'caller-a')
-      expect(() => f.call('old-write', task.taskId)).toThrow('Read the bound canvas')
+      expect(() => f.call('old-write', task.taskId)).toThrow('The resumed task has not confirmed')
       f.call('read', task.taskId, false)
       f.tasks.finishOperation('read', 'extension-a')
       f.tasks.acknowledgeRead(task.taskId, 'caller-a', 1)
@@ -298,7 +298,7 @@ describe('design task leases', () => {
       expect(resumed.task.epoch).toBe(epoch + 1)
       expect(() => f.tasks.assertEpoch(task.taskId, 'caller-a', epoch)).toThrow('Stale task lease')
       f.tasks.confirm(task.taskId, 'caller-a')
-      expect(() => f.call('write', task.taskId)).toThrow('Read the bound canvas')
+      expect(() => f.call('write', task.taskId)).toThrow('The resumed task has not confirmed')
       f.call('read', task.taskId, false)
       f.tasks.finishOperation('read', 'extension-a')
       f.tasks.acknowledgeRead(task.taskId, 'caller-a', epoch + 1)
@@ -672,7 +672,7 @@ describe('design task leases', () => {
     f.tasks.requireFileRead(session.fileKey)
     const task = f.begin()
     expect(() => f.tasks.checkOperation('caller-a', session, task.taskId, true)).toThrow(
-      'previous write result was lost'
+      'previous write did not confirm'
     )
     f.tasks.checkOperation('caller-a', session, task.taskId)
     f.tasks.acknowledgeFileRead(session.fileKey)

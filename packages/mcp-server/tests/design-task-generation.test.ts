@@ -75,7 +75,9 @@ describe('recovered storage generations', () => {
     expect(() => begin(tasks, '00000000-0000-4000-8000-000000000002')).toThrow(generation)
     expect(begin(tasks, generation)).toBe(record)
     tasks.confirm(record.task.taskId, 'owner')
-    expect(() => tasks.checkOperation('owner', session, record.task.taskId, true)).toThrow('Read')
+    expect(() => tasks.checkOperation('owner', session, record.task.taskId, true)).toThrow(
+      'The resumed task has not confirmed its bound canvas state.'
+    )
     tasks.acknowledgeRead(record.task.taskId, 'owner', 0)
     expect(() => tasks.checkOperation('owner', session, record.task.taskId, true)).not.toThrow()
     tasks.stop(record.task.taskId, 'cancelled')

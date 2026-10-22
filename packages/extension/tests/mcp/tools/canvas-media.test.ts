@@ -30,7 +30,7 @@ describe('Canvas video response cleanup', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
       message: expect.stringContaining('public HTTPS')
     })
     expect(createImageAsync).not.toHaveBeenCalled()

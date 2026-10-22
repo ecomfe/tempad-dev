@@ -29,7 +29,7 @@ import type { McpBrokerPort } from './sessions'
 import { readBoundedResponseBytes } from '../bounded-response'
 import { getFeedbackDraftScope } from '../design-feedback'
 import { base64ToBytes, bytesToBase64, digestMatchesAssetHash, sha256Hex } from '../encoding'
-import { coerceToolErrorPayload, createCodedError } from '../errors'
+import { canvasAbortedError, coerceToolErrorPayload, createCodedError } from '../errors'
 import {
   MCP_LOCAL_HOST_ORIGIN,
   MCP_LOCAL_HOST_PERMISSION_ERROR,
@@ -650,6 +650,11 @@ export class McpServiceWorkerBroker {
 
   private routeToolCall(message: ToolCallMessage): void {
     if (this.pendingToolCalls.has(message.id)) return
+    const rejectBeforeDelivery = (code: TempadMcpErrorCode, messageText: string): void => {
+      const error = createCodedError(code, messageText)
+      const failure = message.payload.name === 'apply_canvas' ? canvasAbortedError(error) : error
+      this.sendToolError(message.id, failure.code, failure.message)
+    }
     if (this.pendingToolCalls.size >= 128) {
       this.sendToolError(
         message.id,
@@ -666,16 +671,14 @@ export class McpServiceWorkerBroker {
       (message.route.gatewayId !== this.connectedHubId ||
         activeSession?.document?.fileKey !== message.route.fileKey)
     ) {
-      this.sendToolError(
-        message.id,
+      rejectBeforeDelivery(
         TEMPAD_MCP_ERROR_CODES.DESIGN_TARGET_CHANGED,
         'The requested Figma runtime is no longer connected. No other tab was selected.'
       )
       return
     }
     if (!activeSession) {
-      this.sendToolError(
-        message.id,
+      rejectBeforeDelivery(
         TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
         'No active TemPad Dev Figma session available.'
       )

@@ -527,9 +527,11 @@ describe('tools response helpers', () => {
     expect(textContent(verificationError.content[0])).toContain(
       'TemPad attempts to roll verification failures back'
     )
+    expect(textContent(verificationError.content[0])).toContain('preserves unrelated design intent')
     expect(textContent(verificationError.content[0])).toContain(
-      'preserving unrelated design intent'
+      'Do not repeat the failed write unchanged'
     )
+    expect(textContent(verificationError.content[0])).not.toContain('before retrying')
     for (const code of [
       TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
       TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED

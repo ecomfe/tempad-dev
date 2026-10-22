@@ -37,7 +37,7 @@ import {
 import { getFeedbackDraftScope } from '@/mcp/design-feedback'
 import { PageDesignTasks } from '@/mcp/design-task'
 import { bytesToBase64 } from '@/mcp/encoding'
-import { coerceToolErrorPayload, createCodedError } from '@/mcp/errors'
+import { canvasAbortedError, coerceToolErrorPayload, createCodedError } from '@/mcp/errors'
 import { readFigmaSession } from '@/mcp/figma-session'
 import { getContainingPage, getNodeById } from '@/mcp/local-resources'
 import { MCP_LOCAL_HOST_PERMISSION_ERROR, MCP_PERMISSION_REQUEST_EVENT } from '@/mcp/permissions'
@@ -336,6 +336,7 @@ export const useMcp = createSharedComposable(() => {
     let stopFeedback: (() => void) | undefined
     let result: unknown
     let error: ReturnType<typeof coerceToolErrorPayload> | undefined
+    let handlerStarted = false
     try {
       if (name === '__begin_design') {
         if (window.INITIAL_OPTIONS?.editor_type !== 'design') {
@@ -366,13 +367,16 @@ export const useMcp = createSharedComposable(() => {
             taskGuard.task
               ? { ...input, page: { ...page, id: taskGuard.task.target.pageId } }
               : args
+          handlerStarted = true
           result = await runMcpTool(name, pinnedArgs)
           if (name === 'apply_canvas' && route?.taskId && input?.mode === 'create')
             await recordCreatedAnchor(result, route.taskId)
         }
       }
     } catch (caught: unknown) {
-      error = coerceToolErrorPayload(caught)
+      error = coerceToolErrorPayload(
+        name === 'apply_canvas' && !handlerStarted ? canvasAbortedError(caught) : caught
+      )
     } finally {
       stopFeedback?.()
       finish?.()

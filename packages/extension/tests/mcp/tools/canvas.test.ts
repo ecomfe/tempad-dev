@@ -302,7 +302,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('not declared')
     })
     expect(fixture.getNode(created.rootNodeId!).name).toBe(before)
@@ -324,7 +325,8 @@ describe('mcp/tools/canvas', () => {
         bindings: { root: { variables: { fill: { variableKey: 'color' } } } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected COLOR')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -343,7 +345,8 @@ describe('mcp/tools/canvas', () => {
     const fetch = vi.fn()
     vi.stubGlobal('fetch', fetch)
     await expect(applyCanvas(videoUrlSpec(url))).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('public HTTPS')
     })
     expect(fetch).not.toHaveBeenCalled()
@@ -660,7 +663,10 @@ describe('mcp/tools/canvas', () => {
           targetNodeId: root.id,
           native: { root: { figma: { ...properties, name: 'Must not be applied' } } }
         })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+      })
       expect(root).toMatchObject({ name: 'root', type: 'FRAME', width: 120, height: 80 })
     }
   )
@@ -684,7 +690,10 @@ describe('mcp/tools/canvas', () => {
           targetNodeId: root.id,
           native: { root: { figma: { autoLayout, name: 'Must not be applied' } } }
         })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+      })
       expect(root.name).toBe('root')
     }
   )
@@ -707,7 +716,10 @@ describe('mcp/tools/canvas', () => {
         targetNodeId: copy.id,
         native: { copy: { figma: { ...properties, name: 'Must not be applied' } } }
       })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+    })
     expect(copy.name).toBe('copy')
   })
 
@@ -855,7 +867,10 @@ describe('mcp/tools/canvas', () => {
           }
         }
       })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+    })
     expect(copy).toMatchObject({ name: 'copy', textStyleId: '' })
     const update = {
       mode: 'update' as const,
@@ -895,7 +910,8 @@ describe('mcp/tools/canvas', () => {
         native: { missing: { figma: { locked: true } } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('does not exist inside the update scope')
     })
     expect(fixture.getNode(created.rootNodeId!).locked).toBe(false)
@@ -910,14 +926,16 @@ describe('mcp/tools/canvas', () => {
 
     vi.stubGlobal('window', {} as Window)
     await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_UNSUPPORTED_EDITOR
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      message: expect.stringContaining('CANVAS_UNSUPPORTED_EDITOR')
     })
 
     vi.stubGlobal('window', {
       INITIAL_OPTIONS: { editor_type: 'whiteboard' }
     } as unknown as Window)
     await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_UNSUPPORTED_EDITOR
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      message: expect.stringContaining('CANVAS_UNSUPPORTED_EDITOR')
     })
 
     vi.stubGlobal('window', {
@@ -953,7 +971,8 @@ describe('mcp/tools/canvas', () => {
     })
 
     await expect(applyCanvasFromTool()).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      message: expect.stringContaining('INVALID_CANVAS_SPEC')
     })
   })
 
@@ -1788,7 +1807,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
     })
     expect(figma.group).toHaveBeenCalledTimes(1)
 
@@ -1804,7 +1824,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
     })
   })
 
@@ -1859,7 +1880,8 @@ describe('mcp/tools/canvas', () => {
           '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div>'
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('Moving these children would leave GROUP')
     })
     expect(root.children).toEqual([group])
@@ -1998,7 +2020,8 @@ describe('mcp/tools/canvas', () => {
       })
       if (scenario === 'retain outer') {
         await expect(update).rejects.toMatchObject({
-          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+          code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+          cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
           message: expect.stringContaining(outer.id)
         })
         expect(fixture.commitUndo).not.toHaveBeenCalled()
@@ -2057,7 +2080,8 @@ describe('mcp/tools/canvas', () => {
       })
       if (order === 'after') {
         await expect(update).rejects.toMatchObject({
-          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+          code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+          cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
           message: expect.stringContaining(outer.id)
         })
         expect(fixture.commitUndo).not.toHaveBeenCalled()
@@ -2169,7 +2193,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['inner']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining(outer.id)
     })
     expect(fixture.commitUndo).not.toHaveBeenCalled()
@@ -2427,7 +2452,8 @@ describe('mcp/tools/canvas', () => {
 
     Object.assign(variants, { remote: true })
     await expect(applyCanvas(metadataUpdate)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
     })
   })
 
@@ -2628,7 +2654,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('cannot exceed maxChildren')
     })
 
@@ -2885,7 +2912,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining(
         'give the instance a new key and remove the primitive key in the same update'
       )
@@ -2925,7 +2953,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringMatching(
         /update root cannot become an instance in place.*bounded ancestor.*new key.*remove the old keyed node/
       )
@@ -3622,7 +3651,8 @@ describe('mcp/tools/canvas', () => {
   ])('preflights %s before applying', async (_name, input, message) => {
     const fixture = createFixture()
     await expect(applyCanvas(input as CanvasResolvedApplyParameters)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining(message)
     })
     expect(fixture.page.children).toEqual([])
@@ -3780,7 +3810,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('requires an existing instance or a component reference')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -3876,7 +3907,10 @@ describe('mcp/tools/canvas', () => {
           }
         }
       })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+    })
     expect(pageInstance.isExposedInstance).toBe(false)
   })
 
@@ -3905,7 +3939,10 @@ describe('mcp/tools/canvas', () => {
           }
         }
       })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+    })
     expect(figma.createFrame).not.toHaveBeenCalled()
   })
 
@@ -3923,7 +3960,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('could not be imported')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -4086,7 +4124,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expects STAR')
     })
   })
@@ -4247,6 +4286,7 @@ describe('mcp/tools/canvas', () => {
   it.each([
     {
       shape: { type: 'VECTOR' as const },
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
       message: 'requires at least one path or network vertex'
     },
     {
@@ -4254,6 +4294,7 @@ describe('mcp/tools/canvas', () => {
         type: 'VECTOR' as const,
         paths: [{ windingRule: 'NONE' as const, data: 'm 0 0 l 1 1' }]
       },
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: 'Unsupported vector path command'
     },
     {
@@ -4271,27 +4312,35 @@ describe('mcp/tools/canvas', () => {
           ]
         }
       },
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: 'expected PAINT'
     }
-  ])('rejects invalid vector authoring before mutation: $message', async ({ shape, message }) => {
-    createFixture()
-    await expect(
-      applyCanvas({
-        mode: 'create',
-        markup:
-          '<div data-key="root" class="flex flex-row w-[100px] h-[100px]"><div data-key="icon" class="w-[24px] h-[24px]"></div></div>',
-        bindings: {
-          icon: {
-            figma: { shape }
+  ])(
+    'rejects invalid vector authoring before mutation: $message',
+    async ({ shape, code, message }) => {
+      createFixture()
+      await expect(
+        applyCanvas({
+          mode: 'create',
+          markup:
+            '<div data-key="root" class="flex flex-row w-[100px] h-[100px]"><div data-key="icon" class="w-[24px] h-[24px]"></div></div>',
+          bindings: {
+            icon: {
+              figma: { shape }
+            }
           }
-        }
+        })
+      ).rejects.toMatchObject({
+        code:
+          code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED
+            ? code
+            : TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        ...(code === TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC ? { cause: { code } } : {}),
+        message: expect.stringContaining(message)
       })
-    ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
-      message: expect.stringContaining(message)
-    })
-    expect(figma.createVector).not.toHaveBeenCalled()
-  })
+      expect(figma.createVector).not.toHaveBeenCalled()
+    }
+  )
 
   it.each([
     ['path', 'create'],
@@ -5056,7 +5105,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected FLOAT')
     })
     await expect(
@@ -5075,7 +5125,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected TEXT')
     })
     await expect(
@@ -5100,7 +5151,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -5767,7 +5819,8 @@ describe('mcp/tools/canvas', () => {
         })
       )
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist')
     })
     await expect(
@@ -5786,13 +5839,15 @@ describe('mcp/tools/canvas', () => {
         })
       )
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist or is not a scene node')
     })
     await expect(
       applyCanvas(input({ fills: [{ type: 'SHADER', id: 'shader:effect' }] }))
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('effect shader, not a fill shader')
     })
     await expect(
@@ -5808,7 +5863,8 @@ describe('mcp/tools/canvas', () => {
         })
       )
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected COLOR')
     })
     await expect(
@@ -5830,7 +5886,8 @@ describe('mcp/tools/canvas', () => {
         })
       )
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist')
     })
     expect(fixture.createImageAsync).not.toHaveBeenCalled()
@@ -5859,7 +5916,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('canvas key "missing" does not exist')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -5894,7 +5952,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['obsolete']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('Referenced node')
     })
     expect(obsolete.removed).toBe(false)
@@ -5920,7 +5979,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['obsolete']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('Referenced node')
     })
     expect(obsolete.removed).toBe(false)
@@ -5972,7 +6032,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.IMAGE_IMPORT_FAILED,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.IMAGE_IMPORT_FAILED },
       message: expect.stringMatching(
         /fill paint 0 on "root".*direct public image URL.*resolved image asset/
       )
@@ -6006,7 +6067,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas(videoUrlSpec('https://media.example.com/oversized.mp4'))
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining('up to 100MB')
     })
     expect(cancel).toHaveBeenCalledOnce()
@@ -6029,7 +6090,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas(videoUrlSpec('https://media.example.com/declared-oversized.mp4'))
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining('up to 100MB')
     })
     expect(arrayBuffer).not.toHaveBeenCalled()
@@ -6048,7 +6109,8 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas(videoUrlSpec('https://media.example.com/invalid.mp4'))
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('paid team file')
     })
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -6453,7 +6515,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('fill shader')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -6476,7 +6539,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expects NUMBER')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -6501,7 +6565,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected COLOR')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -6526,7 +6591,8 @@ describe('mcp/tools/canvas', () => {
         bindings: { root: { figma: { effects: [effect] } } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('clipped frame/instance with a visible fill')
     })
     expect(figma.createTextStyle).not.toHaveBeenCalled()
@@ -6800,7 +6866,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist')
     })
     expect(copy.hyperlink).toEqual({ type: 'NODE', value: target.id })
@@ -7110,7 +7177,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected FLOAT')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -7133,7 +7201,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected TEXT')
     })
     expect(fixture.page.children).toEqual([])
@@ -7294,7 +7363,8 @@ describe('mcp/tools/canvas', () => {
         bindings: { [key]: { figma: { mask: 'ALPHA' } } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining(message)
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -7324,7 +7394,8 @@ describe('mcp/tools/canvas', () => {
         targetNodeId: created.rootNodeId!
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('describe every direct child')
     })
     expect(root.children).toContain(unmanaged)
@@ -7353,7 +7424,8 @@ describe('mcp/tools/canvas', () => {
         markup
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('describe every direct child')
     })
     expect(mask.isMask).toBe(true)
@@ -8314,7 +8386,8 @@ describe('mcp/tools/canvas', () => {
         targetNodeId: created.rootNodeId!
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('not owned')
     })
     expect(root.removed).toBe(false)
@@ -8343,7 +8416,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8351,7 +8425,8 @@ describe('mcp/tools/canvas', () => {
     const style = figma.createPaintStyle()
     style.paints = [pattern]
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8381,7 +8456,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
     expect(instance.removed).toBe(false)
@@ -8414,7 +8490,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8440,7 +8517,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8455,7 +8533,8 @@ describe('mcp/tools/canvas', () => {
       }
     ]
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8470,7 +8549,8 @@ describe('mcp/tools/canvas', () => {
       }
     ]
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8608,7 +8688,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['owned']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('not owned')
     })
     expect(manual.removed).toBe(false)
@@ -8621,7 +8702,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['root']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('root cannot be removed')
     })
 
@@ -8669,7 +8751,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['component']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('instances outside the removal scope')
     })
     expect(component.removed).toBe(false)
@@ -9017,7 +9100,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('has no mode')
     })
     await expect(
@@ -9031,7 +9115,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('could not be resolved')
     })
     expect(figma.createFrame).toHaveBeenCalledTimes(1)
@@ -9178,8 +9263,10 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
-      message: 'Variable authoring key "product/color/surafce" could not be resolved.'
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
+      message:
+        'Variable authoring key "product/color/surafce" could not be resolved. [INVALID_CANVAS_SPEC]'
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
   })
@@ -9521,7 +9608,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('Authoring keys are file-wide')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -9699,7 +9787,8 @@ describe('mcp/tools/canvas', () => {
       expect(creationsWhileLoading).toBe(0)
       expect(nameWhileLoading).not.toBe('Changed')
       expect(error).toMatchObject({
-        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
         message: expect.stringContaining(`Page "${page.id}" could not be inspected`)
       })
     }
@@ -10365,7 +10454,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still depends')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -10408,7 +10498,8 @@ describe('mcp/tools/canvas', () => {
         variableCollections: { tokens: null }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still depends')
     })
 
@@ -10546,7 +10637,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('parent cycle')
     })
     await expect(
@@ -10561,7 +10653,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('cannot define modes or variables')
     })
     await expect(
@@ -10581,7 +10674,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('cannot declare extension overrides')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -11119,7 +11213,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('requires a name')
     })
     await expect(
@@ -11131,7 +11226,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected PAINT')
     })
     await expect(
@@ -11156,7 +11252,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('must already exist')
     })
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -11252,7 +11349,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('requires a value for mode "dark"')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -11278,7 +11376,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('must be COLOR')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -11352,7 +11451,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('has no mode')
     })
     expect(fixture.page.name).toBe('Checkout')
@@ -11514,7 +11614,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('not owned')
     })
     expect(wrapper.removed).toBe(false)
@@ -11534,7 +11635,10 @@ describe('mcp/tools/canvas', () => {
     fixture.page.setSharedPluginData('tempad_dev', 'page-key', 'eval/only')
     await expect(
       applyCanvas({ mode: 'remove', page: { pageKey: 'eval/only' } })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE }
+    })
 
     const created = await applyCanvas({
       mode: 'create',
@@ -11545,7 +11649,8 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({ mode: 'remove', page: { pageKey: 'eval/manual' } })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('not owned')
     })
     expect(page.removed).toBe(false)
@@ -11563,7 +11668,10 @@ describe('mcp/tools/canvas', () => {
         },
         markup: '<div data-key="rollback/root" class="w-[320px] h-[200px]"></div>'
       })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+    })
 
     expect(fixture.pages).toEqual([fixture.page])
     expect(figma.currentPage).toBe(fixture.page)
@@ -11663,7 +11771,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('maximum index 2')
     })
     expect(figma.createPage).toHaveBeenCalledTimes(createCount)
@@ -11678,7 +11787,8 @@ describe('mcp/tools/canvas', () => {
         page: { pageKey: 'flows/new' }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('requires a name')
     })
     expect(figma.createPage).not.toHaveBeenCalled()
@@ -11690,7 +11800,8 @@ describe('mcp/tools/canvas', () => {
         page: { id: '0:missing' }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist')
     })
 
@@ -11712,7 +11823,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not identify')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -11723,7 +11835,8 @@ describe('mcp/tools/canvas', () => {
         page: { id: first.id, pageKey: 'flows/new' }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('already owned')
     })
     second.setSharedPluginData('tempad_dev', 'page-key', 'flows/first')
@@ -11734,7 +11847,8 @@ describe('mcp/tools/canvas', () => {
         page: { pageKey: 'flows/first' }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('more than one')
     })
 
@@ -11750,7 +11864,8 @@ describe('mcp/tools/canvas', () => {
         page: { id: first.id }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('belongs to page')
     })
   })
@@ -11771,7 +11886,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected COLOR')
     })
     expect(fixture.page.children).toEqual([])
@@ -11819,7 +11935,8 @@ describe('mcp/tools/canvas', () => {
         markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>'
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
     })
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
@@ -11865,7 +11982,8 @@ describe('mcp/tools/canvas', () => {
         markup: '<div data-key="component/card/content" class="w-[100px] h-[100px]"></div>'
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('inside an instance')
     })
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -11887,7 +12005,8 @@ describe('mcp/tools/canvas', () => {
         markup: `<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><div data-key="root/content" data-node-id="${child.id}" class="w-[80px] h-[80px]"></div></div>`
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('inside an instance')
     })
     expect(child.parent).toBe(instance)
@@ -11955,7 +12074,8 @@ describe('mcp/tools/canvas', () => {
         markup: `<div data-key="card" class="flex flex-col w-[320px] h-[200px]"><span data-key="foreign" data-node-id="${foreign.id}" class="w-full h-fit">Foreign</span></div>`
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE }
     })
     expect(fixture.commitUndo).not.toHaveBeenCalled()
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -12074,7 +12194,8 @@ describe('mcp/tools/canvas', () => {
           native: { label: { figma: properties } }
         })
       ).rejects.toMatchObject({
-        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
         message: expect.stringContaining('"missing:reference"')
       })
       expect(figma.createPaintStyle).not.toHaveBeenCalled()
@@ -12165,7 +12286,8 @@ describe('mcp/tools/canvas', () => {
         styles: { unrelated: { type: 'PAINT', name: 'Unrelated' } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining(message)
     })
     expect(figma.createPaintStyle).not.toHaveBeenCalled()
@@ -12203,7 +12325,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('cannot exceed maxChildren')
     })
     expect(figma.createPaintStyle).not.toHaveBeenCalled()
@@ -12230,7 +12353,8 @@ describe('mcp/tools/canvas', () => {
         native: { action: { figma: { instance: { exposed: true } } } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('requires an existing primary instance inside a component')
     })
     expect(figma.createPaintStyle).not.toHaveBeenCalled()
@@ -12644,7 +12768,8 @@ describe('mcp/tools/canvas', () => {
           bindings: { root: { figma: usage === 'layout grid' ? { layoutGrids } : {} } }
         })
       ).rejects.toMatchObject({
-        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
         message: expect.stringContaining(
           usage === 'text resource' ? 'expected STRING' : 'expected FLOAT'
         )
@@ -12710,7 +12835,8 @@ describe('mcp/tools/canvas', () => {
           }
         })
       ).rejects.toMatchObject({
-        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
         message: expect.stringContaining(
           `component property "invalid" is FLOAT, expected ${type === 'TEXT' ? 'STRING' : 'BOOLEAN'}`
         )
@@ -12756,7 +12882,10 @@ describe('mcp/tools/canvas', () => {
           },
           bindings: { root: {} }
         })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+      })
       expect(figma.createPaintStyle).not.toHaveBeenCalled()
       expect(adoptionWrite).not.toHaveBeenCalled()
       expect(fixture.commitUndo).not.toHaveBeenCalled()
@@ -12827,7 +12956,10 @@ describe('mcp/tools/canvas', () => {
           },
           bindings: { root: {} }
         })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+      })
       expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
       expect(figma.variables.createVariable).not.toHaveBeenCalled()
       expect(adoptionWrite).not.toHaveBeenCalled()
@@ -12918,7 +13050,10 @@ describe('mcp/tools/canvas', () => {
             invalid
           }
         })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+      })
       expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
       expect(fixture.commitUndo).not.toHaveBeenCalled()
       expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -12999,7 +13134,9 @@ describe('mcp/tools/canvas', () => {
         await expect(apply).rejects.toMatchObject({
           code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
           cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
-          message: expect.stringMatching(/is STRING, expected FLOAT.*Undo was skipped/)
+          message: expect.stringMatching(
+            /is STRING, expected FLOAT.*Rollback did not remove created resource/
+          )
         })
       } else {
         await expect(apply).resolves.toMatchObject({ rootNodeId: expect.any(String) })
@@ -13009,8 +13146,8 @@ describe('mcp/tools/canvas', () => {
         ])
       }
       expect(undoCounts).toEqual([1])
-      // Resource imports are outside the node snapshots; their rollback remains uncertain.
-      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+      // Retained declared resources establish this attempt's own Undo entry.
+      expect(fixture.triggerUndo).toHaveBeenCalledTimes(result === 'mismatch' ? 1 : 0)
     }
   )
 
@@ -13081,7 +13218,10 @@ describe('mcp/tools/canvas', () => {
             invalid
           }
         })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+      })
       expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
       expect(rename).not.toHaveBeenCalled()
       expect(fixture.commitUndo).not.toHaveBeenCalled()
@@ -13169,8 +13309,10 @@ describe('mcp/tools/canvas', () => {
       })
       if (coverage === 'missing') {
         await expect(apply).rejects.toMatchObject({
-          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
-          message: 'New variable "fresh" requires a value for mode "Alternate".'
+          code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+          cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
+          message:
+            'New variable "fresh" requires a value for mode "Alternate". [INVALID_CANVAS_SPEC]'
         })
         expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
         expect(figma.variables.createVariable).not.toHaveBeenCalled()
@@ -13222,7 +13364,10 @@ describe('mcp/tools/canvas', () => {
           invalid
         }
       })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+    })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
     expect(fixture.commitUndo).not.toHaveBeenCalled()
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -13377,7 +13522,8 @@ describe('mcp/tools/canvas', () => {
     const nodeIdsBefore = new Set(fixture.nodes.keys())
 
     await expect(applyCanvas(createSpec())).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('is unavailable in the current Figma context')
     })
     expect(new Set(fixture.nodes.keys())).toEqual(nodeIdsBefore)
@@ -13437,7 +13583,8 @@ describe('mcp/tools/canvas', () => {
     const first = applyCanvasFromTool(input)
     await vi.waitFor(() => expect(finishFontLoad).toBeTypeOf('function'))
     await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_BUSY
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      message: expect.stringContaining('CANVAS_BUSY')
     })
 
     finishFontLoad?.()

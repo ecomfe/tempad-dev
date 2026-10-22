@@ -62,7 +62,7 @@ describe('durable design reviews', () => {
     f.tasks.requireFileRead(session.fileKey)
     const restored = f.restart()
     expect(() => restored.checkOperation('new-owner', session, undefined, true)).toThrow(
-      'previous write result was lost'
+      'previous write did not confirm'
     )
     restored.acknowledgeFileRead(session.fileKey)
     expect(() => f.restart().checkOperation('new-owner', session, undefined, true)).not.toThrow()
@@ -78,10 +78,10 @@ describe('durable design reviews', () => {
     f.tasks.acknowledgeFileRead(session.fileKey)
     f.store.save = save
     expect(() => f.tasks.checkOperation('owner', session, undefined, true)).toThrow(
-      'previous write result was lost'
+      'previous write did not confirm'
     )
     expect(() => f.restart().checkOperation('owner', session, undefined, true)).toThrow(
-      'previous write result was lost'
+      'previous write did not confirm'
     )
   })
 
@@ -91,7 +91,7 @@ describe('durable design reviews', () => {
     f.tasks.requireFileRead(session.fileKey)
     f.tasks.acknowledgeFileRead(session.fileKey, generation)
     expect(() => f.restart().checkOperation('owner', session, undefined, true)).toThrow(
-      'previous write result was lost'
+      'previous write did not confirm'
     )
     f.tasks.acknowledgeFileRead(session.fileKey)
     expect(() => f.restart().checkOperation('owner', session, undefined, true)).not.toThrow()
@@ -389,7 +389,7 @@ describe('durable design reviews', () => {
     tasks.confirm(record.task.taskId, 'fresh-transport')
     expect(() =>
       tasks.checkOperation('fresh-transport', refreshed, record.task.taskId, true)
-    ).toThrow('Read the bound canvas')
+    ).toThrow('The resumed task has not confirmed')
     tasks.checkOperation('fresh-transport', refreshed, record.task.taskId, false)
     tasks.acknowledgeRead(record.task.taskId, 'fresh-transport', epoch + 1)
     expect(() =>

@@ -315,7 +315,9 @@ describe('base typography outside retained range TextStyles', () => {
     const readSegments = node.getStyledTextSegments.bind(node)
     const textWhenRead: string[] = []
     vi.spyOn(node, 'getStyledTextSegments').mockImplementation((...args) => {
-      textWhenRead.push(node.characters)
+      // Undo captures all authored range fields before replacement; semantic reads
+      // must still use the new text and must not reuse those rollback snapshots.
+      if (!args[0].includes('paragraphSpacing')) textWhenRead.push(node.characters)
       return readSegments(...args)
     })
     const changed = request(null, true)
@@ -480,7 +482,10 @@ describe('base typography outside retained range TextStyles', () => {
     )
     expect(node.fontName).toEqual(STYLE_VALUES.fontName)
     expect(node.fontSize).toBe(STYLE_VALUES.fontSize)
-    expect(native.segments).not.toHaveBeenCalled()
+    expect(native.segments).toHaveBeenCalledOnce()
+    expect(native.segments).toHaveBeenCalledWith(
+      expect.arrayContaining(['boundVariables', 'paragraphSpacing'])
+    )
   })
 
   it('preserves explicit native case overrides of styled text', async () => {

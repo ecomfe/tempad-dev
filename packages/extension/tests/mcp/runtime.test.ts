@@ -155,6 +155,22 @@ describe('mcp/runtime', () => {
     expect(result).toEqual({ blocks: [] })
   })
 
+  it('distinguishes rejected canvas arguments from a handler failure', async () => {
+    const runtime = await importRuntime()
+    await expect(runtime.runMcpTool('apply_canvas', { mode: 'invalid' })).rejects.toMatchObject({
+      code: 'CANVAS_APPLY_ABORTED'
+    })
+    expect(mocks.runApplyCanvas).not.toHaveBeenCalled()
+
+    const error = Object.assign(new Error('A native operation failed'), {
+      code: 'INVALID_CANVAS_SPEC'
+    })
+    mocks.runApplyCanvas.mockRejectedValueOnce(error)
+    await expect(
+      runtime.runMcpTool('apply_canvas', { mode: 'create', markup: '<div/>' })
+    ).rejects.toBe(error)
+  })
+
   it.each(['missing', 'toString'])(
     'rejects unknown bridge tool name "%s" at the runtime boundary',
     async (name) => {

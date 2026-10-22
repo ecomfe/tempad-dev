@@ -243,10 +243,10 @@ describe('mcp/tools/canvas font loading', () => {
           page: { id: fixture.page.id, variableModes: { [extended.id]: extendedAlternate } }
         })
       ).rejects.toMatchObject({
-        code:
-          missing === 'alias'
-            ? TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED
-            : TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        ...(missing === 'font'
+          ? { cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC } }
+          : {}),
         message: expect.stringContaining(
           missing === 'alias' ? 'missing:font-family' : 'Unavailable Font'
         )
@@ -309,7 +309,8 @@ describe('mcp/tools/canvas font loading', () => {
         page: { id: fixture.page.id, variableModes: { [collection.id]: null } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('bounded candidate budget')
     })
     expect(fixture.page.explicitVariableModes[collection.id]).toBe(collection.defaultModeId)
@@ -796,7 +797,8 @@ describe('mcp/tools/canvas font loading', () => {
         styles: { fresh: { type: 'PAINT', name: 'Fresh paint', paints: [] } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('Font "Noto Serif Regular" is unavailable')
     })
     expect([...fixture.variableCollections.keys()]).toEqual(beforeCollections)

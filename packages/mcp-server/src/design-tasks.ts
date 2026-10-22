@@ -426,15 +426,12 @@ export class DesignTasks {
       fail('DESIGN_TARGET_CHANGED', 'The task is not bound to this Figma session.')
     }
     if (write && record?.task.needsRead) {
-      fail(
-        'DESIGN_TASK_INACTIVE',
-        'Read the bound canvas with get_structure or get_code before writing.'
-      )
+      fail('DESIGN_TASK_INACTIVE', 'The resumed task has not confirmed its bound canvas state.')
     }
     if (write && this.filesNeedingRead.has(session.fileKey)) {
       fail(
         'DESIGN_TASK_INACTIVE',
-        'The previous write result was lost or its rollback could not be confirmed. Read this Figma file with get_structure or get_code before writing. Do not replay the write.'
+        'The previous write did not confirm its final canvas state. Do not replay the write.'
       )
     }
     const occupant = this.occupant(session.fileKey)

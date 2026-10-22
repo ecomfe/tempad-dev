@@ -14,6 +14,16 @@ import {
   recordCreatedNode
 } from '@/mcp/tools/canvas/reconcile/state'
 import { withUndoBoundary } from '@/mcp/tools/canvas/reconcile/undo'
+import {
+  preflightStyleDeclarations,
+  prepareStyleResources,
+  removeStyleResources
+} from '@/mcp/tools/canvas/styles'
+import {
+  preflightVariableDeclarations,
+  reconcileVariableCollections,
+  removeVariableResources
+} from '@/mcp/tools/canvas/variables'
 
 import { createFixture } from '../../fakes/figma'
 
@@ -37,6 +47,8 @@ const changes: Array<{
   { name: 'padding', classes: 'pl-8', read: (node) => node.paddingLeft },
   { name: 'size constraint', classes: 'min-w-40', read: (node) => node.minWidth },
   { name: 'rotation', classes: 'rotate-45', read: (node) => node.relativeTransform },
+  { name: 'corner radius', classes: 'rounded-[12px]', read: (node) => node.cornerRadius },
+  { name: 'stroke width', classes: 'border-[3px]', read: (node) => node.strokeWeight },
   {
     name: 'shear',
     binding: (node) => ({
@@ -130,7 +142,7 @@ describe('canvas rollback verification', () => {
     }
   )
 
-  it('keeps uncaptured changes uncertain without consuming earlier history', async () => {
+  it('attempts Undo for paragraph-only changes and detects incomplete restoration', async () => {
     const fixture = createFixture()
     const label = figma.createText()
     label.paragraphSpacing = 12
@@ -143,10 +155,230 @@ describe('canvas rollback verification', () => {
     }, state).catch((error: unknown) => error)
 
     expect(label.paragraphSpacing).toBe(24)
-    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
     expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED', cause })
-    expect((error as Error).message).toContain('Undo was skipped')
+    expect((error as Error).message).toContain(`Rollback changed pre-existing node ${label.id}`)
   })
+
+  it.each([
+    'fontSize',
+    'lineHeight',
+    'letterSpacing',
+    'paragraphIndent',
+    'paragraphSpacing',
+    'boundVariables'
+  ] as const)(
+    'admits a retained rich-text %s change even when whole-node fields stay mixed',
+    async (field) => {
+      const fixture = createFixture()
+      const label = figma.createText()
+      label.characters = 'A\nB'
+      let value: unknown =
+        field === 'boundVariables' ? { fontSize: { type: 'VARIABLE_ALIAS', id: 'before' } } : 12
+      const before = value
+      vi.mocked(label.getStyledTextSegments).mockImplementation(
+        () =>
+          [{ start: 0, end: 3, characters: label.characters, [field]: value }] as ReturnType<
+            TextNode['getStyledTextSegments']
+          >
+      )
+      const state = createApplyState(label, new Set())
+      fixture.triggerUndo.mockImplementationOnce(() => {
+        value = before
+      })
+      const error = await withUndoBoundary(async () => {
+        value =
+          field === 'boundVariables' ? { fontSize: { type: 'VARIABLE_ALIAS', id: 'after' } } : 24
+        markMutation(state, label)
+        throw new Error('Later operation failed')
+      }, state).catch((error: unknown) => error)
+
+      expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+      expect(value).toEqual(before)
+      expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED' })
+      expect((error as Error).message).not.toContain('automatic rollback was not available')
+    }
+  )
+
+  it.each(['collection', 'variable', 'style'] as const)(
+    'admits retained newly created %s evidence and verifies its removal',
+    async (kind) => {
+      const fixture = createFixture()
+      const state = createApplyState(null, new Set())
+      const existingCollection = figma.variables.createVariableCollection('Existing')
+      const beforeCollections = new Set(fixture.variableCollections.keys())
+      const beforeVariables = new Set(fixture.variables.keys())
+      const beforeStyles = new Set(fixture.styles.keys())
+      fixture.triggerUndo.mockImplementationOnce(() => {
+        for (const [id, style] of fixture.styles) if (!beforeStyles.has(id)) style.remove()
+        for (const [id, variable] of fixture.variables)
+          if (!beforeVariables.has(id)) variable.remove()
+        for (const [id, collection] of fixture.variableCollections)
+          if (!beforeCollections.has(id)) collection.remove()
+      })
+      const error = await withUndoBoundary(async () => {
+        if (kind === 'style') {
+          await prepareStyleResources(
+            { paint: { type: 'PAINT', name: 'Paint' } },
+            state.styles,
+            state.mutations
+          )
+        } else if (kind === 'collection') {
+          await reconcileVariableCollections(
+            { tokens: { name: 'Tokens', modes: { base: { name: 'Base' } } } },
+            state.variables,
+            state.mutations
+          )
+        } else {
+          const collection = existingCollection
+          await reconcileVariableCollections(
+            {
+              tokens: {
+                id: collection.id,
+                variables: {
+                  value: { name: 'Value', type: 'FLOAT', values: { [collection.defaultModeId]: 8 } }
+                }
+              }
+            },
+            state.variables,
+            state.mutations
+          )
+        }
+        throw new Error('Later operation failed')
+      }, state).catch((error: unknown) => error)
+      expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+      expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED' })
+      expect((error as Error).message).not.toContain('automatic rollback was not available')
+      expect(new Set(fixture.variableCollections.keys())).toEqual(beforeCollections)
+      expect(new Set(fixture.variables.keys())).toEqual(beforeVariables)
+      expect(new Set(fixture.styles.keys())).toEqual(beforeStyles)
+    }
+  )
+
+  it.each(['collection', 'variable', 'style'] as const)(
+    'admits an existing %s change without any changed canvas node',
+    async (kind) => {
+      const fixture = createFixture()
+      const state = createApplyState(null, new Set())
+      const collection = figma.variables.createVariableCollection('Existing')
+      const variable = figma.variables.createVariable('Value', collection, 'FLOAT')
+      variable.setValueForMode(collection.defaultModeId, 8)
+      const style = figma.createPaintStyle()
+      if (kind === 'style')
+        await preflightStyleDeclarations(
+          { paint: { id: style.id, type: style.type as 'PAINT', name: 'Changed' } },
+          state.styles
+        )
+      else
+        await preflightVariableDeclarations(
+          {
+            tokens: {
+              id: kind === 'variable' ? variable.variableCollectionId : collection.id,
+              ...(kind === 'variable'
+                ? { variables: { value: { id: variable.id, name: 'Changed' } } }
+                : { name: 'Changed' })
+            }
+          },
+          state.variables
+        )
+      const resource = kind === 'style' ? style : kind === 'variable' ? variable : collection
+      const name = resource.name
+      fixture.triggerUndo.mockImplementationOnce(() => {
+        resource.name = name
+      })
+      const error = await withUndoBoundary(async () => {
+        resource.name = 'Changed'
+        state.mutations.count += 1
+        throw new Error('Later operation failed')
+      }, state).catch((error: unknown) => error)
+      expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+      expect(resource.name).toBe(name)
+      expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED' })
+      expect((error as Error).message).not.toContain('automatic rollback was not available')
+    }
+  )
+
+  it('does not discard confirmed creation evidence when another touched node is uninspectable', async () => {
+    const fixture = createFixture()
+    const unknown = figma.createFrame()
+    const state = createApplyState(null, new Set())
+    let created: FrameNode | undefined
+    const error = await withUndoBoundary(async () => {
+      created = figma.createFrame()
+      recordCreatedNode(created, state)
+      markMutation(state, unknown)
+      throw new Error('Later operation failed')
+    }, state).catch((error: unknown) => error)
+    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    expect(created?.removed).toBe(true)
+    expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED' })
+  })
+
+  it.each(['collection', 'variable', 'style'] as const)(
+    'admits a confirmed existing %s removal without trusting a missing lookup alone',
+    async (kind) => {
+      const fixture = createFixture()
+      const state = createApplyState(null, new Set())
+      const collection = figma.variables.createVariableCollection('Existing')
+      const variable = figma.variables.createVariable('Value', collection, 'FLOAT')
+      const style = figma.createPaintStyle()
+      const resource = kind === 'style' ? style : kind === 'variable' ? variable : collection
+      const remove = vi.mocked(resource.remove).getMockImplementation()!
+      vi.spyOn(resource, 'remove').mockImplementation(() => {
+        remove()
+        Object.defineProperty(resource, 'id', {
+          get() {
+            throw new Error('Removed resource is unavailable')
+          }
+        })
+      })
+      if (kind === 'style') state.styles.selections = [{ key: 'style', style, spec: null }]
+      else if (kind === 'variable')
+        state.variables.selectedVariables = new Map([['value', variable]])
+      else state.variables.selectedCollections = new Map([['tokens', collection]])
+      const error = await withUndoBoundary(async () => {
+        if (kind === 'style') {
+          state.styles.removals.push({ key: 'style', style })
+          await removeStyleResources(state.styles, state.mutations)
+        } else {
+          if (kind === 'variable') state.variables.variableRemovals.push(variable)
+          else state.variables.collectionRemovals.push(collection)
+          await removeVariableResources(state.variables, state.mutations)
+        }
+        throw new Error('Later operation failed')
+      }, state).catch((error: unknown) => error)
+      expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+      expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED' })
+      expect((error as Error).message).toContain('Rollback did not restore pre-existing resource')
+    }
+  )
+
+  it.each(['no-op', 'net-zero', 'missing lookup'] as const)(
+    'does not treat %s resource observations as a distinct Undo entry',
+    async (kind) => {
+      const fixture = createFixture()
+      const state = createApplyState(null, new Set())
+      const style = figma.createPaintStyle()
+      state.styles.selections = [{ key: 'style', style, spec: { type: 'PAINT' } }]
+      const before = style.name
+      const error = await withUndoBoundary(async () => {
+        if (kind === 'net-zero') {
+          style.name = 'Changed'
+          state.mutations.count += 1
+        }
+        style.name = before
+        state.mutations.count += 1
+        if (kind === 'missing lookup') {
+          vi.mocked(figma.getStyleByIdAsync).mockResolvedValue(null)
+          vi.mocked(figma.getStyleById).mockReturnValue(null)
+        }
+        throw new Error('Later operation failed')
+      }, state).catch((error: unknown) => error)
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+      expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED' })
+      expect((error as Error).message).toContain('Undo was skipped')
+    }
+  )
 
   it('does not use an unrelated user edit as evidence for this attempt', async () => {
     const fixture = createFixture()
@@ -305,7 +537,8 @@ describe('canvas rollback verification', () => {
       })
     })
     expect((error as Error).message).toMatch(/on "root" \(node:\d+\); automatic rollback/)
-    expect((error as Error).message).toContain('Undo unavailable. Stop writing')
+    expect((error as Error).message).toContain('Undo unavailable. Read back the affected canvas')
+    expect((error as Error).message).not.toContain('or use Figma Undo')
   })
 
   it.each(

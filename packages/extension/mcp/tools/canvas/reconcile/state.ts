@@ -42,6 +42,7 @@ export type ProtectedNodeSnapshot = {
   owner: string
   parentId: string | null
   type: BaseNode['type']
+  textSegments?: string
 }
 
 export type ApplyState = {

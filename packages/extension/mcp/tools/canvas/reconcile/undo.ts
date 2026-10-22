@@ -20,8 +20,49 @@ import {
   outermostNodes,
   containingPage
 } from './nodes'
+import {
+  snapshotDeclaredResources,
+  hasResourceChange,
+  verifyResourceRollback,
+  createdResourceChecks
+} from './undo-resources'
 
-function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
+function snapshotProtectedNode(node: BaseNode, captureTextRanges = true): ProtectedNodeSnapshot {
+  let textSegments: string | undefined
+  if (node.type === 'TEXT' && captureTextRanges) {
+    try {
+      textSegments = JSON.stringify(
+        node.getStyledTextSegments([
+          'fontName',
+          'fontSize',
+          'lineHeight',
+          'letterSpacing',
+          'paragraphIndent',
+          'paragraphSpacing',
+          'listSpacing',
+          'indentation',
+          'listOptions',
+          'textStyleId',
+          'fillStyleId',
+          'fills',
+          'boundVariables',
+          'textStyleOverrides',
+          'hyperlink',
+          'textCase',
+          'textDecoration',
+          'textDecorationStyle',
+          'textDecorationOffset',
+          'textDecorationThickness',
+          'textDecorationColor',
+          'textDecorationSkipInk',
+          'textWrapStyle',
+          'openTypeFeatures'
+        ])
+      )
+    } catch {
+      // Some referenced text cannot expose its ranges. The other fields remain usable.
+    }
+  }
   return {
     // Serialize copied native values so a later in-place paint change cannot also
     // mutate the expected snapshot. This detects content loss, not a full undo log.
@@ -30,8 +71,6 @@ function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
       ...(node.type === 'PAGE'
         ? {
             backgrounds: node.backgrounds,
-            guides: node.guides,
-            explicitVariableModes: node.explicitVariableModes,
             index: figma.root.children.indexOf(node)
           }
         : {}),
@@ -45,6 +84,75 @@ function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
       ...('strokes' in node ? { strokes: node.strokes, strokeStyleId: node.strokeStyleId } : {}),
       ...('effects' in node ? { effects: node.effects, effectStyleId: node.effectStyleId } : {}),
       ...('opacity' in node ? { opacity: node.opacity } : {}),
+      ...('boundVariables' in node ? { boundVariables: node.boundVariables } : {}),
+      ...('explicitVariableModes' in node
+        ? { explicitVariableModes: node.explicitVariableModes }
+        : {}),
+      ...('componentPropertyReferences' in node
+        ? { componentPropertyReferences: node.componentPropertyReferences }
+        : {}),
+      ...('constraints' in node ? { constraints: node.constraints } : {}),
+      ...('blendMode' in node ? { blendMode: node.blendMode } : {}),
+      ...('isMask' in node ? { isMask: node.isMask, maskType: node.maskType } : {}),
+      ...('strokeWeight' in node
+        ? {
+            strokeWeight: node.strokeWeight,
+            strokeAlign: node.strokeAlign,
+            strokeJoin: node.strokeJoin,
+            dashPattern: node.dashPattern
+          }
+        : {}),
+      ...('strokeTopWeight' in node
+        ? {
+            strokeTopWeight: node.strokeTopWeight,
+            strokeRightWeight: node.strokeRightWeight,
+            strokeBottomWeight: node.strokeBottomWeight,
+            strokeLeftWeight: node.strokeLeftWeight
+          }
+        : {}),
+      ...('strokeCap' in node
+        ? { strokeCap: node.strokeCap, strokeMiterLimit: node.strokeMiterLimit }
+        : {}),
+      ...('cornerRadius' in node ? { cornerRadius: node.cornerRadius } : {}),
+      ...('cornerSmoothing' in node ? { cornerSmoothing: node.cornerSmoothing } : {}),
+      ...('topLeftRadius' in node
+        ? {
+            topLeftRadius: node.topLeftRadius,
+            topRightRadius: node.topRightRadius,
+            bottomRightRadius: node.bottomRightRadius,
+            bottomLeftRadius: node.bottomLeftRadius
+          }
+        : {}),
+      ...('layoutGrids' in node
+        ? { layoutGrids: node.layoutGrids, gridStyleId: node.gridStyleId }
+        : {}),
+      ...('guides' in node ? { guides: node.guides } : {}),
+      ...('arcData' in node ? { arcData: node.arcData } : {}),
+      ...('pointCount' in node ? { pointCount: node.pointCount } : {}),
+      ...('innerRadius' in node ? { innerRadius: node.innerRadius } : {}),
+      ...(node.type === 'VECTOR'
+        ? {
+            vectorPaths: node.vectorPaths,
+            vectorNetwork: node.vectorNetwork,
+            handleMirroring: node.handleMirroring
+          }
+        : {}),
+      ...('descriptionMarkdown' in node
+        ? {
+            descriptionMarkdown: node.descriptionMarkdown,
+            documentationLinks: node.documentationLinks
+          }
+        : {}),
+      ...(isComponentPropertyOwner(node)
+        ? { componentPropertyDefinitions: node.componentPropertyDefinitions }
+        : {}),
+      ...(node.type === 'INSTANCE'
+        ? {
+            componentProperties: node.componentProperties,
+            scaleFactor: node.scaleFactor,
+            isExposedInstance: node.isExposedInstance
+          }
+        : {}),
       ...('relativeTransform' in node ? { relativeTransform: node.relativeTransform } : {}),
       ...('clipsContent' in node ? { clipsContent: node.clipsContent } : {}),
       ...('minWidth' in node
@@ -114,7 +222,21 @@ function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
             characters: node.characters,
             fontName: node.fontName,
             fontSize: node.fontSize,
-            textStyleId: node.textStyleId
+            textStyleId: node.textStyleId,
+            lineHeight: node.lineHeight,
+            letterSpacing: node.letterSpacing,
+            paragraphIndent: node.paragraphIndent,
+            paragraphSpacing: node.paragraphSpacing,
+            listSpacing: node.listSpacing,
+            autoRename: node.autoRename,
+            leadingTrim: node.leadingTrim,
+            hangingPunctuation: node.hangingPunctuation,
+            hangingList: node.hangingList,
+            textAlignHorizontal: node.textAlignHorizontal,
+            textAlignVertical: node.textAlignVertical,
+            textAutoResize: node.textAutoResize,
+            textTruncation: node.textTruncation,
+            maxLines: node.maxLines
           }
         : {})
     }),
@@ -131,8 +253,16 @@ function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
     ),
     owner: node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_OWNER_NAME),
     parentId: node.parent?.id ?? null,
-    type: node.type
+    type: node.type,
+    ...(textSegments === undefined ? {} : { textSegments })
   }
+}
+
+function matchesProtectedNode(node: BaseNode, expected: ProtectedNodeSnapshot): boolean {
+  const actual = snapshotProtectedNode(node, expected.textSegments !== undefined)
+  if (expected.textSegments !== undefined && actual.textSegments === undefined)
+    throw new Error(`Text ranges on "${node.id}" are unavailable`)
+  return nativeValueEqual(actual, expected)
 }
 
 export function protectNode(state: ApplyState, node: BaseNode): void {
@@ -177,7 +307,7 @@ async function verifyRollbackProtectedNodes(state: ApplyState): Promise<void> {
   const changed = protectedEntries
     .filter(([, { snapshot: expected }], index) => {
       const node = nodes[index]
-      return expected && node && !nativeValueEqual(snapshotProtectedNode(node), expected)
+      return expected && node && !matchesProtectedNode(node, expected)
     })
     .map(([id]) => id)
   if (!changed.length) return
@@ -227,47 +357,54 @@ async function removeRollbackCreatedPages(
 }
 
 async function hasRollbackChange(state: ApplyState): Promise<boolean> {
-  try {
-    let changed = false
-    for (const id of state.createdPageIds) {
+  const checks: Array<() => unknown | Promise<unknown>> = [
+    ...[...state.createdPageIds].map((id) => () => {
       const page = pageById(id)
-      if (page && !page.removed) changed = true
-    }
-    for (const id of state.createdNodeIds) {
-      if (await lookupNodeById(id)) changed = true
-    }
-    const touched = new Set([...state.updatedNodeIds, ...state.removalNodeIds])
-    for (const id of touched) {
-      if (state.createdNodeIds.has(id) || state.createdPageIds.has(id)) continue
+      return page && !page.removed
+    }),
+    ...[...state.createdNodeIds].map((id) => () => lookupNodeById(id)),
+    ...createdResourceChecks(state).map((resource) => resource.exists),
+    ...[...new Set([...state.updatedNodeIds, ...state.removalNodeIds])].map((id) => async () => {
+      if (state.createdNodeIds.has(id) || state.createdPageIds.has(id)) return false
       const protectedNode = state.protectedNodes.get(id)
       if (!protectedNode?.snapshot) return false
-      if (protectedNode.node.removed) {
-        changed = true
-        continue
-      }
+      if (protectedNode.node.removed) return true
       const node = protectedNode.snapshot.type === 'PAGE' ? pageById(id) : await lookupNodeById(id)
-      if (!node) return false
-      if (!nativeValueEqual(snapshotProtectedNode(node), protectedNode.snapshot)) changed = true
+      return node && !matchesProtectedNode(node, protectedNode.snapshot)
+    })
+  ]
+  for (const check of checks) {
+    try {
+      if (await check()) return true
+    } catch {
+      // One unavailable read cannot invalidate independent retained-change evidence.
     }
-    return changed
-  } catch {
-    return false
   }
+  return false
 }
 
 export async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): Promise<T> {
   const previousPage = figma.currentPage
+  let resourceSnapshots: ReturnType<typeof snapshotDeclaredResources> = []
   let applyStarted = false
   try {
+    const mutableNodeIds = new Set(state.explicitNodes.keys())
     if (state.scope) {
-      for (const node of walkAuthoringNodes([state.scope])) protectNode(state, node)
+      for (const node of walkAuthoringNodes([state.scope])) {
+        mutableNodeIds.add(node.id)
+        protectNode(state, node)
+      }
       protectUnrelatedPageRoots(state, containingPage(state.scope))
     }
     // Preflight can yield for media/fonts while the user edits referenced nodes.
     // Freeze their baseline only when this attempt is about to start writing.
     for (const protectedNode of state.protectedNodes.values()) {
-      protectedNode.snapshot = snapshotProtectedNode(protectedNode.node)
+      protectedNode.snapshot = snapshotProtectedNode(
+        protectedNode.node,
+        mutableNodeIds.has(protectedNode.node.id)
+      )
     }
+    resourceSnapshots = snapshotDeclaredResources(state)
     state.undoStarted = true
     figma.commitUndo()
     applyStarted = true
@@ -290,7 +427,10 @@ export async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyS
         // Counted setters can be no-ops or cancel each other out. Undo would then
         // consume an earlier edit. Partial snapshots only justify an attempt when
         // they show a retained change; equality never certifies an unchanged canvas.
-        if (!(await hasRollbackChange(state))) {
+        if (
+          !(await hasRollbackChange(state)) &&
+          !(await hasResourceChange(resourceSnapshots, state))
+        ) {
           throw new Error(
             'A distinct change for this attempt could not be confirmed; Undo was skipped',
             { cause: error }
@@ -306,12 +446,13 @@ export async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyS
         await removeRollbackCreatedNodes(state)
         await removeRollbackCreatedPages(state, previousPage)
         await verifyRollbackProtectedNodes(state)
+        await verifyResourceRollback(resourceSnapshots, state)
       } catch (rollbackError) {
         const rollbackMessage = errorMessage(rollbackError)
         const detail = rollbackMessage ? ` ${rollbackMessage.replace(/\.$/, '')}.` : ''
         const failure = createCodedError(
           TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
-          `Canvas apply failed: ${diagnostic.replace(/\.$/, '')}; automatic rollback was not available.${detail} Stop writing and ask the user to inspect the canvas or use Figma Undo.`
+          `Canvas apply failed: ${diagnostic.replace(/\.$/, '')}; automatic rollback was not available.${detail} Read back the affected canvas before writing again. Inspect retained changes and repair only the affected scope; ask the user to inspect if the partial state is unclear. Do not use Undo without confirming which edit it would revert.`
         )
         failure.cause = error
         throw failure

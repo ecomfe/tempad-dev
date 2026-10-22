@@ -131,7 +131,7 @@ const CONNECTIVITY_TROUBLESHOOTING_LINES = [
 const MULTI_SELECTION_TROUBLESHOOTING_LINE =
   'Tip: Select one or more visible nodes, or pass nodeIds (nodeId for a single node).'
 const VERIFICATION_TROUBLESHOOTING_LINE =
-  'Tip: TemPad attempts to roll verification failures back. Check the reported rollback outcome and satisfy any readback requirement before retrying. Correct the desired-state mismatch while preserving unrelated design intent.'
+  'Tip: TemPad attempts to roll verification failures back. Check the reported rollback outcome and satisfy any readback requirement. Inspect the affected nodes and resources before choosing a bounded correction that preserves unrelated design intent. Do not repeat the failed write unchanged or use Undo without confirming which edit it would reverse.'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)

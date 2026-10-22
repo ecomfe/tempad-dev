@@ -85,14 +85,6 @@ vi.mock('@/mcp/assets', () => ({
   setAssetUploader: mocks.setAssetUploader
 }))
 
-vi.mock('@/mcp/errors', () => ({
-  createCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
-  coerceToolErrorPayload: (error: Error & { code?: string }) => ({
-    message: error.message,
-    code: error.code
-  })
-}))
-
 vi.mock('@/mcp/runtime', () => ({
   runMcpTool: mocks.runMcpTool
 }))
@@ -563,7 +555,10 @@ describe('composables/mcp', () => {
     expect(mocks.runMcpTool).not.toHaveBeenCalled()
     expect(getPostedMessage('mcp.toolResult')).toMatchObject({
       callId: 'stale-write',
-      error: { code: TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_INACTIVE }
+      error: {
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+        message: expect.stringContaining('DESIGN_TASK_INACTIVE')
+      }
     })
     update({ ...task, taskId: 'task-b', revision: 4 })
     mcp.dismissDesignTask('task-a')
@@ -703,7 +698,10 @@ describe('composables/mcp', () => {
       })
       expect(mocks.runMcpTool).not.toHaveBeenCalled()
       expect(getPostedMessage('mcp.toolResult')).toMatchObject({
-        error: { code: TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_INACTIVE }
+        error: {
+          code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+          message: expect.stringContaining('DESIGN_TASK_INACTIVE')
+        }
       })
     }
   )

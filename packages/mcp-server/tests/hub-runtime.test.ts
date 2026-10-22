@@ -727,7 +727,9 @@ describe('Hub runtime module', () => {
     send(4, 'apply_canvas', write)
     const blocked = await consumer.reply(4)
     expect(blocked.result?.isError).toBe(true)
-    expect(JSON.stringify(blocked)).toContain('Read the bound canvas')
+    expect(JSON.stringify(blocked)).toContain('The resumed task has not confirmed')
+    expect(JSON.stringify(blocked).match(/get_structure/g)).toHaveLength(2)
+    expect(JSON.stringify(blocked).match(/Canvas writes still require readback/g)).toHaveLength(1)
     expect(extension.calls).toHaveLength(2)
     for (const [index, outcome] of [
       { payload: { roots: [] } },
@@ -1247,9 +1249,10 @@ describe('Hub runtime module', () => {
     if (readRequired) {
       const blockedId = code === 'EXTENSION_DISCONNECTED' ? 3 : 2
       if (blockedId === 3) consumer.send({ id: blockedId, method: 'tools/call', params: write })
-      expect(JSON.stringify(await consumer.reply(blockedId))).toContain(
-        'previous write result was lost'
-      )
+      const blocked = JSON.stringify(await consumer.reply(blockedId))
+      expect(blocked).toContain('previous write did not confirm')
+      expect(blocked.match(/get_structure/g)).toHaveLength(2)
+      expect(blocked.match(/Canvas writes still require readback/g)).toHaveLength(1)
       consumer.send({
         id: 4,
         method: 'tools/call',
@@ -1363,7 +1366,7 @@ describe('Hub runtime module', () => {
         expect(JSON.stringify(await consumer.reply(1))).toContain('CANVAS_APPLY_FAILED')
         expect(snapshot().records).toContainEqual(readMarker)
         consumer.send({ id: 2, method: 'tools/call', params: write })
-        expect(JSON.stringify(await consumer.reply(2))).toContain('previous write result was lost')
+        expect(JSON.stringify(await consumer.reply(2))).toContain('previous write did not confirm')
         expect(extension.calls).toHaveLength(1)
       }
       await stopRuntime()
@@ -1376,7 +1379,7 @@ describe('Hub runtime module', () => {
       const replacement = connectExtension()
       const nextOwner = await connectConsumer()
       nextOwner.send({ id: 3, method: 'tools/call', params: write })
-      expect(JSON.stringify(await nextOwner.reply(3))).toContain('previous write result was lost')
+      expect(JSON.stringify(await nextOwner.reply(3))).toContain('previous write did not confirm')
       expect(replacement.calls).toHaveLength(0)
       nextOwner.send({
         id: 4,
@@ -1471,7 +1474,7 @@ describe('Hub runtime module', () => {
     expect(JSON.stringify(response)).toContain('Canvas writes still require readback')
     expect(Buffer.byteLength(JSON.stringify(response.result))).toBeLessThan(64 * 1024)
     consumer.send({ id: 3, method: 'tools/call', params: write })
-    expect(JSON.stringify(await consumer.reply(3))).toContain('previous write result was lost')
+    expect(JSON.stringify(await consumer.reply(3))).toContain('previous write did not confirm')
     expect(extension.calls).toHaveLength(2)
 
     // An exact empty page is valid evidence, unlike an empty selection.
@@ -1564,7 +1567,7 @@ describe('Hub runtime module', () => {
         expect(JSON.stringify(response)).toContain('do not replay the write')
       }
       consumer.send({ id: 2, method: 'tools/call', params: write })
-      expect(JSON.stringify(await consumer.reply(2))).toContain('previous write result was lost')
+      expect(JSON.stringify(await consumer.reply(2))).toContain('previous write did not confirm')
       expect(extension.calls).toHaveLength(1)
       consumer.send({
         id: 3,
@@ -1635,7 +1638,7 @@ describe('Hub runtime module', () => {
         await consumer.reply(10)
         const freshArgs = { taskId: fresh.taskId, taskEpoch: fresh.epoch }
         send(11, 'apply_canvas', { ...write, ...freshArgs })
-        expect(JSON.stringify(await consumer.reply(11))).toContain('previous write result was lost')
+        expect(JSON.stringify(await consumer.reply(11))).toContain('previous write did not confirm')
         expect(extension.calls).toHaveLength(3)
         send(12, 'get_structure', freshArgs)
         const read = await extension.call(3)
@@ -1652,7 +1655,9 @@ describe('Hub runtime module', () => {
         return
       }
       send(4, 'apply_canvas', write)
-      expect(JSON.stringify(await consumer.reply(4))).toContain('Read the bound canvas')
+      expect(JSON.stringify(await consumer.reply(4))).toContain(
+        'The resumed task has not confirmed'
+      )
       // The duplicate receipt must not clear a fresh read or re-arm needsRead.
       send(5, 'get_structure', args)
       const read = await extension.call(2)
@@ -1885,7 +1890,7 @@ describe('Hub runtime module', () => {
       `Received ${outcome === 'error' ? 'error' : 'result'} for unknown/timed-out call.`
     )
     consumer.send({ id: 3, method: 'tools/call', params: write })
-    expect(JSON.stringify(await consumer.reply(3))).toContain('previous write result was lost')
+    expect(JSON.stringify(await consumer.reply(3))).toContain('previous write did not confirm')
     expect(extension.calls).toHaveLength(1)
     consumer.send({
       id: 4,

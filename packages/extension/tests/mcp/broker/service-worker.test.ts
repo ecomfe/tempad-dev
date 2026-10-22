@@ -714,7 +714,10 @@ describe('design task broker routing', () => {
     expect(f.client.sendToolResult).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'late-write',
-        error: expect.objectContaining({ code: 'DESIGN_TARGET_CHANGED' })
+        error: expect.objectContaining({
+          code: 'CANVAS_APPLY_ABORTED',
+          message: expect.stringContaining('DESIGN_TARGET_CHANGED')
+        })
       })
     )
     expect(f.b.postMessage).not.toHaveBeenCalled()

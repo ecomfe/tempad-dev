@@ -8,7 +8,7 @@ import { ApplyCanvasParametersSchema, TEMPAD_MCP_ERROR_CODES } from '@tempad-dev
 
 import type { DesignSystemCatalog } from '../design-system-catalog'
 
-import { createCodedError } from '../../errors'
+import { canvasAbortedError, coerceToolErrorPayload, createCodedError } from '../../errors'
 import { errorMessage, formatSchemaError, specError } from './errors'
 import { parseCanvasMarkup } from './markup'
 import { collectUpdateNodeTypeHints, reconcileCanvas } from './reconcile'
@@ -46,55 +46,67 @@ export async function applyResolvedCanvas(
 ): Promise<ApplyCanvasResult> {
   applyInProgress = true
   try {
-    let preparedTheme
+    let parsedInput
     try {
-      preparedTheme = await prepareCanvasTheme(input, catalog)
-    } catch (error) {
-      if (error instanceof Error && 'code' in error) throw error
-      throw createCodedError(
-        TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
-        errorMessage(error, 'Canvas theme could not be prepared.')
-      )
-    }
-    const existingNodeTypes =
-      input.mode === 'update' && input.markup !== undefined
-        ? await collectUpdateNodeTypeHints(input.targetNodeId!)
-        : undefined
-    const parsedInput = parseSpec(() => {
-      if (input.mode === 'remove' && input.targetNodeId) {
-        return { mode: 'remove' as const, targetNodeId: input.targetNodeId, root: null }
-      }
-      if (input.markup === undefined) {
-        if (input.mode === 'update' && input.targetNodeId) {
+      const preparedTheme = await prepareCanvasTheme(input, catalog)
+      const existingNodeTypes =
+        input.mode === 'update' && input.markup !== undefined
+          ? await collectUpdateNodeTypeHints(input.targetNodeId!)
+          : undefined
+      parsedInput = parseSpec(() => {
+        if (input.mode === 'remove' && input.targetNodeId) {
+          return { mode: 'remove' as const, targetNodeId: input.targetNodeId, root: null }
+        }
+        if (input.markup === undefined) {
+          if (input.mode === 'update' && input.targetNodeId) {
+            return {
+              mode: 'update' as const,
+              targetNodeId: input.targetNodeId,
+              bindings: input.bindings!,
+              ...(input.assets === undefined ? {} : { assets: input.assets }),
+              ...(input.styles === undefined ? {} : { styles: input.styles }),
+              ...(input.variableCollections === undefined
+                ? {}
+                : { variableCollections: input.variableCollections })
+            }
+          }
+          if (!input.page) throw new Error('A page identity is required for this operation.')
           return {
-            mode: 'update' as const,
-            targetNodeId: input.targetNodeId,
-            bindings: input.bindings!,
-            ...(input.assets === undefined ? {} : { assets: input.assets }),
-            ...(input.styles === undefined ? {} : { styles: input.styles }),
-            ...(input.variableCollections === undefined
-              ? {}
-              : { variableCollections: input.variableCollections })
+            mode: input.mode,
+            page: input.page,
+            ...(input.selection === undefined ? {} : { selection: input.selection })
           }
         }
-        if (!input.page) throw new Error('A page identity is required for this operation.')
-        return {
-          mode: input.mode,
-          page: input.page,
-          ...(input.selection === undefined ? {} : { selection: input.selection })
-        }
-      }
-      return parseCanvasMarkup(input, catalog, existingNodeTypes, preparedTheme)
-    }, 'Canvas markup is invalid.')
-    return await reconcileCanvas(parsedInput)
-  } catch (error) {
-    if (error instanceof Error && 'code' in error) throw error
-    // Native canvas writes run inside withUndoBoundary; an untyped error here
-    // comes from preparation. Failures after writing starts already carry a code.
-    throw createCodedError(
-      TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
-      errorMessage(error, 'Canvas apply failed.')
-    )
+        return parseCanvasMarkup(input, catalog, existingNodeTypes, preparedTheme)
+      }, 'Canvas markup is invalid.')
+    } catch (error) {
+      // Theme hydration and markup parsing only read existing local resources.
+      throw canvasAbortedError(error)
+    }
+    try {
+      return await reconcileCanvas(parsedInput)
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        error.code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED
+      )
+        throw error
+      // Resource preflight can import library resources before the Undo boundary.
+      // Even a later aborted preparation step cannot prove that nothing changed.
+      const payload = coerceToolErrorPayload(error)
+      const diagnostic =
+        payload.code && payload.code !== TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED
+          ? ` [${payload.code}]`
+          : ''
+      throw Object.assign(
+        createCodedError(
+          TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+          `${payload.message}${diagnostic}`
+        ),
+        { cause: error }
+      )
+    }
   } finally {
     applyInProgress = false
   }
@@ -103,9 +115,14 @@ export async function applyResolvedCanvas(
 export async function handleApplyCanvas(
   args?: ApplyCanvasParametersInput
 ): Promise<ApplyCanvasResult> {
-  assertCanvasAvailable()
-  const parsed = ApplyCanvasParametersSchema.safeParse(args)
-  if (!parsed.success) specError(formatSchemaError(parsed.error))
-  const resolved = parseSpec(() => resolveCanvasInput(parsed.data))
+  let resolved: ReturnType<typeof resolveCanvasInput>
+  try {
+    assertCanvasAvailable()
+    const parsed = ApplyCanvasParametersSchema.safeParse(args)
+    if (!parsed.success) specError(formatSchemaError(parsed.error))
+    resolved = parseSpec(() => resolveCanvasInput(parsed.data))
+  } catch (error) {
+    throw canvasAbortedError(error)
+  }
   return applyResolvedCanvas(resolved.input, resolved.catalog)
 }

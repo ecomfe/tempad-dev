@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createCodedError } from '@/mcp/errors'
-import { handleApplyCanvas } from '@/mcp/tools/canvas'
+import { applyResolvedCanvas, handleApplyCanvas } from '@/mcp/tools/canvas'
 import { parseCanvasHtml } from '@/mcp/tools/canvas/html'
 import { parseCanvasMarkup } from '@/mcp/tools/canvas/markup'
 
@@ -95,13 +95,14 @@ describe('canvas input diagnostics', () => {
   ])('classifies malformed HTML as input failure: %s', async (markup) => {
     const fixture = createFixture()
     await expect(handleApplyCanvas({ mode: 'create', markup })).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      message: expect.stringContaining('INVALID_CANVAS_SPEC')
     })
     expect(fixture.commitUndo).not.toHaveBeenCalled()
   })
 
   it.each(['uncoded', 'coded'] as const)(
-    'preserves %s live theme-read failures as execution failures',
+    'marks %s local theme-read failures as aborted preparation',
     async (kind) => {
       const fixture = createFixture()
       const failure =
@@ -116,11 +117,9 @@ describe('canvas input diagnostics', () => {
           theme: { variables: { '--width': { variableKey: 'width' } } }
         })
       ).rejects.toMatchObject({
-        code:
-          kind === 'coded'
-            ? TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE
-            : TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
-        message: failure.message
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+        message: expect.stringContaining(failure.message),
+        cause: failure
       })
       expect(fixture.commitUndo).not.toHaveBeenCalled()
     }
@@ -142,6 +141,75 @@ describe('canvas input diagnostics', () => {
         }
       })
     ).toThrow('"font-(--weight)"')
+  })
+
+  it('keeps a failed library import uncertain even before the Undo boundary', async () => {
+    const fixture = createFixture()
+    vi.mocked(figma.variables.importVariableByKeyAsync).mockRejectedValueOnce(
+      new Error('Library import interrupted')
+    )
+    await expect(
+      applyResolvedCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-20 h-20"/>',
+        bindings: { root: { variables: { width: { key: 'library-width' } } } }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      message: 'Library import interrupted'
+    })
+    expect(figma.variables.importVariableByKeyAsync).toHaveBeenCalledWith('library-width')
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+  })
+
+  it('keeps a coded validation failure uncertain after importing a library component', async () => {
+    const fixture = createFixture()
+    await expect(
+      applyResolvedCanvas({
+        mode: 'create',
+        markup:
+          '<div data-key="root" class="flex w-80 h-40"><div data-key="action" class="w-20 h-10"/></div>',
+        bindings: {
+          action: {
+            component: { key: 'component-key' },
+            componentProperties: { Missing: 'value' }
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      message: expect.stringContaining('INVALID_CANVAS_SPEC'),
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+    })
+    expect(fixture.importComponentByKeyAsync).toHaveBeenCalledWith('component-key')
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+  })
+
+  it('does not let a later aborted download erase earlier library-import uncertainty', async () => {
+    const fixture = createFixture()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 403 })))
+    await expect(
+      applyResolvedCanvas({
+        mode: 'create',
+        markup:
+          '<div data-key="root" class="flex w-80 h-40"><div data-key="action" class="w-20 h-10"/></div>',
+        bindings: {
+          action: { component: { key: 'component-key' } },
+          root: {
+            figma: {
+              fills: [
+                { type: 'VIDEO', videoUrl: 'https://example.com/movie.mp4', scaleMode: 'FILL' }
+              ]
+            }
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      message: expect.stringContaining('Video download failed')
+    })
+    expect(fixture.importComponentByKeyAsync).toHaveBeenCalledWith('component-key')
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
   })
 
   it('does not warn about native-only preservation values the caller never supplied', async () => {

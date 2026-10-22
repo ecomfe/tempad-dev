@@ -43,11 +43,15 @@ export type CanvasVariableState = {
   collectionCache: Map<string, VariableCollection>
   collectionsByKey: Map<string, VariableCollection>
   collectionRemovals: VariableCollection[]
+  createdCollectionIds: Set<string>
+  createdVariableIds: Set<string>
   createdVariableKeys: Set<string>
   localIndex?: Promise<void>
   loadedRemovalPages: Set<PageNode>
   modeIdsByCollection: Map<string, Map<string, string>>
   modeRemovals: ModeRemoval[]
+  removedCollectionIds: Set<string>
+  removedVariableIds: Set<string>
   variableCache: Map<string, Variable>
   variableRemovals: Variable[]
   variablesByKey: Map<string, Variable>
@@ -80,10 +84,14 @@ export function createVariableState(): CanvasVariableState {
     collectionCache: new Map(),
     collectionsByKey: new Map(),
     collectionRemovals: [],
+    createdCollectionIds: new Set(),
+    createdVariableIds: new Set(),
     createdVariableKeys: new Set(),
     loadedRemovalPages: new Set(),
     modeIdsByCollection: new Map(),
     modeRemovals: [],
+    removedCollectionIds: new Set(),
+    removedVariableIds: new Set(),
     variableCache: new Map(),
     variableRemovals: [],
     variablesByKey: new Map()
@@ -361,6 +369,7 @@ async function selectCollection(
       collection = figma.variables.createVariableCollection(spec.name)
     }
     mutations.count += 1
+    state.createdCollectionIds.add(collection.id)
   }
   if (collection.remote) {
     specError(`Variable collection "${collection.id}" is not an editable local collection.`)
@@ -609,6 +618,7 @@ async function selectVariable(
     validateRequiredModeValues(collection, key, values, removedModeIds)
     variable = figma.variables.createVariable(spec.name, collection, spec.type)
     mutations.count += 1
+    state.createdVariableIds.add(variable.id)
   }
   validateVariableCollection(variable, collection, key, state)
   claimAuthoringKey(variable, key, CANVAS_VARIABLE_KEY_NAME, 'Resource', mutations)
@@ -918,7 +928,8 @@ export async function preflightVariableDeclarations(
     }
     for (const [variableKey, variable] of Object.entries(spec.variables ?? {})) {
       if (!variable) {
-        if (collection) variableForRemoval(collection, variableKey, state)
+        if (collection)
+          variables.set(variableKey, variableForRemoval(collection, variableKey, state))
         continue
       }
       if (types.has(variableKey))
@@ -940,6 +951,9 @@ export async function preflightVariableDeclarations(
   }
   state.selectedCollections = collections
   state.selectedVariables = variables
+  for (const [key, spec] of Object.entries(specs)) {
+    if (spec === null) collections.set(key, state.collectionsByKey.get(key))
+  }
   const changedModeCollections = new Set<string>()
   for (const [key, spec] of Object.entries(specs)) {
     const collection = collections.get(key)
@@ -1392,7 +1406,9 @@ export async function removeVariableResources(
     mutations.count += 1 + updateModeKeys(collection, modeId, state)
   }
   for (const variable of state.variableRemovals) {
+    const id = variable.id
     variable.remove()
+    state.removedVariableIds.add(id)
     mutations.count += 1
   }
   const collectionsById = new Map(collections.map((collection) => [collection.id, collection]))
@@ -1401,7 +1417,9 @@ export async function removeVariableResources(
       collectionDepth(right, collectionsById) - collectionDepth(left, collectionsById)
   )
   for (const collection of collectionRemovals) {
+    const id = collection.id
     collection.remove()
+    state.removedCollectionIds.add(id)
     mutations.count += 1
   }
 }
