@@ -627,7 +627,7 @@ subject to stronger constraints:
 1. correct native result;
 2. scope and ownership safety;
 3. dependency-safe ordering;
-4. one Undo boundary and rollback on failure;
+4. one Undo boundary and guarded rollback on failure;
 5. no-op convergence;
 6. only then, fewer Plugin API calls.
 
@@ -670,7 +670,7 @@ The local deterministic pipeline is:
 9. apply late references and stabilize deterministic geometry after derived-layout setters;
 10. remove explicitly absent owned state;
 11. verify the live result;
-12. commit one Undo boundary, or undo the whole attempt on failure.
+12. commit one Undo boundary, or attempt rollback when retained changes justify Undo.
 
 Preflight is staged: identity, vector paths, known text-range bounds, incompatible local or same-call
 variable types in nodes, styles, paints, effects, grids, and component property definitions, missing
@@ -715,6 +715,23 @@ the link on every call. Pure style references still require the native style ide
 semantic overrides are detected before mutation; those ranges and variable-weight compositions
 retain their existing application path until their interaction with explicit typography has
 native acceptance.
+Numeric character metrics (font size, line height, and letter spacing) can extend to the immediately
+following `\n` in Figma's native setter. Reconciliation distinguishes that physical write extent
+from the range's final ownership when a later declared range starts at the newline. An unchanged
+range does not repair a later owner's newline. A necessary write that would damage a retained
+TextStyle without a proven safe restoration is rejected with the conflicting range and style.
+U+2028 and CRLF setter extension is not inferred from the observed `\n` behavior.
+
+Paragraph indent, paragraph spacing, and list spacing use paragraph-wide comparison scopes but
+literal setters target each affected paragraph's content, excluding its terminal newline to avoid
+changing the next paragraph. Native spill was confirmed for indent and paragraph spacing;
+list spacing uses the same conservative bounds without assuming identical native behavior.
+Explicit variable null is read back. If native paragraph unlinking
+retains an alias, a content-only literal fallback preserves the current value and must verify
+that the alias disappeared. Empty paragraphs without a safe setter/fallback reject required
+changes rather than silently skipping them or writing into another paragraph. Identical supported
+requests still converge without writes. These checks do not imply support for conflicting values
+assigned to the same native paragraph.
 Mode changes prepare fonts only for affected typography, text-content, or size bindings, including
 aliases and extended collections. Unbound text and descendant mode overrides do not require unrelated
 fonts to load. Affected text metrics still require the current fonts even without a font-family binding.
@@ -774,25 +791,33 @@ Figma may normalize Text auto-resize while truncation and maximum-line state cha
 therefore applies truncation state before the declared auto-resize mode, so fixed text boxes remain
 fixed while still supporting native ending truncation.
 
-After a failed mutation, reconciliation attempts Undo only when a created node/page still exists or
-a touched pre-existing node has an observable retained change. Counted setters alone do not establish
+After a failed mutation, reconciliation attempts Undo only when a created node, page, or resource
+still exists, a known resource was removed, or a touched pre-existing node/resource has an observable
+retained change. Resource IDs are recorded immediately after creation, before ownership claims or
+later preparation can fail. Counted setters alone do not establish
 a history entry: no-op setters and changes that cancel each other out can otherwise make Undo consume
 the preceding successful apply. Unrelated protected roots do not justify Undo. Unreadable state or no
-observable change skips automatic Undo and retains the uncertain-failure readback requirement;
-partial snapshots cannot certify that uncaptured fields or resources stayed unchanged. When a change
+observable change skips automatic Undo and retains the uncertain-failure readback requirement.
+An unavailable read does not negate independent confirmed changes. Partial snapshots cannot certify
+that uncaptured state stayed unchanged. When a change
 is observed, reconciliation commits the partial attempt before triggering Undo. This is a conservative
 guard, not a guarantee of isolation from concurrent edits. Rollback verifies that the update root remains
 resolvable. Exact pre-existing node/component references and unrelated top-level roots on the result
 page also retain their type, parent, canvas key, geometry, direct child identities, and common
-content fields (including paints, effects, and whole-node text content/style), local transforms,
-clipping, supported layout settings, and size constraints. These content snapshots copy native values
+content fields (including paints, effects, binding identities, stroke/corner geometry, component
+properties, and text metrics), local transforms, clipping, supported layout settings, and size
+constraints. Mutable text nodes also snapshot native styled segments; unrelated text references do
+not require a full range read. Selected existing local resources snapshot their authored fields,
+and rollback checks that newly created resources no longer exist. These snapshots copy native values
 so in-place changes cannot mutate the expected state. Existing pages also retain their name,
 background, guides, explicit variable modes, authoring key, page order, and direct child identities.
 Page-only updates snapshot unrelated roots after font preloading, so edits made during preparation
 are not mistaken for rollback corruption.
 Losing or changing one is reported as rollback failure instead of masking partial corruption with the original validation
 error. This detects selected rollback corruption; it does not prove restoration of every native field,
-mixed text run, resource, unrelated descendant, or concurrent user edit.
+unreadable text range, imported library resource, unrelated descendant, or concurrent user edit.
+If Undo is skipped or restoration is unconfirmed, inspect affected canvas and resource state before
+repairing. Do not advise manual Undo without confirming which history entry it would revert.
 
 The result budget is checked inside this rollback boundary, reserving 2 KiB of the shared 64 KiB
 limit for runtime evidence. The Hub checks that evidence against the reservation before dispatch

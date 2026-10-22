@@ -173,8 +173,12 @@ fence but does not clear this read requirement, which survives Stop and beginnin
 A completed write whose result cannot be formatted or fit the inline budget also requires readback.
 `EXTENSION_RESULT_LOST` also covers page-to-extension result transfer failure after execution.
 `CANVAS_APPLY_FAILED` remains an uncertain outcome, including failures from older extensions.
-Current extensions return `CANVAS_APPLY_ABORTED` only for preparation failures before writing;
-those do not require a file readback. Undo-boundary failures retain the requirement even if the
+Current extensions return `CANVAS_APPLY_ABORTED` only at gates that prove authoring execution has
+not started, including broker/page rejection, editor availability, schema/theme validation, and
+markup parsing. The diagnostic retains the original error code. These failures do not require a
+file readback. Reconciliation preflight can import library resources before the Undo boundary,
+so its failures return `CANVAS_APPLY_FAILED` even when the original cause is a validation error.
+Undo-boundary failures retain the requirement even if the
 protected snapshots match: those checks do not prove that every native resource field or
 concurrent user edit was restored. Uncoded or unknown error codes from dispatched writes also
 retain readback, including result-transfer failures from older peers. Only the positive

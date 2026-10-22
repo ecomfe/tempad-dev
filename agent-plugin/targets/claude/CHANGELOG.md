@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.6
+
+- Clarified safe recovery after failed edits and native text binding limits.
+
 ## 0.5.5
 
 - Clarified recovery after uncertain canvas writes and browser compatibility for token-based CSS.

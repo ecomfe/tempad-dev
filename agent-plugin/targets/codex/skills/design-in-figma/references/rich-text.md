@@ -38,6 +38,22 @@ Use `{ "ref": "s1" }` for a catalog range style and `{ "ref": "v1" }` for a
 range variable. `null` unlinks supported styles or hyperlinks; omission
 preserves.
 
+Numeric font size, line height, and letter spacing can also affect a `\n`
+immediately after a range. Give adjacent ranges explicit, consistent ownership.
+If an error identifies a retained Text style at that boundary, keep the earlier
+range unchanged or explicitly replace the affected style only when that is the
+intended design; expanding a range can overwrite the next range's formatting.
+Do not retry an unchanged request that reports this native limitation.
+
+Variable `null` is verified after application. Paragraph indent and spacing apply
+to the affected paragraphs, even when the requested range covers only part of
+their text. Figma may retain a paragraph alias after unlinking; TemPad tries to
+preserve its current literal value without changing the next paragraph. If no
+safe fallback exists, including on an empty paragraph, it reports failure rather
+than claiming the binding was cleared. Follow the returned readback requirement
+and inspect affected text and resources before another write. Then preserve the
+binding or explicitly replace the affected paragraph as the intended design requires.
+
 Hyperlinks support URLs and node targets. For a same-result target:
 
 ```json

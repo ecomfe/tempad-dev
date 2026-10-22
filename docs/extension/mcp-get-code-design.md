@@ -39,7 +39,8 @@ starting uploads, fallback exports, or the next fill; their fallback handlers pr
 Optional Tile dimensions share one second of dimension-wait time across each node's image fills;
 required byte reads and uploads do not consume that budget. Each shared dimension read has its
 own one-second timeout. A shorter node wait does not cache a premature failure for later roots
-or shell retries. Stalled reads retain native CSS dimensions.
+or shell retries. An exhausted node wait budget still reuses settled cache entries without waiting
+for pending ones or starting new dimension reads. Stalled reads retain native CSS dimensions.
 An incomplete tree fails without a shell; a completed tree can use the
 fallback even when its last getter exhausts the full-generation budget. Checkpoints cannot interrupt
 a single native getter or cancel in-flight Figma API calls. Actual leaf and vector roots retain their full-only

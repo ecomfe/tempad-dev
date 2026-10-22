@@ -7,6 +7,7 @@
 - Fixed canvas updates involving components, grids, fonts, and variable modes. Invalid resource
   changes are rejected earlier, with clearer errors when failed edits cannot be fully restored.
 - Fixed updates to mixed text styles and partially bound paragraphs, avoiding unnecessary text changes.
+- Improved rollback of failed canvas edits and clarified when text variables cannot be safely removed.
 - Improved responsiveness when reading large designs and exporting screenshots.
 - Preserved completed code exports at the time limit and reduced unnecessary code-panel refreshes.
 - Fixed blank images with the extension enabled and improved Figma script loading and recovery.
@@ -23,7 +24,7 @@
 - Added Refresh links and documentation links for component sets.
 - Preserved native HTML, SVG, and accessibility attributes in Vue exports.
 - Preserved literal text, token names, paragraph spacing and indentation, soft line breaks, trailing
-  empty paragraphs, and list nesting in code exports.
+  empty and whitespace-only paragraphs, and list nesting in code exports.
 - Added browser-compatibility warnings for token-based font weight and opacity.
 - Restored selection and measurement tools after switching windows with keys held.
 - Fixed text entity decoding after literal ampersands and reported unsupported names without
