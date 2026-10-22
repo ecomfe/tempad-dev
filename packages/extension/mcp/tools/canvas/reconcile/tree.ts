@@ -263,14 +263,18 @@ async function applyNodePropertiesUnchecked(
   }
   applyEffects(node, spec, state)
   if (node.type === 'TEXT') {
+    const previousCharacters = node.characters
     await applyText(node, spec, state)
+    // Replacement can discard mixed fill styles as well as typography aliases.
+    // Re-evaluate the literal paint against the resulting text's ownership.
+    if (node.characters !== previousCharacters) applyAppearance(node, spec, state)
     // Character replacement can discard old aliases. Inspect the remaining
     // ownership before this request adds new node or range bindings.
     state.ignoredLiteralWarnings.push(...ignoredLiteralWarnings(node, spec, nativeOnly))
   }
   await applyVariables(node, spec.variables, state, spec.figma?.text?.ranges)
   if (node.type === 'TEXT' && !hasDeferredTextRanges(spec)) {
-    await applyTextRanges(node, spec.figma?.text?.ranges, state)
+    await applyTextRanges(node, spec.figma?.text?.ranges, state, spec.variables)
   }
   applySharedLayerState(node, spec, state)
   applyComponentPropertyReferences(node, spec, state)
@@ -303,7 +307,7 @@ export async function applyCanvasKeyReferences(
       applyTextHyperlink(node, spec.figma.text.hyperlink, state, spec.figma.text.ranges)
     }
     if (hasDeferredTextRanges(spec)) {
-      await applyTextRanges(node, spec.figma?.text?.ranges, state)
+      await applyTextRanges(node, spec.figma?.text?.ranges, state, spec.variables)
     }
   }
   stabilizeCrossAxisFill(node, spec, parent, state)

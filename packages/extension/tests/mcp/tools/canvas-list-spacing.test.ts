@@ -33,7 +33,9 @@ async function createListProbe(initialValues = [8, 12], characters = 'First\nSec
     const values = affected(start, end).map((paragraph) => paragraph.value)
     return values.every((value) => value === values[0]) ? values[0]! : figma.mixed
   }
+  let applyingStyle = false
   const write = vi.fn((start: number, end: number, value: number) => {
+    if (!applyingStyle && characters[end - 1] === '\n' && end < characters.length) end++
     for (const paragraph of affected(start, end)) paragraph.value = Math.fround(value)
   })
   const writeBase = vi.fn((value: number) => {
@@ -48,8 +50,13 @@ async function createListProbe(initialValues = [8, 12], characters = 'First\nSec
   node.setRangeListSpacing = write
   const applyStyle = node.setRangeTextStyleIdAsync.bind(node)
   node.setRangeTextStyleIdAsync = vi.fn(async (start, end, id) => {
-    await applyStyle(start, end, id)
-    if (id) write(start, end, (fixture.styles.get(id) as TextStyle).listSpacing)
+    applyingStyle = true
+    try {
+      await applyStyle(start, end, id)
+      if (id) write(start, end, (fixture.styles.get(id) as TextStyle).listSpacing)
+    } finally {
+      applyingStyle = false
+    }
   })
 
   return {
@@ -72,7 +79,7 @@ async function createListProbe(initialValues = [8, 12], characters = 'First\nSec
 describe('native list spacing reconciliation', () => {
   it('replaces existing range values when only base spacing is authored', async () => {
     const probe = await createListProbe()
-    expect((await probe.update(4)).mutationCount).toBe(1)
+    expect((await probe.update(4)).mutationCount).toBe(2)
     expect(probe.values()).toEqual([4, 4])
     expect(probe.writeBase).not.toHaveBeenCalled()
     await expect(probe.update(4)).resolves.toMatchObject({ mutationCount: 0 })
@@ -150,7 +157,7 @@ describe('native list spacing reconciliation', () => {
     await expect(probe.update()).resolves.toMatchObject({ mutationCount: 0 })
     expect(probe.values()).toEqual([8, 4])
 
-    expect((await probe.update(4)).mutationCount).toBe(1)
+    expect((await probe.update(4)).mutationCount).toBe(2)
     expect(probe.values()).toEqual([4, 4])
     await expect(probe.update(4)).resolves.toMatchObject({ mutationCount: 0 })
   })
@@ -164,8 +171,10 @@ describe('native list spacing reconciliation', () => {
     await expect(probe.update(4, ranges)).resolves.toMatchObject({ mutationCount: 0 })
     expect(probe.write).not.toHaveBeenCalled()
 
-    await probe.update(4, [{ start: 0, end: 1, textStyle: null }])
-    expect(probe.values()).toEqual([4, 4])
+    await expect(probe.update(4, [{ start: 0, end: 1, textStyle: null }])).rejects.toThrow(
+      'empty paragraph 0:1'
+    )
+    expect(probe.values()).toEqual([6, 4])
   })
 
   it('converges a composed style whose final paragraph has a later spacing override', async () => {
@@ -200,5 +209,14 @@ describe('native list spacing reconciliation', () => {
     expect(probe.writeBase).toHaveBeenCalledExactlyOnceWith(8)
     expect(probe.write).not.toHaveBeenCalled()
     await expect(probe.update(8)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('does not extend an authored paragraph literal past its terminating newline', async () => {
+    const probe = await createListProbe([8, 18, 28], 'A\nB\nC')
+    const ranges = [{ start: 2, end: 4, listSpacing: 12 }]
+    await probe.update(undefined, ranges)
+    expect(probe.values()).toEqual([8, 12, 28])
+    expect(probe.write).toHaveBeenCalledExactlyOnceWith(2, 3, 12)
+    await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
   })
 })

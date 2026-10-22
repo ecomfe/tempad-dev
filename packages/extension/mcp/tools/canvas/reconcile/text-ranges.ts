@@ -1,8 +1,43 @@
+import type { CanvasFigmaTextRange } from '@tempad-dev/shared'
+
 export type TextRange = { start: number; end: number }
+export type TextMetricField = 'fontSize' | 'lineHeight' | 'letterSpacing'
 
 export function textRangeWithTrailingNewline(characters: string, range: TextRange): TextRange {
   // Native character metrics also apply to an immediately following paragraph break.
   return characters[range.end] === '\n' ? { start: range.start, end: range.end + 1 } : range
+}
+
+export function textMetricRange(
+  characters: string,
+  range: TextRange,
+  field: TextMetricField,
+  next?: CanvasFigmaTextRange
+): TextRange {
+  // Native setter extent does not give an earlier declaration ownership over a
+  // later range's newline. Compare only the field's final owner.
+  if (
+    next?.start === range.end &&
+    (next.textStyle || next[field] !== undefined || next.variables?.[field] !== undefined)
+  )
+    return range
+  return textRangeWithTrailingNewline(characters, range)
+}
+
+export function* textParagraphContents(
+  characters: string,
+  range: TextRange
+): Generator<{ span: TextRange; content: TextRange }> {
+  let start = range.start
+  while (start < range.end) {
+    const newline = characters.indexOf('\n', start)
+    const end = Math.min(range.end, newline === -1 ? characters.length : newline + 1)
+    yield {
+      span: { start, end },
+      content: { start, end: characters[end - 1] === '\n' ? end - 1 : end }
+    }
+    start = end
+  }
 }
 
 export function textParagraphRange(characters: string, range: TextRange): TextRange {

@@ -1182,7 +1182,10 @@ export function createFixture({
       const rangeGetter = <T>(field: string, fallback: () => T) =>
         vi.fn((start: number, end: number) => rangeValue(start, end, field, fallback()))
       const rangeSetter = <T>(field: string) =>
-        vi.fn((start: number, end: number, value: T) => setRangeValue(start, end, field, value))
+        vi.fn((start: number, end: number, value: T) => {
+          if (isCharacterMetric(field) && !applyingTextStyle && characters[end] === '\n') end++
+          setRangeValue(start, end, field, value)
+        })
       const bindNode = vi.mocked(text.setBoundVariable).getMockImplementation()!
       Object.assign(node, {
         setBoundVariable: vi.fn((field: string, variable: Variable | null) => {

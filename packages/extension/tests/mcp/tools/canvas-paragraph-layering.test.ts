@@ -81,6 +81,9 @@ async function createParagraphProbe(
       : figma.mixed
   }
   const write = vi.fn((start: number, end: number, value: number) => {
+    // Captured native behavior: including the terminating newline in a literal
+    // setter also changes the following paragraph. Binding setters differ.
+    if (characters[end - 1] === '\n' && end < characters.length) end++
     for (const paragraph of affected(start, end)) {
       paragraph.value = value
       paragraph.alias = undefined
@@ -197,6 +200,49 @@ function mockRetainedParagraphNull(probe: Awaited<ReturnType<typeof createParagr
 }
 
 describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (field) => {
+  it.each([false, true])(
+    'does not cross the authored paragraph end: node binding=%s',
+    async (nodeBinding) => {
+      const probe = await createParagraphProbe(field, [0, 0, 0], 'A\nB\nC')
+      const base = nodeBinding ? { [field]: { id: 'variable:spacing' } } : undefined
+      if (!nodeBinding)
+        await probe.update(undefined, [
+          { start: 4, end: 5, variables: { [field]: { id: 'variable:range-size' } } }
+        ])
+      const ranges = [{ start: 2, end: 4, [field]: 12 }]
+      await probe.update(undefined, ranges, base)
+      expect(probe.values()).toEqual(nodeBinding ? [8, 12, 8] : [0, 12, 18])
+      expect(probe.aliases()).toEqual(
+        nodeBinding
+          ? ['variable:spacing', undefined, 'variable:spacing']
+          : [undefined, undefined, 'variable:range-size']
+      )
+      await expect(probe.update(undefined, ranges, base)).resolves.toMatchObject({
+        mutationCount: 0
+      })
+    }
+  )
+
+  it('does not clear a retained middle-paragraph binding when updating surrounding base values', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0], 'A\nB\nC')
+    await probe.update(undefined, [
+      { start: 2, end: 3, variables: { [field]: { id: 'variable:range-size' } } }
+    ])
+    await probe.update(20)
+    expect(probe.values()).toEqual([20, 18, 20])
+    expect(probe.aliases()).toEqual([undefined, 'variable:range-size', undefined])
+    await expect(probe.update(20)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('rejects a changed empty paragraph before writing into its neighbor', async () => {
+    const probe = await createParagraphProbe(field, [8, 8, 18], 'A\n\nC')
+    probe.write.mockClear()
+    await expect(probe.update(undefined, [{ start: 2, end: 3, [field]: 12 }])).rejects.toThrow(
+      'empty paragraph 2:3'
+    )
+    expect(probe.values()).toEqual([8, 8, 18])
+    expect(probe.write).not.toHaveBeenCalled()
+  })
   it.each([
     { start: 0, end: 17, aliases: [undefined, undefined, undefined] },
     { start: 7, end: 8, aliases: ['variable:spacing', undefined, 'variable:spacing'] }
@@ -243,7 +289,7 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
     probe.write.mockClear()
     await expect(
       probe.update(undefined, [{ start: 2, end: 3, variables: { [field]: null } }])
-    ).rejects.toThrow(`range variable link "${field}" was not cleared`)
+    ).rejects.toThrow(`Cannot clear range 2:3 variable "${field}"`)
     expect(probe.values()).toEqual([8, 8, 8])
     expect(probe.aliases()).toEqual(Array(3).fill('variable:spacing'))
     expect(probe.write).not.toHaveBeenCalled()
@@ -256,7 +302,7 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
     probe.write.mockImplementation(() => {})
     await expect(
       probe.update(undefined, [{ start: 7, end: 8, variables: { [field]: null } }])
-    ).rejects.toThrow(`range variable link "${field}" was not cleared`)
+    ).rejects.toThrow(`Cannot clear range 6:12 variable "${field}"`)
   })
 
   it('keeps a later style-owned paragraph intact during the null fallback', async () => {
@@ -546,7 +592,7 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
       expect(probe.values()).toEqual([12, 12, 8])
 
       const changed = await probe.update(16, redeclare ? ranges : undefined)
-      expect(changed.mutationCount).toBe(1)
+      expect(changed.mutationCount).toBe(2)
       expect(probe.values()).toEqual([16, 16, 8])
       expect(probe.aliases()).toEqual([undefined, undefined, 'variable:spacing'])
       expect(changed.verification.warnings).not.toEqual(
@@ -572,7 +618,7 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
 
   it('replaces prior paragraph values when only the base field is authored', async () => {
     const probe = await createParagraphProbe(field, [20, 30], 'Hello\nworld')
-    expect((await probe.update(12)).mutationCount).toBe(1)
+    expect((await probe.update(12)).mutationCount).toBe(2)
     expect(probe.values()).toEqual([12, 12])
     expect(probe.writeBase).not.toHaveBeenCalled()
     await expect(probe.update(12)).resolves.toMatchObject({ mutationCount: 0 })
@@ -666,7 +712,7 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
 
   it('restores the authored base when its range override is removed', async () => {
     const probe = await createParagraphProbe(field)
-    expect((await probe.update(10)).mutationCount).toBe(1)
+    expect((await probe.update(10)).mutationCount).toBe(3)
     expect(probe.values()).toEqual([10, 10, 10])
 
     probe.write.mockClear()

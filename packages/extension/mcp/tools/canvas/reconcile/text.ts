@@ -2,16 +2,21 @@ import type {
   CanvasHyperlink,
   CanvasStyleReference,
   CanvasFigmaTextRange,
-  CanvasVariableReference
+  CanvasVariableReference,
+  CanvasVariableBindings
 } from '@tempad-dev/shared'
 
 import type { CanvasNodeSpec } from '../model'
 
-import { specError } from '../errors'
+import { applyError, specError } from '../errors'
 import { resolveStyle } from '../styles'
-import { resolvedVariable } from '../variables'
+import { resolveVariable, resolvedVariable } from '../variables'
 import { currentBoundVariableId, unboundTextMetricRanges } from './binding-values'
-import { ensureTextRangeUnbound } from './bindings'
+import {
+  ensureTextRangeUnbound,
+  protectFollowingTextStyle,
+  repairTextRangeBindings
+} from './bindings'
 import {
   textMeasuresEqual,
   hyperlinksEqual,
@@ -32,7 +37,8 @@ import {
 } from './text-range-style'
 import {
   textParagraphRanges,
-  textRangeWithTrailingNewline,
+  textParagraphContents,
+  textMetricRange,
   textRangesIntersect,
   textRangesMatchOutside,
   textRangesOutside,
@@ -48,25 +54,10 @@ export async function applyText(
   const text = spec.text
   if (!text) return
   const native = spec.figma?.text
-  const styleScope = baseTextStyleScope(spec, node)
-  const desiredFont = await loadTextFonts(node, spec, state, styleScope)
-  const hasTextStyle = styleScope.kind === 'retained'
-  setStyledBaseTextValue(
-    node,
-    'fontName',
-    desiredFont ?? undefined,
-    {
-      current: node.fontName,
-      apply: (value) => (node.fontName = value),
-      applyRange: (start, end, value) => node.setRangeFontName(start, end, value),
-      readRange: (start, end) => node.getRangeFontName(start, end),
-      equal: fontNamesEqual
-    },
-    node.characters === text.characters ? native?.ranges : undefined,
-    state,
-    styleScope
-  )
+  let styleScope = baseTextStyleScope(spec, node)
+  await applyBaseTextFont(node, spec, state, styleScope)
   setValue(node, node.autoRename, native?.autoRename, (value) => (node.autoRename = value), state)
+  const previousCharacters = node.characters
   setValue(
     node,
     node.characters,
@@ -79,6 +70,9 @@ export async function applyText(
     state
   )
   // Character replacement can change both the range boundaries and their aliases.
+  styleScope = baseTextStyleScope(spec, node)
+  if (node.characters !== previousCharacters) await applyBaseTextFont(node, spec, state, styleScope)
+  const hasTextStyle = styleScope.kind === 'retained'
   const variableRanges = {
     fontSize: unboundTextMetricRanges(node, spec, 'fontSize'),
     lineHeight: unboundTextMetricRanges(node, spec, 'lineHeight'),
@@ -86,7 +80,7 @@ export async function applyText(
     paragraphIndent: unboundTextMetricRanges(node, spec, 'paragraphIndent'),
     paragraphSpacing: unboundTextMetricRanges(node, spec, 'paragraphSpacing')
   }
-  setStyledBaseTextValue(
+  await setStyledBaseTextValue(
     node,
     'fontSize',
     hasTextStyle ? undefined : text.fontSize,
@@ -101,7 +95,7 @@ export async function applyText(
     styleScope,
     variableRanges.fontSize
   )
-  setStyledBaseTextValue(
+  await setStyledBaseTextValue(
     node,
     'lineHeight',
     hasTextStyle ? undefined : text.lineHeight,
@@ -117,7 +111,7 @@ export async function applyText(
     styleScope,
     variableRanges.lineHeight
   )
-  setStyledBaseTextValue(
+  await setStyledBaseTextValue(
     node,
     'letterSpacing',
     hasTextStyle ? undefined : text.letterSpacing,
@@ -147,7 +141,7 @@ export async function applyText(
     (value) => (node.textAlignVertical = value),
     state
   )
-  setStyledBaseTextValue(
+  await setStyledBaseTextValue(
     node,
     'textCase',
     native?.case ?? (hasTextStyle ? undefined : text.textCase),
@@ -161,7 +155,7 @@ export async function applyText(
     state,
     native?.case !== undefined ? { kind: 'whole' } : styleScope
   )
-  setStyledBaseTextValue(
+  await setStyledBaseTextValue(
     node,
     'textDecoration',
     hasTextStyle ? undefined : text.textDecoration,
@@ -257,6 +251,30 @@ export async function applyText(
   }
 }
 
+async function applyBaseTextFont(
+  node: TextNode,
+  spec: CanvasNodeSpec,
+  state: ApplyState,
+  styleScope: BaseTextStyleScope
+): Promise<void> {
+  const desired = await loadTextFonts(node, spec, state, styleScope)
+  await setStyledBaseTextValue(
+    node,
+    'fontName',
+    desired ?? undefined,
+    {
+      current: node.fontName,
+      apply: (value) => (node.fontName = value),
+      applyRange: (start, end, value) => node.setRangeFontName(start, end, value),
+      readRange: (start, end) => node.getRangeFontName(start, end),
+      equal: fontNamesEqual
+    },
+    node.characters === spec.text?.characters ? spec.figma?.text?.ranges : undefined,
+    state,
+    styleScope
+  )
+}
+
 type BaseTextField =
   | 'fontName'
   | 'fontSize'
@@ -289,7 +307,7 @@ type TextValueAccess<T> = {
   equal?: (current: T | typeof figma.mixed, desired: T) => boolean
 }
 
-function setStyledBaseTextValue<T>(
+async function setStyledBaseTextValue<T>(
   node: TextNode,
   field: BaseTextField,
   desired: T | undefined,
@@ -298,7 +316,7 @@ function setStyledBaseTextValue<T>(
   state: ApplyState,
   styleScope: BaseTextStyleScope,
   variableRanges?: TextRange[]
-): void {
+): Promise<void> {
   if (desired === undefined || variableRanges?.length === 0) return
   if (styleScope.kind !== 'partial' && !variableRanges) {
     setBaseTextValue(node, field, desired, access, ranges, state)
@@ -309,13 +327,46 @@ function setStyledBaseTextValue<T>(
   const whole = { start: 0, end: node.characters.length }
   const styleRanges = styleScope.kind === 'partial' ? styleScope.ranges : [whole]
   for (const scope of textRangesIntersect(styleRanges, variableRanges ?? [whole])) {
+    const metric =
+      field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing'
+        ? field
+        : undefined
+    const trailing = metric && node.characters[scope.end] === '\n'
+    const alias = trailing
+      ? node.getRangeBoundVariable(scope.end, scope.end + 1, metric)
+      : undefined
+    const retained =
+      alias && alias !== figma.mixed
+        ? await resolveVariable({ id: alias.id }, state.variables)
+        : undefined
     setBaseTextValue(
       node,
       field,
       desired,
       {
         current: access.readRange(scope.start, scope.end),
-        apply: (value) => access.applyRange(scope.start, scope.end, value),
+        apply: (value) => {
+          if (
+            trailing &&
+            (node.getRangeTextStyleId(scope.end, scope.end + 1) ||
+              alias === figma.mixed ||
+              (retained && node.characters[scope.end + 1] === '\n'))
+          ) {
+            applyError(
+              `Cannot change "${field}" in range ${scope.start}:${scope.end} without changing the retained newline at ${scope.end}:${scope.end + 1}. Preserve this value or explicitly author the adjacent range; do not repeat this unchanged request.`
+            )
+          }
+          access.applyRange(scope.start, scope.end, value)
+          if (retained && metric) {
+            node.setRangeBoundVariable(scope.end, scope.end + 1, metric, retained)
+            markMutation(state, node)
+            const actual = node.getRangeBoundVariable(scope.end, scope.end + 1, metric)
+            if (actual === figma.mixed || actual?.id !== retained.id)
+              applyError(
+                `Could not preserve "${field}" on retained newline ${scope.end}:${scope.end + 1}; read the text before further edits.`
+              )
+          }
+        },
         readRange: access.readRange,
         equal: access.equal
       },
@@ -339,10 +390,10 @@ function setBaseTextValue<T>(
   if (ranges?.length) {
     const overrides = ranges
       .filter((range) => rangeOwnsTextField(range, field))
-      .map((range) =>
+      .map((range, index, overrides) =>
         (field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing') &&
         (range[field] !== undefined || range.variables?.[field])
-          ? textRangeWithTrailingNewline(node.characters, range)
+          ? textMetricRange(node.characters, range, field, overrides[index + 1])
           : range
       )
     if (
@@ -380,14 +431,32 @@ function setBaseParagraphValue(
   // Set only the paragraphs not owned by the later range declarations.
   const scope = { start: 0, end: node.characters.length }
   const writable = [...textRangesOutside(scope, overrides)]
-  for (const { start, end } of textRangesIntersect(writable, variableRanges ?? [scope])) {
-    setValue(
-      node,
-      access.readRange(start, end),
-      desired,
-      (value) => access.applyRange(start, end, value),
-      state
-    )
+  for (const range of textRangesIntersect(writable, variableRanges ?? [scope])) {
+    setParagraphValue(node, field, desired, access, range, state)
+  }
+}
+
+function setParagraphValue(
+  node: TextNode,
+  field: BaseParagraphField,
+  desired: number | undefined,
+  access: Pick<TextValueAccess<number>, 'readRange'> & {
+    applyRange: (start: number, end: number, value: number) => void
+  },
+  range: TextRange,
+  state: ApplyState
+): void {
+  if (desired === undefined || scalarValuesEqual(access.readRange(range.start, range.end), desired))
+    return
+  for (const { span, content } of textParagraphContents(node.characters, range)) {
+    if (content.start === content.end) {
+      if (scalarValuesEqual(access.readRange(span.start, span.end), desired)) continue
+      applyError(
+        `Cannot change "${field}" on empty paragraph ${span.start}:${span.end} without affecting the following paragraph. Preserve this value or explicitly replace the empty paragraph; do not repeat this unchanged request.`
+      )
+    }
+    access.applyRange(content.start, content.end, desired)
+    markMutation(state, node)
   }
 }
 
@@ -526,7 +595,7 @@ async function applyTextRangeVariables(
     if (bindingRange.start === bindingRange.end) continue
     const comparisonRange =
       field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing'
-        ? textRangeWithTrailingNewline(node.characters, bindingRange)
+        ? textMetricRange(node.characters, bindingRange, field, paragraphs[index + 1]?.range)
         : bindingRange
     const current = node.getRangeBoundVariable(comparisonRange.start, comparisonRange.end, field)
     if (current !== figma.mixed && current?.id === variable?.id) continue
@@ -563,6 +632,15 @@ async function applyTextRangeVariables(
         if (clearsBinding && unbound) continue
       }
     }
+    if (field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing')
+      await protectFollowingTextStyle(
+        node,
+        bindingRange,
+        field,
+        paragraphs[index + 1]?.range,
+        state,
+        variable?.id
+      )
     node.setRangeBoundVariable(bindingRange.start, bindingRange.end, field, variable)
     markMutation(state, node)
     if (!variable) ensureTextRangeUnbound(node, comparisonRange, field, state)
@@ -572,9 +650,11 @@ async function applyTextRangeVariables(
 export async function applyTextRanges(
   node: TextNode,
   ranges: CanvasFigmaTextRange[] | undefined,
-  state: ApplyState
+  state: ApplyState,
+  bindings?: CanvasVariableBindings
 ): Promise<void> {
   const paragraphs = textParagraphs(node.characters, ranges ?? [])
+  const earlierBindings = { paragraphIndent: 0, paragraphSpacing: 0 }
   for (const [index, paragraph] of paragraphs.entries()) {
     const range = paragraph.range
     if (range.end > node.characters.length) {
@@ -582,6 +662,9 @@ export async function applyTextRanges(
         `Text range ${range.start}:${range.end} exceeds TEXT node "${node.id}" with ${node.characters.length} UTF-16 code units.`
       )
     }
+    // Repair this owner after earlier setters have run: their native newline
+    // extent can otherwise invalidate a later equal literal before it is applied.
+    await repairTextRangeBindings(node, paragraphs, index, bindings, earlierBindings, state)
     const composed = await resolvedRangeTextStyle(node, range, state)
     const matches = composed && rangeTextStyleMatches(node, range, composed, paragraph.effective)
     const unchanged = composed && matches && rangeTextStyleCanSkip(node, composed)
@@ -613,6 +696,19 @@ export async function applyTextRanges(
       state,
       (current, desired) => current !== null && fontNamesEqual(current, desired)
     )
+    if (
+      typography.fontSize !== undefined &&
+      !scalarValuesEqual(node.getRangeFontSize(range.start, range.end), typography.fontSize)
+    )
+      await protectFollowingTextStyle(
+        node,
+        range,
+        'fontSize',
+        ranges?.[index + 1],
+        state,
+        undefined,
+        typography.fontSize
+      )
     applyTextRangeValue(
       node,
       node.getRangeFontSize(range.start, range.end),
@@ -628,6 +724,23 @@ export async function applyTextRanges(
       (value) => node.setRangeTextCase(range.start, range.end, value),
       state
     )
+    if (
+      typography.letterSpacing !== undefined &&
+      !textMeasuresEqual(
+        'letterSpacing',
+        node.getRangeLetterSpacing(range.start, range.end),
+        typography.letterSpacing
+      )
+    )
+      await protectFollowingTextStyle(
+        node,
+        range,
+        'letterSpacing',
+        ranges?.[index + 1],
+        state,
+        undefined,
+        typography.letterSpacing
+      )
     setTextMeasure(
       node,
       'letterSpacing',
@@ -636,6 +749,23 @@ export async function applyTextRanges(
       (value) => node.setRangeLetterSpacing(range.start, range.end, value),
       state
     )
+    if (
+      typography.lineHeight !== undefined &&
+      !textMeasuresEqual(
+        'lineHeight',
+        node.getRangeLineHeight(range.start, range.end),
+        typography.lineHeight
+      )
+    )
+      await protectFollowingTextStyle(
+        node,
+        range,
+        'lineHeight',
+        ranges?.[index + 1],
+        state,
+        undefined,
+        typography.lineHeight
+      )
     setTextMeasure(
       node,
       'lineHeight',
@@ -695,13 +825,16 @@ export async function applyTextRanges(
     )
     const listSpacing = paragraph.effective.listSpacing
     if (listSpacing.start < listSpacing.end)
-      applyTextRangeValue(
+      setParagraphValue(
         node,
-        node.getRangeListSpacing(listSpacing.start, listSpacing.end),
+        'listSpacing',
         typography.listSpacing,
-        (value) => node.setRangeListSpacing(range.start, range.end, value),
-        state,
-        scalarValuesEqual
+        {
+          readRange: (start, end) => node.getRangeListSpacing(start, end),
+          applyRange: (start, end, value) => node.setRangeListSpacing(start, end, value)
+        },
+        listSpacing,
+        state
       )
     applyTextRangeValue(
       node,
@@ -712,23 +845,29 @@ export async function applyTextRanges(
     )
     const indent = paragraph.effective.paragraphIndent
     if (indent.start < indent.end)
-      applyTextRangeValue(
+      setParagraphValue(
         node,
-        node.getRangeParagraphIndent(indent.start, indent.end),
+        'paragraphIndent',
         typography.paragraphIndent,
-        (value) => node.setRangeParagraphIndent(range.start, range.end, value),
-        state,
-        scalarValuesEqual
+        {
+          readRange: (start, end) => node.getRangeParagraphIndent(start, end),
+          applyRange: (start, end, value) => node.setRangeParagraphIndent(start, end, value)
+        },
+        indent,
+        state
       )
     const spacing = paragraph.effective.paragraphSpacing
     if (spacing.start < spacing.end)
-      applyTextRangeValue(
+      setParagraphValue(
         node,
-        node.getRangeParagraphSpacing(spacing.start, spacing.end),
+        'paragraphSpacing',
         typography.paragraphSpacing,
-        (value) => node.setRangeParagraphSpacing(range.start, range.end, value),
-        state,
-        scalarValuesEqual
+        {
+          readRange: (start, end) => node.getRangeParagraphSpacing(start, end),
+          applyRange: (start, end, value) => node.setRangeParagraphSpacing(start, end, value)
+        },
+        spacing,
+        state
       )
     const hyperlink = nativeHyperlink(range.hyperlink, state)
     if (
@@ -739,5 +878,8 @@ export async function applyTextRanges(
       markMutation(state, node)
     }
     await applyTextRangeVariables(node, paragraphs, index, state)
+    for (const field of ['paragraphIndent', 'paragraphSpacing'] as const) {
+      if (range.textStyle || range.variables?.[field]) earlierBindings[field] = paragraph.span.end
+    }
   }
 }

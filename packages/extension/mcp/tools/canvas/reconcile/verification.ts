@@ -14,6 +14,8 @@ import {
   DIRECT_VARIABLE_FIELDS,
   STYLE_FIELDS,
   styleLinkMatches,
+  isTextVariableField,
+  textVariableLinkRanges,
   variableLinkMatches
 } from './binding-values'
 import { clearedVariableMatches } from './bindings'
@@ -49,6 +51,23 @@ import {
   rangeTextStyleMatches,
   resolvedRangeTextStyle
 } from './text-range-style'
+
+function textVariableMismatchHint(
+  node: SupportedCanvasNode,
+  field: keyof CanvasVariableBindings,
+  expected: string | undefined,
+  spec: CanvasNodeSpec
+): string {
+  if (node.type !== 'TEXT' || !expected || field === 'fill' || field === 'stroke') return ''
+  const nativeField = DIRECT_VARIABLE_FIELDS[field]
+  if (!isTextVariableField(nativeField)) return ''
+  for (const scope of textVariableLinkRanges(node, nativeField, spec.figma?.text?.ranges)) {
+    const alias = node.getRangeBoundVariable(scope.start, scope.end, nativeField)
+    if (alias !== figma.mixed && alias?.id === expected) continue
+    return ` Inspect range ${scope.start}:${scope.end}: native whole-node binding can retain local overrides. Explicitly bind the affected text range to "${expected}" to replace those overrides; repeating only the node binding will not repair them.`
+  }
+  return ''
+}
 
 async function appliedVariableMatches(
   node: SupportedCanvasNode,
@@ -322,7 +341,9 @@ export async function verifyAppliedNode(
     const expected = reference ? resolvedVariable(reference, state.variables).id : undefined
     references += 1
     if (!(await appliedVariableMatches(node, field, expected, spec, state))) {
-      applyError(`Verification failed for "${spec.key}": variable link "${field}" does not match.`)
+      applyError(
+        `Verification failed for "${spec.key}": variable link "${field}" does not match.${textVariableMismatchHint(node, field, expected, spec)}`
+      )
     }
   }
   for (const field of STYLE_FIELDS) {

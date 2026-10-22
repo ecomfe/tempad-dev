@@ -67,6 +67,14 @@ async function createReplacementProbe(field: MetricField, retainBinding = false)
   }
   const write = (start: number, end: number, value: number | { value: number }) => {
     sync()
+    if (field === 'paragraphIndent' || field === 'paragraphSpacing') {
+      if (characters[end - 1] === '\n' && end < characters.length) end++
+      start = start === 0 ? 0 : characters.lastIndexOf('\n', start - 1) + 1
+      const newline = characters.indexOf('\n', end - 1)
+      end = newline === -1 ? characters.length : newline + 1
+    } else if (characters[end] === '\n') {
+      end++
+    }
     for (const cell of cells.slice(start, end)) {
       cell.value = typeof value === 'number' ? value : value.value
       cell.alias = undefined
@@ -161,6 +169,36 @@ describe.each([
     ])
   })
 })
+
+it.each(['textStyleId', 'fillStyleId'] as const)(
+  're-evaluates %s ownership after replacement discards a mixed style',
+  async (field) => {
+    const fixture = createFixture()
+    const request = (text: string, utilities = ''): CanvasResolvedApplyParameters => ({
+      mode: 'create',
+      markup: `<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-20 ${utilities}">${text}</span></div>`
+    })
+    const created = await applyCanvas(request('ABCDEF'))
+    const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+    Object.defineProperty(node, field, {
+      configurable: true,
+      get: () => (node.characters === 'ABCDEF' ? figma.mixed : ''),
+      set: () => {}
+    })
+    const update = {
+      ...request('XYZ', field === 'textStyleId' ? 'text-[20px]' : 'text-[#ff0000]'),
+      mode: 'update' as const,
+      targetNodeId: created.rootNodeId!
+    }
+    const result = await applyCanvas(update)
+    expect(result.verification.warnings).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'literal-ignored-by-binding' })])
+    )
+    if (field === 'textStyleId') expect(node.fontSize).toBe(20)
+    else expect(node.fills).toEqual([expect.objectContaining({ color: { r: 1, g: 0, b: 0 } })])
+    await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
+  }
+)
 
 describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)(
   '%s retained after text replacement',

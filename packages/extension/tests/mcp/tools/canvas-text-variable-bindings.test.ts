@@ -22,6 +22,16 @@ async function createBindingProbe(field: MetricField, characters = 'ABCDEF') {
   const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
   const aliases: Array<VariableAlias | null> = Array(node.characters.length).fill(null)
   const values: number[] = Array(node.characters.length).fill(12)
+  let applyingStyle = false
+  const applyStyle = vi.mocked(node.setRangeTextStyleIdAsync).getMockImplementation()!
+  vi.mocked(node.setRangeTextStyleIdAsync).mockImplementation(async (...args) => {
+    applyingStyle = true
+    try {
+      await applyStyle(...args)
+    } finally {
+      applyingStyle = false
+    }
+  })
   const wrap = (value: number) =>
     field === 'fontSize' ? value : { unit: 'PIXELS' as const, value }
   const readValue = (start: number, end: number) =>
@@ -30,7 +40,7 @@ async function createBindingProbe(field: MetricField, characters = 'ABCDEF') {
       : figma.mixed
   const writeValue = (start: number, end: number, value: number | { value: number }) => {
     // Native metric setters also update an immediately following paragraph break.
-    if (node.characters[end] === '\n') end++
+    if (!applyingStyle && node.characters[end] === '\n') end++
     values.fill(Math.fround(typeof value === 'number' ? value : value.value), start, end)
     aliases.fill(null, start, end)
   }
@@ -57,7 +67,7 @@ async function createBindingProbe(field: MetricField, characters = 'ABCDEF') {
   vi.spyOn(node, 'setRangeBoundVariable').mockImplementation((start, end, property, variable) => {
     bind(start, end, property, variable)
     if (property === field) {
-      if (node.characters[end] === '\n') end++
+      if (!applyingStyle && node.characters[end] === '\n') end++
       aliases.fill(variable ? { type: 'VARIABLE_ALIAS', id: variable.id } : null, start, end)
       if (variable)
         values.fill(Math.fround(variable.resolveForConsumer(node).value as number), start, end)
@@ -76,15 +86,32 @@ async function createBindingProbe(field: MetricField, characters = 'ABCDEF') {
       if (variable) values.fill(Math.fround(variable.resolveForConsumer(node).value as number))
     }
   })
+  const segments = vi.mocked(node.getStyledTextSegments).getMockImplementation()!
+  vi.spyOn(node, 'getStyledTextSegments').mockImplementation(((...args) => {
+    if (args[0].length !== 1 || args[0][0] !== 'boundVariables') return segments(...args)
+    return aliases.map((alias, start) => ({
+      start,
+      end: start + 1,
+      characters: characters[start],
+      boundVariables: alias ? { [field]: alias } : {}
+    }))
+  }) as TextNode['getStyledTextSegments'])
   return {
     node,
     aliases,
     values,
     write,
     fixture,
-    update: (variables: CanvasVariableBindings, ranges?: CanvasFigmaTextRange[]) =>
+    update: (variables: CanvasVariableBindings, ranges?: CanvasFigmaTextRange[], base?: number) =>
       applyCanvas({
         ...input,
+        markup:
+          base === undefined
+            ? input.markup
+            : input.markup!.replace(
+                'whitespace-pre-wrap',
+                `whitespace-pre-wrap ${{ fontSize: 'text', lineHeight: 'leading', letterSpacing: 'tracking' }[field]}-[${base}px]`
+              ),
         mode: 'update',
         targetNodeId: created.rootNodeId!,
         bindings: { label: { variables, figma: { text: { ranges } } } }
@@ -95,6 +122,127 @@ async function createBindingProbe(field: MetricField, characters = 'ABCDEF') {
 describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)('%s node bindings', (field) => {
   const literal = (value: number) =>
     field === 'fontSize' ? value : { unit: 'PIXELS' as const, value }
+
+  it('keeps the later variable owner when a range starts on the preceding newline', async () => {
+    const probe = await createBindingProbe(field, 'Hello\nworld')
+    const ranges = [
+      { start: 0, end: 5, variables: { [field]: { id: 'variable:spacing' } } },
+      { start: 5, end: 11, variables: { [field]: { id: 'variable:range-size' } } }
+    ]
+    await probe.update({}, ranges)
+    expect(probe.values).toEqual([...Array(5).fill(8), ...Array(6).fill(18)])
+    await expect(probe.update({}, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+    ranges[0]!.variables[field] = { id: 'variable:range-size' }
+    await probe.update({}, ranges)
+    expect(probe.aliases.every((alias) => alias?.id === 'variable:range-size')).toBe(true)
+    await expect(probe.update({}, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('repairs a later equal literal after the preceding setter crosses its newline', async () => {
+    const probe = await createBindingProbe(field, 'Hello\nworld')
+    const base = { id: 'variable:spacing' }
+    const ranges = [
+      { start: 0, end: 5, [field]: literal(20) },
+      { start: 5, end: 11, [field]: literal(8) }
+    ]
+    await probe.update({ [field]: base }, ranges)
+    expect(probe.values).toEqual([...Array(5).fill(20), ...Array(6).fill(8)])
+    expect(probe.aliases.map((alias) => alias?.id)).toEqual([
+      ...Array(5).fill(undefined),
+      ...Array(6).fill(base.id)
+    ])
+    await expect(probe.update({ [field]: base }, ranges)).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
+  it('accepts an equal bound literal alongside a differing unbound literal', async () => {
+    const probe = await createBindingProbe(field)
+    const ranges = [
+      { start: 0, end: 1, [field]: literal(8) },
+      { start: 3, end: 5, [field]: literal(20) }
+    ]
+    const variables = { [field]: { id: 'variable:spacing' } }
+    await probe.update(variables, ranges)
+    await expect(probe.update(variables, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it.each(['literal', 'variable', 'null'] as const)(
+    'preserves a later TextStyle newline on an unchanged %s replay',
+    async (kind) => {
+      const probe = await createBindingProbe(field, 'A\nB\nC')
+      const style = probe.fixture.styles.get('style:text') as TextStyle
+      Object.assign(style, {
+        boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: 'variable:range-size' } }
+      })
+      const first =
+        kind === 'literal'
+          ? { start: 2, end: 3, [field]: literal(20) }
+          : {
+              start: 2,
+              end: 3,
+              variables: { [field]: kind === 'null' ? null : { id: 'variable:spacing' } }
+            }
+      const ranges = [first, { start: 3, end: 5, textStyle: { id: style.id } }]
+      const variables = { [field]: { id: 'variable:spacing' } }
+      await probe.update(variables, ranges)
+      const aliases = probe.aliases.map((alias) => alias?.id)
+      const values = [...probe.values]
+      await expect(probe.update(variables, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+      expect(probe.aliases.map((alias) => alias?.id)).toEqual(aliases)
+      expect(probe.values).toEqual(values)
+    }
+  )
+
+  it('rejects a changed earlier literal before it changes the retained following style', async () => {
+    const probe = await createBindingProbe(field, 'A\nB\nC')
+    const style = probe.fixture.styles.get('style:text') as TextStyle
+    Object.assign(style, {
+      boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: 'variable:range-size' } }
+    })
+    const ranges = [
+      { start: 2, end: 3, [field]: literal(20) },
+      { start: 3, end: 5, textStyle: { id: style.id } }
+    ]
+    const variables = { [field]: { id: 'variable:spacing' } }
+    await probe.update(variables, ranges)
+    const values = [...probe.values]
+    const aliases = probe.aliases.map((alias) => alias?.id)
+    Object.assign(ranges[0]!, { [field]: literal(22) })
+    await expect(probe.update(variables, ranges)).rejects.toThrow(
+      'retained TextStyle on its following newline'
+    )
+    expect(probe.values).toEqual(values)
+    expect(probe.aliases.map((alias) => alias?.id)).toEqual(aliases)
+  })
+
+  it('preserves an omitted alias on a newline while changing adjacent base literals', async () => {
+    const probe = await createBindingProbe(field, 'A\nB\nC')
+    const foreign = { id: 'variable:range-size' }
+    await probe.update({}, [{ start: 1, end: 2, variables: { [field]: foreign } }])
+    await probe.update({}, undefined, 20)
+    expect(probe.values).toEqual([20, 18, 20, 20, 20])
+    expect(probe.aliases.map((alias) => alias?.id)).toEqual([
+      undefined,
+      foreign.id,
+      undefined,
+      undefined,
+      undefined
+    ])
+    await expect(probe.update({}, undefined, 20)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('rejects a base write when restoring the newline alias would cross another newline', async () => {
+    const probe = await createBindingProbe(field, 'A\n\nB')
+    const foreign = { id: 'variable:range-size' }
+    // Direct native binding covers both newlines, so use the probe's retained
+    // state to represent an independently styled first newline.
+    probe.aliases[1] = { type: 'VARIABLE_ALIAS', id: foreign.id }
+    probe.values[1] = 18
+    const values = [...probe.values]
+    await expect(probe.update({}, undefined, 20)).rejects.toThrow('retained newline at 1:2')
+    expect(probe.values).toEqual(values)
+  })
 
   it('converges a base variable with a different range literal', async () => {
     const probe = await createBindingProbe(field)
@@ -176,7 +324,7 @@ describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)('%s node bin
     })
     await expect(
       probe.update({ [field]: variable }, [{ start: 2, end: 3, variables: { [field]: null } }])
-    ).rejects.toThrow(`range variable link "${field}" was not cleared`)
+    ).rejects.toThrow(`Cannot clear range 2:4 variable "${field}"`)
   })
 
   it('repairs a foreign alias on the newline owned by a literal override', async () => {
@@ -186,7 +334,7 @@ describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)('%s node bin
     await probe.update({ [field]: variable }, ranges)
     probe.aliases[3] = { type: 'VARIABLE_ALIAS', id: 'variable:range-size' }
     await expect(probe.update({ [field]: variable }, ranges)).resolves.toMatchObject({
-      mutationCount: 2
+      mutationCount: 1
     })
     expect(probe.aliases.slice(2, 4)).toEqual([null, null])
     await expect(probe.update({ [field]: variable }, ranges)).resolves.toMatchObject({
@@ -287,7 +435,7 @@ describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)('%s node bin
     vi.mocked(probe.node.setRangeBoundVariable).mockImplementation(() => {})
     await expect(
       probe.update({ [field]: base }, [{ start: 2, end: 4, [field]: literal(18) }])
-    ).rejects.toThrow(`range variable link "${field}" was not cleared`)
+    ).rejects.toThrow(`Cannot clear range 2:4 variable "${field}"`)
   })
 
   it('rejects an ignored exact-base repair even when the foreign value is equal', async () => {
@@ -422,6 +570,24 @@ describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)('%s node bin
     await probe.update({ [field]: variable })
     expect(probe.aliases.every((alias) => alias?.id === variable.id)).toBe(true)
     await expect(probe.update({ [field]: variable })).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('recovers a retained foreign override with an explicit range binding', async () => {
+    const probe = await createBindingProbe(field)
+    const base = { id: 'variable:spacing' }
+    await probe.update({ [field]: base }, [
+      { start: 2, end: 4, variables: { [field]: { id: 'variable:range-size' } } }
+    ])
+    await expect(probe.update({ [field]: base })).rejects.toThrow(
+      'Explicitly bind the affected text range'
+    )
+    const ranges = [{ start: 2, end: 4, variables: { [field]: base } }]
+    await probe.update({ [field]: base }, ranges)
+    expect(probe.values).toEqual(Array(6).fill(8))
+    expect(probe.aliases.every((alias) => alias?.id === base.id)).toBe(true)
+    await expect(probe.update({ [field]: base }, ranges)).resolves.toMatchObject({
+      mutationCount: 0
+    })
   })
 
   it.each(['ABCDEF', 'A\nB\nC'])(

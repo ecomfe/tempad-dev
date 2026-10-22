@@ -11,7 +11,7 @@ import { specError } from '../errors'
 import { isFrameContainer } from './nodes'
 import {
   textParagraphRanges,
-  textRangeWithTrailingNewline,
+  textMetricRange,
   textRangesMatchOutside,
   textRangesOutside,
   type TextRange
@@ -243,6 +243,18 @@ export function variableLinkMatches(
   if (node.type !== 'TEXT' || !node.characters.length || !isTextVariableField(field)) {
     return currentBoundVariableId(node, field) === expected
   }
+  for (const { start, end } of textVariableLinkRanges(node, field, ranges)) {
+    const alias = node.getRangeBoundVariable(start, end, field)
+    if (alias === figma.mixed || alias?.id !== expected) return false
+  }
+  return true
+}
+
+export function textVariableLinkRanges(
+  node: TextNode,
+  field: VariableBindableTextField,
+  ranges?: CanvasFigmaTextRange[]
+): Generator<TextRange> {
   const declared = (ranges ?? []).filter(
     (range) =>
       range.variables?.[field] !== undefined ||
@@ -253,20 +265,13 @@ export function variableLinkMatches(
   if (field === 'paragraphIndent' || field === 'paragraphSpacing') {
     overrides = textParagraphRanges(node.characters, overrides)
   } else if (field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing') {
-    overrides = declared.map((range) =>
+    overrides = declared.map((range, index) =>
       range.variables?.[field] !== undefined || rangeHasVariableLiteral(range, field)
-        ? textRangeWithTrailingNewline(node.characters, range)
+        ? textMetricRange(node.characters, range, field, declared[index + 1])
         : range
     )
   }
-  return textRangesMatchOutside(
-    { start: 0, end: node.characters.length },
-    overrides,
-    (start, end) => {
-      const alias = node.getRangeBoundVariable(start, end, field)
-      return alias !== figma.mixed && alias?.id === expected
-    }
-  )
+  return textRangesOutside({ start: 0, end: node.characters.length }, overrides)
 }
 
 // Undefined permits a whole-node write; an empty list preserves the whole field.
