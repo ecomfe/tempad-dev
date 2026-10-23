@@ -340,8 +340,10 @@ SVG is code-like input even when Figma turns it into design layers. Validate bef
 - no unresolved `currentColor`.
 
 Use the extension's existing XML parser (`svgson`) for structural checks and deterministic
-serialization. Do not build an SVG renderer or path parser. Figma remains the rendering and import
-authority.
+serialization. Normalize XML entities and CDATA before validation, resolve element namespaces,
+and inspect decoded CSS escapes for external references. Preserve text and attribute meanings
+through serialization; changing the import policy invalidates previous SVG digests. Do not build
+an SVG renderer or path parser. Figma remains the rendering and import authority.
 
 After `createNodeFromSvg`, reject and roll back if Figma produces:
 

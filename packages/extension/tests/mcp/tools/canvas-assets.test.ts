@@ -14,6 +14,59 @@ function colors(color?: string): Map<string, Set<string | undefined>> {
 }
 
 describe('mcp/tools/canvas SVG assets', () => {
+  it.each([
+    '<svg xmlns:s="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><s:script>ignored()</s:script></svg>',
+    '<svg viewBox="0 0 1 1"><g xmlns="http://www.w3.org/1999/xhtml"><div/></g></svg>',
+    '<svg viewBox="0 0 1 1"><unknown:path/></svg>'
+  ])('validates expanded element names before native import: %s', async (svg) => {
+    await expect(resolveCanvasAssets(svgAssets(svg), colors())).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.SVG_INVALID
+    })
+  })
+
+  it('checks cycles through namespaced SVG use elements', async () => {
+    await expect(
+      resolveCanvasAssets(
+        svgAssets(
+          '<svg xmlns:s="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><g id="a"><s:use href="#a"/></g></svg>'
+        ),
+        colors()
+      )
+    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.SVG_TOO_COMPLEX })
+  })
+
+  it.each([
+    String.raw`u\72l(https://example.com/paint.svg#p)`,
+    'u&#114;l(https://example.com/paint.svg#p)'
+  ])('rejects external CSS URLs after decoding syntax: %s', async (fill) => {
+    await expect(
+      resolveCanvasAssets(
+        svgAssets(`<svg viewBox="0 0 1 1"><path fill="${fill}"/></svg>`),
+        colors()
+      )
+    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.SVG_EXTERNAL_REFERENCE })
+  })
+
+  it.each(['current&#67;olor', String.raw`curr\65 ntColor`])(
+    'preserves local references and resolves %s once',
+    async (fill) => {
+      const assets = await resolveCanvasAssets(
+        svgAssets(
+          `<svg xmlns:s="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><defs><path id="shape" fill="${fill}"/></defs><s:use href="&#35;shape"/></svg>`
+        ),
+        colors('#336699')
+      )
+      expect(resolvedSvgAsset(assets, 'icon', '#336699')?.svg).toContain('href="#shape"')
+      expect(resolvedSvgAsset(assets, 'icon', '#336699')?.svg).toContain('fill="#336699"')
+    }
+  )
+
+  it('keeps an escaped local CSS URL available to the SVG importer', async () => {
+    const source = String.raw`<svg viewBox="0 0 1 1"><defs><linearGradient id="g"/></defs><path fill="u\72l(#g)"/></svg>`
+    const assets = await resolveCanvasAssets(svgAssets(source), colors())
+    expect(resolvedSvgAsset(assets, 'icon', undefined)?.svg).toContain(String.raw`fill="u\72l(#g)"`)
+  })
+
   it('bounds repeated and cyclic use expansion before native import', async () => {
     const repeated = `<svg viewBox="0 0 1 1"><defs><g id="a"><path d="M0 0z"/></g><g id="b">${'<use href="#a"/>'.repeat(20)}</g></defs>${'<use href="#b"/>'.repeat(20)}</svg>`
     for (const svg of [repeated, '<svg viewBox="0 0 1 1"><g id="a"><use href="#a"/></g></svg>']) {

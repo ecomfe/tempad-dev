@@ -1,19 +1,21 @@
 import type { CanvasAssets, TempadMcpErrorCode } from '@tempad-dev/shared'
+import type { INode } from 'svgson'
 
 import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
-import { parseSync, stringify, type INode } from 'svgson'
 
 import { downloadAsset } from '@/mcp/assets'
 import { sha256Hex } from '@/mcp/encoding'
 import { detectImageMime } from '@/mcp/media'
 
 import { createCodedError } from '../../errors'
+import { parseSvgXml, stringifySvgXml } from './svg-xml'
 
 const INLINE_SVG_BYTES = 32 * 1024
 const HUB_SVG_BYTES = 1024 * 1024
 const MAX_SVG_ELEMENTS = 500
 const MAX_SVG_DEPTH = 32
-export const SVG_POLICY_VERSION = '3'
+export const SVG_POLICY_VERSION = '4'
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
 const XLINK_NAMESPACE = 'http://www.w3.org/1999/xlink'
 
 const BANNED_ELEMENTS = new Set([
@@ -150,7 +152,7 @@ async function sanitizeSvg(
 
   let root: INode
   try {
-    root = parseSync(source)
+    root = parseSvgXml(source)
   } catch {
     assetError(TEMPAD_MCP_ERROR_CODES.SVG_INVALID, key, 'SVG XML is malformed.')
   }
@@ -172,26 +174,41 @@ async function sanitizeSvg(
         `SVG may contain at most ${MAX_SVG_ELEMENTS} elements and ${MAX_SVG_DEPTH} levels.`
       )
     }
-    const name = node.name.toLowerCase()
+    const namespaces = new Map(inheritedNamespaces)
+    for (const [attribute, value] of Object.entries(node.attributes)) {
+      if (attribute === 'xmlns') namespaces.set('', value)
+      else if (attribute.startsWith('xmlns:')) namespaces.set(attribute.slice(6), value)
+    }
+    const parts = node.name.split(':')
+    const localName = parts.at(-1)!
+    const prefix = parts.length === 1 ? '' : parts[0]!
+    if (parts.length > 2 || namespaces.get(prefix) !== SVG_NAMESPACE) {
+      assetError(
+        TEMPAD_MCP_ERROR_CODES.SVG_INVALID,
+        key,
+        'SVG elements must belong to the SVG namespace.'
+      )
+    }
+    const elementName = localName.toLowerCase()
     if (node.attributes.id) {
       if (ids.has(node.attributes.id)) {
         assetError(TEMPAD_MCP_ERROR_CODES.SVG_INVALID, key, 'SVG ids must be unique.')
       }
       ids.set(node.attributes.id, node)
     }
-    if (BANNED_ELEMENTS.has(name)) {
-      assetError(TEMPAD_MCP_ERROR_CODES.SVG_INVALID, key, `SVG element <${name}> is not supported.`)
-    }
-    const namespaces = new Map(inheritedNamespaces)
-    for (const [attribute, rawValue] of Object.entries(node.attributes)) {
-      const separator = attribute.indexOf(':')
-      if (separator > 0 && attribute.slice(0, separator).toLowerCase() === 'xmlns') {
-        namespaces.set(attribute.slice(separator + 1), rawValue.trim())
-      }
+    if (BANNED_ELEMENTS.has(elementName)) {
+      assetError(
+        TEMPAD_MCP_ERROR_CODES.SVG_INVALID,
+        key,
+        `SVG element <${elementName}> is not supported.`
+      )
     }
     for (const [attribute, rawValue] of Object.entries(node.attributes)) {
       const name = attribute.toLowerCase()
-      if (name === 'style' || name.startsWith('on') || name === 'src') {
+      const separator = attribute.indexOf(':')
+      const namespacePrefix = separator > 0 ? attribute.slice(0, separator) : undefined
+      const localName = separator > 0 ? attribute.slice(separator + 1).toLowerCase() : name
+      if (localName === 'style' || localName.startsWith('on') || localName === 'src') {
         assetError(
           TEMPAD_MCP_ERROR_CODES.SVG_INVALID,
           key,
@@ -199,9 +216,6 @@ async function sanitizeSvg(
         )
       }
       const value = rawValue.trim()
-      const separator = attribute.indexOf(':')
-      const namespacePrefix = separator > 0 ? attribute.slice(0, separator) : undefined
-      const localName = separator > 0 ? attribute.slice(separator + 1).toLowerCase() : name
       const isLink =
         name === 'href' ||
         name === 'xlink:href' ||
@@ -216,7 +230,7 @@ async function sanitizeSvg(
             'SVG links must reference a local #id.'
           )
         }
-        if (node.name.toLowerCase() === 'use') {
+        if (elementName === 'use') {
           const previous = uses.get(node)
           if (previous && previous !== value.slice(1)) {
             assetError(
@@ -228,14 +242,15 @@ async function sanitizeSvg(
           uses.set(node, value.slice(1))
         }
       }
-      if (/@import/i.test(value) || hasExternalUrl(value)) {
+      const cssValue = decodeCssEscapes(value)
+      if (/@import/i.test(cssValue) || hasExternalUrl(cssValue)) {
         assetError(
           TEMPAD_MCP_ERROR_CODES.SVG_EXTERNAL_REFERENCE,
           key,
           'SVG cannot load external content.'
         )
       }
-      if (COLOR_ATTRIBUTES.has(name) && /^currentcolor$/i.test(value)) {
+      if (COLOR_ATTRIBUTES.has(name) && /^currentcolor$/i.test(cssValue)) {
         if (!normalizedColor) {
           assetError(
             TEMPAD_MCP_ERROR_CODES.SVG_INVALID,
@@ -251,7 +266,7 @@ async function sanitizeSvg(
     )
     for (const child of node.children) visit(child, depth + 1, namespaces)
   }
-  visit(root, 1, new Map())
+  visit(root, 1, new Map([['', SVG_NAMESPACE]]))
 
   const memo = new Map<INode, { count: number; depth: number }>()
   const active = new Set<INode>()
@@ -305,7 +320,7 @@ async function sanitizeSvg(
       error instanceof Error ? error.message : 'SVG viewport is invalid.'
     )
   }
-  const sanitized = stringify(root)
+  const sanitized = stringifySvgXml(root)
   return {
     type: 'SVG',
     digest: await sha256Hex(
@@ -341,6 +356,19 @@ function parseSvgLength(value: string | undefined): number | null {
 function hasExternalUrl(value: string): boolean {
   const withoutLocalRefs = value.replace(/url\(\s*(['"]?)#[A-Za-z_][\w:.-]*\1\s*\)/gi, '')
   return /url\s*\(/i.test(withoutLocalRefs)
+}
+
+function decodeCssEscapes(value: string): string {
+  return value.replace(
+    /\\(?:([\da-f]{1,6})(?:\r\n|[ \t\r\n\f])?|(\r\n|[\r\n\f])|(.))/gi,
+    (_escape, hex: string | undefined, continuation: string | undefined, character: string) => {
+      if (!hex) return continuation ? '' : character
+      const point = Number.parseInt(hex, 16)
+      return String.fromCodePoint(
+        point === 0 || point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff) ? 0xfffd : point
+      )
+    }
+  )
 }
 
 function validateImageMime(
