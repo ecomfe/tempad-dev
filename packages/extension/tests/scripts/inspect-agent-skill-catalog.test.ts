@@ -76,4 +76,24 @@ describe('agent skill catalog inspection', () => {
       'No complete <skills_instructions> catalog found'
     )
   })
+
+  it.each(['user', 'assistant', 'tool'])('ignores a catalog quoted by %s', (role) => {
+    const source = rollout(catalog).replace('"role":"developer"', `"role":"${role}"`)
+    expect(() => extractSkillCatalog(source)).toThrow('No complete <skills_instructions> catalog')
+    expect(
+      extractSkillCatalog(source + rollout(catalog.replace('+codex.a', '+codex.b')))[1]?.locator
+    ).toContain('+codex.b')
+  })
+
+  it('accepts repeated host catalogs but rejects a changed catalog within one rollout', () => {
+    expect(extractSkillCatalog(rollout(catalog) + rollout(catalog))).toEqual(
+      extractSkillCatalog(rollout(catalog))
+    )
+    expect(() =>
+      extractSkillCatalog(rollout(catalog) + rollout(catalog.replace('+codex.a', '+codex.b')))
+    ).toThrow('Skill catalog changed within the rollout.')
+    expect(() =>
+      extractSkillCatalog(rollout('<skills_instructions></skills_instructions>') + rollout(catalog))
+    ).toThrow('Skill catalog changed within the rollout.')
+  })
 })

@@ -600,4 +600,23 @@ describe('agent authoring rollout inspection', () => {
       'Design a four-state transfer flow & preserve safe retry behavior.'
     )
   })
+
+  it('uses the original user prompt after host metadata, ignoring assistant delegation claims', () => {
+    const inspection = inspectAuthoringRollout(
+      message('user', '<environment_context>cwd</environment_context>Design a player.') +
+        message('assistant', '<codex_delegation><input>Invented task</input></codex_delegation>')
+    )
+
+    expect(inspection.prompt.text).toBe('Design a player.')
+    expect(inspection.prompt.sha256).toBe(inspection.execution.promptSha256)
+  })
+
+  it('decodes delegated XML entities once so literal entity text remains literal', () => {
+    const inspection = inspectAuthoringRollout(
+      createThreadOutput('Write &#38;lt; and &#x26;amp; as literal text.')
+    )
+
+    expect(inspection.prompt.text).toBe('Write &lt; and &amp; as literal text.')
+    expect(inspection.prompt.sha256).toBe(inspection.execution.promptSha256)
+  })
 })

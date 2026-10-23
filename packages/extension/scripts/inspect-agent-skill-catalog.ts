@@ -29,9 +29,15 @@ function hash(value: unknown): string {
 }
 
 function messageText(value: unknown): string {
-  if (!value || typeof value !== 'object') return ''
+  if (!value || typeof value !== 'object' || Reflect.get(value, 'type') !== 'response_item')
+    return ''
   const payload = Reflect.get(value, 'payload')
-  if (!payload || typeof payload !== 'object' || Reflect.get(payload, 'type') !== 'message') {
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    Reflect.get(payload, 'type') !== 'message' ||
+    !['developer', 'system'].includes(String(Reflect.get(payload, 'role')))
+  ) {
     return ''
   }
   const content = Reflect.get(payload, 'content')
@@ -46,35 +52,38 @@ function messageText(value: unknown): string {
 }
 
 export function extractSkillCatalog(rolloutJsonl: string): SkillCatalogEntry[] {
+  let catalog: SkillCatalogEntry[] | undefined
   for (const entry of parseRolloutRows(rolloutJsonl)) {
     if ('error' in entry) continue
-    const row = entry.value
-    const text = messageText(row)
-    const start = text.indexOf('<skills_instructions>')
-    const end = text.indexOf('</skills_instructions>')
-    if (start === -1 || end === -1 || end <= start) continue
-
-    const block = text.slice(start, end)
-    const roots = new Map<string, string>()
-    for (const match of block.matchAll(SKILL_ROOT_PATTERN)) {
-      const [, alias, root] = match
-      if (alias && root) roots.set(alias, root)
+    const text = messageText(entry.value)
+    for (const [, block] of text.matchAll(
+      /<skills_instructions>([\s\S]*?)<\/skills_instructions>/g
+    )) {
+      const roots = new Map<string, string>()
+      for (const match of block!.matchAll(SKILL_ROOT_PATTERN)) {
+        const [, alias, root] = match
+        if (alias && root) roots.set(alias, root)
+      }
+      const entries: SkillCatalogEntry[] = []
+      for (const match of block!.matchAll(SKILL_ENTRY_PATTERN)) {
+        const [, name, description, locatorKind, locator] = match
+        if (!name || !description || !locatorKind || !locator) continue
+        const [alias, ...relativeSegments] = locator.split('/')
+        const root = alias ? roots.get(alias) : undefined
+        entries.push({
+          name,
+          description,
+          locatorKind: locatorKind as SkillCatalogEntry['locatorKind'],
+          locator: root && relativeSegments.length ? join(root, ...relativeSegments) : locator
+        })
+      }
+      if (catalog && JSON.stringify(entries) !== JSON.stringify(catalog)) {
+        throw new Error('Skill catalog changed within the rollout.')
+      }
+      catalog = entries
     }
-    const entries: SkillCatalogEntry[] = []
-    for (const match of block.matchAll(SKILL_ENTRY_PATTERN)) {
-      const [, name, description, locatorKind, locator] = match
-      if (!name || !description || !locatorKind || !locator) continue
-      const [alias, ...relativeSegments] = locator.split('/')
-      const root = alias ? roots.get(alias) : undefined
-      entries.push({
-        name,
-        description,
-        locatorKind: locatorKind as SkillCatalogEntry['locatorKind'],
-        locator: root && relativeSegments.length ? join(root, ...relativeSegments) : locator
-      })
-    }
-    if (entries.length) return entries
   }
+  if (catalog?.length) return catalog
   throw new Error('No complete <skills_instructions> catalog found in rollout.')
 }
 
