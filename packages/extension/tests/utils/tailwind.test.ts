@@ -8,6 +8,68 @@ import {
 } from '@/utils/tailwind'
 
 describe('utils/tailwind cssToTailwind', () => {
+  it.each([
+    [
+      'background-image',
+      String.raw`url("https://example.test/front\ image.png")`,
+      String.raw`bg-[url("https://example.test/front\000020image.png")]`
+    ],
+    [
+      'background-image',
+      String.raw`url(https://example.test/front\ image.png)`,
+      String.raw`bg-[url(https://example.test/front\000020image.png)]`
+    ],
+    [
+      'background-image',
+      String.raw`url("https://example.test/front\20 image.png")`,
+      String.raw`bg-[url("https://example.test/front\000020image.png")]`
+    ],
+    [
+      'background-image',
+      String.raw`url( https://example.test/front\  )`,
+      String.raw`bg-[url(https://example.test/front\000020)]`
+    ],
+    [
+      'background-image',
+      'url( "https://example.test/front_image.png" )',
+      'bg-[url("https://example.test/front_image.png")]'
+    ],
+    ['content', String.raw`"a\ b"`, String.raw`content-["a\000020b"]`],
+    ['content', String.raw`"a\20 b"`, String.raw`content-["a\000020b"]`],
+    ['content', '"a\\\nb"', 'content-["ab"]'],
+    [
+      'font-family',
+      String.raw`Brand\,  One, serif`,
+      String.raw`font-[family-name:Brand\00002c__One,_serif]`
+    ]
+  ])('preserves CSS escapes and URL syntax in %s: %s', (property, value, expected) => {
+    expect(nestedCssToClassNames({ [property]: value })).toEqual([expected])
+  })
+
+  it('escapes literal underscores once while preserving spaces, URLs and variable shorthand', () => {
+    expect(
+      nestedCssToClassNames({
+        'animation-name': 'fade_in',
+        'font-variation-settings': '"A_BC" 400',
+        'font-family': '"Brand_One", serif',
+        width: 'calc(var(--size_small) * 2)',
+        height: 'var(--size_small)',
+        'background-image': 'url("front_image.png")',
+        '&::before': { content: '"a_  b"' }
+      })
+    ).toEqual(
+      expect.arrayContaining([
+        String.raw`[animation-name:fade\_in]`,
+        String.raw`[font-variation-settings:"A\_BC"_400]`,
+        String.raw`font-[family-name:"Brand\_One",_serif]`,
+        String.raw`w-[calc(var(--size\_small)_*_2)]`,
+        'h-(--size_small)',
+        'bg-[url("front_image.png")]',
+        String.raw`before:content-["a\___b"]`
+      ])
+    )
+  })
+
   it.each(['round', 'space'])('emits a valid background repeat utility for %s', (repeat) => {
     expect(cssToClassNames({ 'background-repeat': repeat })).toEqual([`bg-repeat-${repeat}`])
   })
@@ -135,7 +197,7 @@ describe('utils/tailwind cssToTailwind', () => {
     ).toEqual([
       'w-[calc(var(--size)_*_2)]',
       'bg-[linear-gradient(var(--start),_var(--end))]',
-      'font-[var(--font),sans-serif]',
+      'font-[family-name:var(--font),_sans-serif]',
       'h-[12px]'
     ])
   })
@@ -209,7 +271,7 @@ describe('utils/tailwind cssToTailwind', () => {
 
     expect(result).toEqual(
       expect.arrayContaining([
-        'font-[Fira_Sans,serif]',
+        'font-[family-name:"Fira_Sans",_serif]',
         'grid-cols-3',
         'grid-rows-[repeat(auto-fit,_minmax(0,_1fr))]',
         'col-[2_/_4]',

@@ -14,7 +14,7 @@ import { createTokenReadContext } from '../../token/context'
 import { resolveTokenDefsByIds } from '../../token/defs'
 import { createTokenMatcher, extractTokenNames } from './extract'
 import { mapTokenValues } from './markup'
-import { rewriteTokenNamesInCode } from './rewrite'
+import { createTokenNameRewriter } from './rewrite'
 import { buildSourceNameIndex } from './source-index'
 import { applyPluginTransformToNames } from './transform'
 
@@ -69,9 +69,10 @@ export async function processTokens({
   checkpoint?.()
   const clock = now ?? (() => Date.now())
   const values: string[] = []
-  let markup = mapTokenValues(component, (value) => {
-    const normalized = stripFallback(value)
-    values.push(normalized)
+  let markup = mapTokenValues(component, (value, syntax) => {
+    const normalized = stripFallback(value, syntax)
+    // Class encoding escapes literal underscores; token identity is the CSS name.
+    values.push(syntax === 'tailwind' ? normalized.replaceAll('\\_', '_') : normalized)
     return normalized
   })
   const tokenSource = values.join('\n')
@@ -131,7 +132,7 @@ export async function processTokens({
   checkpoint?.()
 
   if (rewriteMap.size) {
-    markup = mapTokenValues(markup, (value) => rewriteTokenNamesInCode(value, rewriteMap))
+    markup = mapTokenValues(markup, createTokenNameRewriter(rewriteMap))
   }
   if (stamp) stamp('tokens:rewrite', t)
   checkpoint?.()

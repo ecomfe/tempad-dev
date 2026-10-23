@@ -252,7 +252,7 @@ describe('figma/gradient resolveGradientFromPaints', () => {
     )
   })
 
-  it('returns direct CSS var fallback for near-opaque variable-bound stop color', () => {
+  it('returns direct CSS var fallback for an opaque variable-bound stop color', () => {
     installFigmaMocks({
       variables: {
         accent: { name: 'Primary Color' } as Variable
@@ -267,6 +267,24 @@ describe('figma/gradient resolveGradientFromPaints', () => {
       'radial-gradient(100% 100% at 0% 0%, var(--Primary-Color, #F00) 0%, #00F 100%)'
     )
   })
+
+  it.each([
+    [0.99, '99', '#0000FFFC'],
+    [0.995, '99.5', '#0000FFFE']
+  ] as const)(
+    'retains near-opaque paint opacity %s on variable and literal gradient stops',
+    (opacity, percentage, literal) => {
+      installFigmaMocks({ variables: { accent: { name: 'Primary Color' } as Variable } })
+      const paint = createGradientPaint('GRADIENT_LINEAR', {
+        opacity,
+        stops: [createStop({ r: 1, g: 0, b: 0 }, 0, 'accent'), createStop({ r: 0, g: 0, b: 1 }, 1)]
+      })
+
+      expect(resolveGradientFromPaints([paint])).toBe(
+        `linear-gradient(90deg, color-mix(in srgb, var(--Primary-Color, #F00) ${percentage}%, transparent) 0%, ${literal} 100%)`
+      )
+    }
+  )
 
   it('falls back to literal stop color when variable lookup throws', () => {
     installFigmaMocks({

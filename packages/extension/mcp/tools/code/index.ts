@@ -51,10 +51,10 @@ import { resolvePluginComponents } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
 import {
   createTokenConsumerResolver,
+  createTokenNameRewriter,
   createStyleVarResolver,
   processTokens,
-  resolveStyleMap,
-  rewriteTokenNamesInCode
+  resolveStyleMap
 } from './tokens'
 import { createTokenDiagnostics } from './tokens/diagnostics'
 import { mapTokenValues } from './tokens/markup'
@@ -632,9 +632,10 @@ async function finalizeRenderedOutput(
         report: diagnostics.report
       })
       if (resolved) {
+        const rewriteNames = createTokenNameRewriter(rewriteMap ?? new Map())
         outputCode = resolved.serialize(
-          mapTokenValues(resolved.component, (value) =>
-            rewriteTokenNamesInCode(stripFallback(value), rewriteMap ?? new Map())
+          mapTokenValues(resolved.component, (value, syntax) =>
+            rewriteNames(stripFallback(value, syntax), syntax)
           )
         )
       }

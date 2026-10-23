@@ -245,8 +245,8 @@ function getBorderWidth(style: StyleMap): string | null {
 
   const borderWidth = style['border-width']
   if (borderWidth) {
-    const [t, r, b, l] = parseBoxValues(normalizeStyleValue(borderWidth))
-    if (t === r && r === b && b === l) return t
+    const widths = parseBoxValues(normalizeStyleValue(borderWidth))
+    if (widths && widths.every((width) => width === widths[0])) return widths[0]
   }
 
   if (style.border) {

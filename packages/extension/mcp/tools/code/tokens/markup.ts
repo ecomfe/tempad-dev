@@ -1,9 +1,10 @@
 import { raw, RAW_TAG_NAME } from '@tempad-dev/plugins'
 
 import type { DevComponent } from '@/types/plugin'
+import type { CssValueSyntax } from '@/utils/css'
 
 import { escapeComponentText } from '@/utils/component'
-import { readCssName, skipCssLiteral } from '@/utils/css'
+import { transformCssValue } from '@/utils/css'
 import { camelToKebab } from '@/utils/string'
 
 const SVG_STYLE_ATTRIBUTES = new Set([
@@ -85,6 +86,7 @@ const SVG_STYLE_ATTRIBUTES = new Set([
 
 const NATIVE_SVG = Symbol('native-svg')
 type NativeSvgComponent = DevComponent & { [NATIVE_SVG]?: true }
+type TokenTransform = (value: string, syntax?: CssValueSyntax) => string
 
 export function nativeSvg(content: string, props?: Record<string, string>): DevComponent {
   return { ...raw(content, props), [NATIVE_SVG]: true } as NativeSvgComponent
@@ -93,7 +95,7 @@ export function nativeSvg(content: string, props?: Record<string, string>): DevC
 /** Visit styling values before serialization, while text and literal props remain distinct. */
 export function mapTokenValues(
   component: DevComponent,
-  transform: (value: string) => string,
+  transform: TokenTransform,
   inSvg = false
 ): DevComponent {
   const isNativeSvg = !!(component as NativeSvgComponent)[NATIVE_SVG]
@@ -104,7 +106,7 @@ export function mapTokenValues(
       // Exported SVG has XML text nodes; plugin raw() instead opts into code-level processing.
       props.content = isNativeSvg
         ? mapSvgValues(props.content, transform)
-        : transform(props.content)
+        : transform(props.content, 'code')
     }
     if (props.injectedProps && typeof props.injectedProps === 'object') {
       props.injectedProps = mapProps(props.injectedProps as Record<string, unknown>, transform, svg)
@@ -123,13 +125,20 @@ export function mapTokenValues(
 
 function mapProps(
   props: Record<string, unknown>,
-  transform: (value: string) => string,
+  transform: TokenTransform,
   inSvg: boolean
 ): Record<string, unknown> {
   const transformValue = (value: string) => transformCssValue(value, transform)
   return Object.fromEntries(
     Object.entries(props).map(([key, value]) => {
-      if (key === 'class' || key === 'className') return [key, mapClasses(value, transformValue)]
+      if (key === 'class' || key === 'className') {
+        return [
+          key,
+          mapClasses(value, (value) =>
+            transformCssValue(value, (part) => transform(part, 'tailwind'), { syntax: 'tailwind' })
+          )
+        ]
+      }
       if (key === 'style') return [key, mapStyle(value, transformValue)]
       if (inSvg && SVG_STYLE_ATTRIBUTES.has(camelToKebab(key)) && typeof value === 'string') {
         return [key, transformValue(value)]
@@ -164,46 +173,7 @@ function mapStyle(value: unknown, transform: (value: string) => string): unknown
   return value
 }
 
-function transformCssValue(value: string, transform: (value: string) => string): string {
-  // Keep quoted literals opaque, including Tailwind content-["..."] values. Masking
-  // lets the transform still remove an outer var(--name, "fallback") as one unit.
-  let delimiter = '\0'
-  while (value.includes(delimiter)) delimiter += '\0'
-  const literals: string[] = []
-  let masked = ''
-  let copiedUntil = 0
-  let index = 0
-  while (index < value.length) {
-    const ch = value[index]
-    let literalEnd: number | undefined
-    if (ch === '"' || ch === "'") {
-      literalEnd = skipCssLiteral(value, index, ch)
-    } else if (ch === '/' && value[index + 1] === '*') {
-      const end = value.indexOf('*/', index + 2)
-      literalEnd = end < 0 ? value.length : end + 2
-    } else {
-      const name = readCssName(value, index)
-      const end = index + name.length
-      // Consume names once; escaped functions share unit conversion's opaque handling.
-      if (value[end] === '(' && (name.toLowerCase() === 'url' || name.includes('\\'))) {
-        literalEnd = skipCssLiteral(value, end, ')')
-      } else {
-        index = name ? end : index + 1
-        continue
-      }
-    }
-    masked += value.slice(copiedUntil, index) + `${delimiter}${literals.length}${delimiter}`
-    literals.push(value.slice(index, literalEnd))
-    index = copiedUntil = literalEnd
-  }
-  masked += value.slice(copiedUntil)
-  return transform(masked).replace(
-    new RegExp(`${delimiter}(\\d+)${delimiter}`, 'g'),
-    (_match, index: string) => literals[Number(index)]!
-  )
-}
-
-function mapSvgValues(content: string, transform: (value: string) => string): string {
+function mapSvgValues(content: string, transform: TokenTransform): string {
   // Literal exports need no token work. Entities can encode either CSS syntax or
   // template delimiters, so they must still pass through the XML text boundary.
   if (!/var\(|--|color-mix|[{}&]|<!\[CDATA\[/i.test(content)) return content

@@ -226,7 +226,7 @@ describe.each(['jsx', 'vue'] as const)('%s native text blocks', (lang) => {
       getCSSAsync: async () => ({ width: '472px', height: '80px', 'text-indent': '12px' })
     })
     const result = await handleGetCode([node], lang)
-    for (const commonClass of ['font-[Inter]', 'text-[16px]', 'leading-[24px]']) {
+    for (const commonClass of ['font-[family-name:Inter]', 'text-[16px]', 'leading-[24px]']) {
       expect(result.code.split(commonClass)).toHaveLength(2)
     }
     expect(result.code).toContain('text-[#F00]')

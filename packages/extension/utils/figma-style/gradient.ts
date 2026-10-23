@@ -448,7 +448,7 @@ export function formatGradientStopColor(
         const cssVarName = getVariableCssName(v)
         const varName = `var(${cssVarName}, ${fallback})`
         // Bound stop alpha is already in the variable; only paint opacity is independent.
-        if (fillOpacity >= 0.99) return varName
+        if (fillOpacity >= 1) return varName
         const pct = Math.round(Math.max(0, Math.min(1, fillOpacity)) * 10000) / 100
         return `color-mix(in srgb, ${varName} ${pct}%, transparent)`
       }

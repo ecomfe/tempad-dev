@@ -7,14 +7,14 @@ import { escapeJsSingleQuotedString, escapeJsTemplateLiteralText, kebabToCamel }
 
 export const WHITESPACE_RE = /\s+/
 export const ALL_WHITESPACE_RE = /\s+/g
-export const COMMA_DELIMITER_RE = /,\s*/g
 const ZERO_UNITS_RE = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
 
 const SCSS_VARS_RE = /(^|[^\w-])[$@]([a-zA-Z0-9_-]+)/g
 
 const CSS_NUMBER_RE = /[+-]?(?:\d*\.\d+|\d+)(?:e[+-]?\d+)?/iy
 const CSS_NAME_RE = /(?:[-\w\u0080-\uFFFF]|\\(?:[\da-f]{1,6}[ \t\r\n\f]?|[^\r\n\f]))+/iy
-export const QUOTES_RE = /['"]/g
+// Tailwind arbitrary values encode whitespace as unescaped underscores.
+const TAILWIND_NAME_RE = /(?:[-A-Za-z0-9\u0080-\uFFFF]|\\(?:[\da-f]{1,6}[ \t\r\n\f]?|[^\r\n\f]))+/iy
 const FLEX_FACTOR_RE = /^[+-]?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?$/i
 const FLEX_BASIS_RE =
   /^([+]?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?)(%|px|em|rem|ex|ch|lh|rlh|vw|vh|vi|vb|vmin|vmax|cm|mm|q|in|pt|pc)$/i
@@ -52,51 +52,43 @@ const RE_CAPS = /^[A-Z]+$/
 const RE_SINGLE = /^[A-Za-z]$/
 
 export function splitByTopLevelComma(input: string, keepEmpty = false): string[] {
+  return splitCssTopLevel(input, ',', keepEmpty)
+}
+
+function splitCssTopLevel(input: string, separator: ',' | '/' | ' ', keepEmpty = false): string[] {
   if (!input) return []
 
   const out: string[] = []
   let depth = 0
-  let quote: "'" | '"' | null = null
-  let buf = ''
+  let start = 0
 
   for (let i = 0; i < input.length; i++) {
-    const ch = input[i]
-
-    if (quote) {
-      if (ch === '\\') {
-        buf += ch
-        i++
-        if (i < input.length) buf += input[i]
-        continue
-      }
-      if (ch === quote) quote = null
-      buf += ch
+    const ch = input[i]!
+    if (ch === '"' || ch === "'") {
+      i = skipCssLiteral(input, i, ch) - 1
       continue
     }
-
-    if (ch === '"' || ch === "'") {
-      quote = ch
-      buf += ch
+    if (ch === '/' && input[i + 1] === '*') {
+      const end = input.indexOf('*/', i + 2)
+      i = end < 0 ? input.length : end + 1
+      continue
+    }
+    if (ch === '\\') {
+      i += Math.max(2, readCssName(input, i).length) - 1
       continue
     }
 
     if (ch === '(') depth++
     else if (ch === ')') depth = Math.max(0, depth - 1)
-    else if (ch === ',' && depth === 0) {
-      const segment = buf.trim()
+    else if (depth === 0 && (separator === ' ' ? /[\t\n\f\r ]/.test(ch) : ch === separator)) {
+      const segment = input.slice(start, i).trim()
       if (segment || keepEmpty) out.push(segment)
-      buf = ''
-      continue
+      start = i + 1
     }
-
-    buf += ch
   }
 
-  const tail = buf.trim()
-  if (tail || keepEmpty) {
-    out.push(tail)
-  }
-
+  const tail = input.slice(start).trim()
+  if (tail || keepEmpty) out.push(tail)
   return out
 }
 
@@ -124,33 +116,50 @@ const KEEP_PX_PROPS = new Set([
   'backdrop-filter'
 ])
 
-const CSS_COMMENTS_RE = /\/\*[\s\S]*?\*\//g
-
 type VarFunctionMatch = {
   full: string
   name: string
   fallback?: string
 }
 
+export type CssValueSyntax = 'css' | 'tailwind' | 'code'
+
 export function replaceVarFunctions(
   input: string,
-  replacer: (match: VarFunctionMatch) => string
+  replacer: (match: VarFunctionMatch) => string,
+  syntax: CssValueSyntax = 'css'
 ): string {
   if (!input) return input
 
   let out = ''
   let i = 0
+  let copiedUntil = 0
 
   while (i < input.length) {
-    const start = input.toLowerCase().indexOf('var(', i)
-    if (start < 0) {
-      out += input.slice(i)
-      break
+    const ch = input[i]
+    if (syntax !== 'code' && (ch === '"' || ch === "'")) {
+      i = skipCssLiteral(input, i, ch)
+      continue
     }
+    if (syntax !== 'code' && ch === '/' && input[i + 1] === '*') {
+      const end = input.indexOf('*/', i + 2)
+      i = end < 0 ? input.length : end + 2
+      continue
+    }
+    const start = i
+    const functionName = readCssName(input, i, syntax)
+    i += functionName.length || 1
+    if (input[i] !== '(') continue
+    if (
+      syntax !== 'code' &&
+      (functionName.toLowerCase() === 'url' || functionName.includes('\\'))
+    ) {
+      i = skipCssLiteral(input, i, ')')
+      continue
+    }
+    if (functionName.toLowerCase() !== 'var') continue
 
-    out += input.slice(i, start)
-
-    let j = start + 4
+    let j = i + 1
     let depth = 1
     let nameEnd: number | undefined
     let commaIndex = -1
@@ -160,7 +169,13 @@ export function replaceVarFunctions(
 
     for (; j < input.length; j++) {
       const ch = input[j]
-      if (ch === '(') depth++
+      if (ch === '"' || ch === "'") {
+        j = skipCssLiteral(input, j, ch) - 1
+      } else if (ch === '/' && input[j + 1] === '*') {
+        const end = input.indexOf('*/', j + 2)
+        j = end < 0 ? input.length : end + 1
+      } else if (ch === '\\') j++
+      else if (ch === '(') depth++
       else if (ch === ')') {
         depth--
         if (depth === 0) break
@@ -171,7 +186,6 @@ export function replaceVarFunctions(
     }
 
     if (depth !== 0) {
-      out += input.slice(start)
       break
     }
 
@@ -185,11 +199,12 @@ export function replaceVarFunctions(
     const name = input.slice(nameStart, nameEnd)
     const fallback = commaIndex >= 0 ? input.slice(commaIndex + 1, j).trim() : undefined
 
-    out += replacer({ full, name, ...(fallback ? { fallback } : {}) })
-    i = j + 1
+    out +=
+      input.slice(copiedUntil, start) + replacer({ full, name, ...(fallback ? { fallback } : {}) })
+    i = copiedUntil = j + 1
   }
 
-  return out
+  return out + input.slice(copiedUntil)
 }
 
 export function extractVarNames(input: string): Set<string> {
@@ -220,7 +235,7 @@ export function formatHexAlpha(
   const g = toHex(color.g)
   const b = toHex(color.b)
 
-  if (opacity >= 0.99) {
+  if (opacity >= 1) {
     if (r[0] === r[1] && g[0] === g[1] && b[0] === b[1]) {
       return `#${r[0]}${g[0]}${b[0]}`
     }
@@ -263,10 +278,29 @@ export function parseBackgroundShorthand(value: string) {
   return result
 }
 
-export function parseBoxValues(value: string): [string, string, string, string] {
-  const parts = value.trim().split(WHITESPACE_RE)
+export function parseBoxValues(value: string): [string, string, string, string] | null {
+  const parts = parseShorthandValues(value, 4)
+  if (!parts) return null
   const [t = '', r = t, b = t, l = r] = parts
   return [t, r, b, l]
+}
+
+function parseShorthandValues(value: string, maximum: number): string[] | null {
+  const parts = splitCssTopLevel(value, ' ')
+  return parts.length > 0 &&
+    parts.length <= maximum &&
+    splitCssTopLevel(value, '/', true).length === 1
+    ? parts
+    : null
+}
+
+function hasUnresolvedShorthand(value: string): boolean {
+  // A top-level substitution can expand to several components. A substitution
+  // inside calc()/min()/etc. still belongs to that one function value.
+  return splitCssTopLevel(value, ' ').some((part) => {
+    const name = readCssName(part, 0)
+    return part[name.length] === '(' && (/^(var|env)$/i.test(name) || name.includes('\\'))
+  })
 }
 
 function isFlexFactor(value: string): boolean {
@@ -356,9 +390,10 @@ function transformPxValue(value: string, transform: (value: number) => string) {
   return output + value.slice(copiedUntil)
 }
 
-export function readCssName(value: string, start: number): string {
-  CSS_NAME_RE.lastIndex = start
-  return CSS_NAME_RE.exec(value)?.[0] ?? ''
+export function readCssName(value: string, start: number, syntax: CssValueSyntax = 'css'): string {
+  const pattern = syntax === 'tailwind' ? TAILWIND_NAME_RE : CSS_NAME_RE
+  pattern.lastIndex = start
+  return pattern.exec(value)?.[0] ?? ''
 }
 
 export function skipCssLiteral(value: string, start: number, closing: string): number {
@@ -372,6 +407,57 @@ export function skipCssLiteral(value: string, start: number, closing: string): n
     } else index++
   }
   return value.length
+}
+
+export function transformCssValue(
+  value: string,
+  transform: (value: string) => string,
+  {
+    removeComments = false,
+    syntax = 'css'
+  }: { removeComments?: boolean; syntax?: CssValueSyntax } = {}
+): string {
+  // Keep quoted literals opaque, including Tailwind content-["..."] values. Masking
+  // lets the transform still remove an outer var(--name, "fallback") as one unit.
+  let delimiter = '\0'
+  while (value.includes(delimiter)) delimiter += '\0'
+  const literals: string[] = []
+  let masked = ''
+  let copiedUntil = 0
+  let index = 0
+  while (index < value.length) {
+    const ch = value[index]
+    let literalEnd: number | undefined
+    if (ch === '"' || ch === "'") {
+      literalEnd = skipCssLiteral(value, index, ch)
+    } else if (ch === '/' && value[index + 1] === '*') {
+      const end = value.indexOf('*/', index + 2)
+      literalEnd = end < 0 ? value.length : end + 2
+      if (removeComments) {
+        masked += value.slice(copiedUntil, index)
+        index = copiedUntil = literalEnd
+        continue
+      }
+    } else {
+      const name = readCssName(value, index, syntax)
+      const end = index + name.length
+      // Consume names once; escaped functions share unit conversion's opaque handling.
+      if (value[end] === '(' && (name.toLowerCase() === 'url' || name.includes('\\'))) {
+        literalEnd = skipCssLiteral(value, end, ')')
+      } else {
+        index = name ? end : index + 1
+        continue
+      }
+    }
+    masked += value.slice(copiedUntil, index) + `${delimiter}${literals.length}${delimiter}`
+    literals.push(value.slice(index, literalEnd))
+    index = copiedUntil = literalEnd
+  }
+  masked += value.slice(copiedUntil)
+  return transform(masked).replace(
+    new RegExp(`${delimiter}(\\d+)${delimiter}`, 'g'),
+    (_match, index: string) => literals[Number(index)]!
+  )
 }
 
 function scalePxValue(value: string, scale: number): string {
@@ -418,28 +504,32 @@ export function normalizeStyleValues(
 export function simplifyColorMixToRgba(input: string): string {
   if (!input || !input.includes('color-mix(')) return input
 
-  return input.replace(
-    /color-mix\(\s*in\s+srgb\s*,\s*(#[0-9a-fA-F]{3,8})\s+([0-9.]+)%\s*,\s*transparent\s*\)/g,
-    (_match, hex: string, pct: string) => {
-      const parsed = parseHexColor(hex)
-      if (!parsed) return _match
-      const weight = Number(pct) / 100
-      if (!Number.isFinite(weight)) return _match
-      const alpha = toDecimalPlace(Math.min(1, Math.max(0, parsed.a * weight)), 2)
-      return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`
-    }
+  return transformCssValue(input, (value) =>
+    value.replace(
+      /color-mix\(\s*in\s+srgb\s*,\s*(#[0-9a-fA-F]{3,8})\s+([0-9.]+)%\s*,\s*transparent\s*\)/g,
+      (_match, hex: string, pct: string) => {
+        const parsed = parseHexColor(hex)
+        if (!parsed) return _match
+        const weight = Number(pct) / 100
+        if (!Number.isFinite(weight)) return _match
+        const alpha = toDecimalPlace(Math.min(1, Math.max(0, parsed.a * weight)), 2)
+        return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`
+      }
+    )
   )
 }
 
 export function simplifyHexAlphaToRgba(input: string): string {
   if (!input || !input.includes('#')) return input
 
-  return input.replace(/#(?:[0-9a-fA-F]{4}|[0-9a-fA-F]{8})(?![0-9a-fA-F])/g, (match) => {
-    const parsed = parseHexColor(match)
-    if (!parsed || parsed.a >= 0.999) return match
-    const alpha = toDecimalPlace(Math.min(1, Math.max(0, parsed.a)), 2)
-    return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`
-  })
+  return transformCssValue(input, (value) =>
+    value.replace(/#(?:[0-9a-fA-F]{4}|[0-9a-fA-F]{8})(?![0-9a-fA-F])/g, (match) => {
+      const parsed = parseHexColor(match)
+      if (!parsed || parsed.a >= 0.999) return match
+      const alpha = toDecimalPlace(Math.min(1, Math.max(0, parsed.a)), 2)
+      return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`
+    })
+  )
 }
 
 function parseHexColor(input: string): { r: number; g: number; b: number; a: number } | null {
@@ -466,18 +556,32 @@ export function parseBorderShorthand(normalized: string): {
   style?: string
   color?: string
 } {
-  const matched = normalized.match(/^\s*(\S+)\s+(\S+)\s+(.+)\s*$/)
-  if (matched) {
-    const [, width, style, color] = matched
-    return { width, style, color: color!.trim() }
-  }
+  const parts = parseShorthandValues(normalized, 3)
+  if (!parts) return {}
 
-  const parts = normalized.split(WHITESPACE_RE).filter(Boolean)
-  return {
-    width: parts[0],
-    style: parts[1],
-    color: parts.slice(2).join(' ').trim() || undefined
+  const parsed: { width?: string; style?: string; color?: string } = {}
+  for (const part of parts) {
+    if (/^(inherit|initial|unset|revert(?:-layer)?)$/i.test(part)) return {}
+    if (hasUnresolvedShorthand(part)) continue
+
+    let field: 'width' | 'style' | 'color'
+    const length = part.match(FLEX_BASIS_RE)
+    if (
+      /^(thin|medium|thick)$/i.test(part) ||
+      (isFlexFactor(part) && Number(part) === 0) ||
+      (length && length[2] !== '%') ||
+      /^(calc|min|max|clamp)\(/i.test(part)
+    ) {
+      field = 'width'
+    } else if (/^(none|hidden|dotted|dashed|solid|double|groove|ridge|inset|outset)$/i.test(part)) {
+      field = 'style'
+    } else {
+      field = 'color'
+    }
+    if (parsed[field]) return {}
+    parsed[field] = part
   }
+  return parsed
 }
 
 export function extractLeadingGradient(value: string): string | null {
@@ -660,11 +764,13 @@ function buildGradientBorderPseudoStyle(spec: GradientBorderSpec): Record<string
 }
 
 function formatJsObjectKey(key: string): string {
+  if (!key.startsWith('--')) key = kebabToCamel(key)
+  if (key === '__proto__') return `[${JSON.stringify(key)}]`
   if (JS_IDENTIFIER_RE.test(key)) {
     return key
   }
 
-  return `"${key.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  return JSON.stringify(key)
 }
 
 export function expandShorthands(style: Record<string, string>): Record<string, string> {
@@ -674,7 +780,9 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
   boxKeys.forEach((key) => {
     if (expanded[key]) {
       const val = normalizeStyleValue(expanded[key])
-      const [t, r, b, l] = parseBoxValues(val)
+      const sides = hasUnresolvedShorthand(val) ? null : parseBoxValues(val)
+      if (!sides) return
+      const [t, r, b, l] = sides
       if (key === 'inset') {
         expanded['top'] = t
         expanded['right'] = r
@@ -692,20 +800,26 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
 
   if (expanded['border-radius']) {
     const val = normalizeStyleValue(expanded['border-radius'])
-    const [tl, tr, br, bl] = parseBoxValues(val)
-    expanded['border-top-left-radius'] = tl
-    expanded['border-top-right-radius'] = tr
-    expanded['border-bottom-right-radius'] = br
-    expanded['border-bottom-left-radius'] = bl
-    delete expanded['border-radius']
+    const corners = hasUnresolvedShorthand(val) ? null : parseBoxValues(val)
+    if (corners) {
+      const [tl, tr, br, bl] = corners
+      expanded['border-top-left-radius'] = tl
+      expanded['border-top-right-radius'] = tr
+      expanded['border-bottom-right-radius'] = br
+      expanded['border-bottom-left-radius'] = bl
+      delete expanded['border-radius']
+    }
   }
 
   if (expanded['gap']) {
     const val = normalizeStyleValue(expanded['gap'])
-    const [row = '', column = row] = val.trim().split(WHITESPACE_RE)
-    expanded['row-gap'] = row
-    expanded['column-gap'] = column
-    delete expanded['gap']
+    const gaps = hasUnresolvedShorthand(val) ? null : parseShorthandValues(val, 2)
+    if (gaps) {
+      const [row = '', column = row] = gaps
+      expanded['row-gap'] = row
+      expanded['column-gap'] = column
+      delete expanded['gap']
+    }
   }
 
   if (expanded['flex'] !== undefined) {
@@ -739,8 +853,8 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
 
   if (expanded['grid-row']) {
     const val = normalizeStyleValue(expanded['grid-row'])
-    const parts = val.split(/\s*\/\s*/)
-    if (parts.length > 1) {
+    const parts = splitCssTopLevel(val, '/', true)
+    if (parts.length === 2 && parts.every(Boolean) && !hasUnresolvedShorthand(val)) {
       const start = parts[0]!.trim()
       const end = parts[1]!.trim()
 
@@ -761,8 +875,8 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
 
   if (expanded['grid-column']) {
     const val = normalizeStyleValue(expanded['grid-column'])
-    const parts = val.split(/\s*\/\s*/)
-    if (parts.length > 1) {
+    const parts = splitCssTopLevel(val, '/', true)
+    if (parts.length === 2 && parts.every(Boolean) && !hasUnresolvedShorthand(val)) {
       const start = parts[0]!.trim()
       const end = parts[1]!.trim()
 
@@ -793,10 +907,17 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
     if (expanded[key]) {
       const val = normalizeStyleValue(expanded[key])
       const { width, style: borderStyle, color } = parseBorderShorthand(val)
+      if (!val) {
+        delete expanded[key]
+        continue
+      }
+      // Omitted components have shorthand defaults; do not replace that reset
+      // with partial longhands or guess which role a variable will provide.
+      if (hasUnresolvedShorthand(val) || !width || !borderStyle || !color) continue
       sides.forEach((side) => {
-        if (width) expanded[`border-${side}-width`] = width
-        if (borderStyle) expanded[`border-${side}-style`] = borderStyle
-        if (color) expanded[`border-${side}-color`] = color
+        expanded[`border-${side}-width`] = width
+        expanded[`border-${side}-style`] = borderStyle
+        expanded[`border-${side}-color`] = color
       })
       delete expanded[key]
     }
@@ -868,7 +989,7 @@ export function serializeCSS(
 
     if (useDisplayMode) {
       current = preprocessCssValue(current)
-      current = current.replace(ZERO_UNITS_RE, '$10').trim()
+      current = transformCssValue(current, (value) => value.replace(ZERO_UNITS_RE, '$10')).trim()
     } else {
       current = normalizeStyleValue(current)
     }
@@ -966,10 +1087,10 @@ export function serializeCSS(
 
     if (toJS) {
       const baseLines = Object.entries(baseStyle).map(
-        ([key, value]) => `  ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
+        ([key, value]) => `  ${formatJsObjectKey(key)}: ${stringifyValue(value)}`
       )
       const pseudoLines = Object.entries(pseudoStyle).map(
-        ([key, value]) => `    ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
+        ([key, value]) => `    ${formatJsObjectKey(key)}: ${stringifyValue(value)}`
       )
       baseLines.push(`  ${formatJsObjectKey('&::before')}: {\n${pseudoLines.join(',\n')}\n  }`)
 
@@ -991,7 +1112,7 @@ export function serializeCSS(
     code =
       '{\n' +
       Object.entries(processedStyle)
-        .map(([key, value]) => `  ${kebabToCamel(key)}: ${stringifyValue(value)}`)
+        .map(([key, value]) => `  ${formatJsObjectKey(key)}: ${stringifyValue(value)}`)
         .join(',\n') +
       '\n}'
   } else {
@@ -1129,21 +1250,27 @@ export function toFigmaVarExpr(input: string): string {
 // Intentionally does NOT strip fallbacks.
 export function preprocessCssValue(value: string): string {
   if (!value) return value
-  return value.replace(CSS_COMMENTS_RE, '').replace(SCSS_VARS_RE, '$1var(--$2)')
+  return transformCssValue(value, (part) => part.replace(SCSS_VARS_RE, '$1var(--$2)'), {
+    removeComments: true
+  })
 }
 
-export function stripFallback(value: string): string {
-  return replaceVarFunctions(value, ({ name, full, fallback }) => {
-    if (!fallback) return full
-    return `var(${name.trim()})`
-  })
+export function stripFallback(value: string, syntax: CssValueSyntax = 'css'): string {
+  return replaceVarFunctions(
+    value,
+    ({ name, full, fallback }) => {
+      if (!fallback) return full
+      return `var(${name.trim()})`
+    },
+    syntax
+  )
 }
 
 export function normalizeStyleValue(raw: string): string {
   if (!raw) return ''
   let val = preprocessCssValue(raw)
   val = stripFallback(val)
-  val = val.replace(ZERO_UNITS_RE, '$10')
+  val = transformCssValue(val, (value) => value.replace(ZERO_UNITS_RE, '$10'))
   return val.trim()
 }
 
@@ -1220,27 +1347,52 @@ export function pruneInheritedTextStyles(
 }
 
 export function canonicalizeValue(key: string, value: string): string {
-  const trimmed = value.trim().toLowerCase()
+  const trimmed = value.trim()
+  const lower = trimmed.toLowerCase()
 
-  if (/^0+(\.0+)?(px|%|rem|em)?$/.test(trimmed)) {
+  if (/^0+(\.0+)?(px|%|rem|em)?$/.test(lower)) {
     return '0'
   }
 
-  if (key === 'color') {
-    const hex = canonicalizeColor(trimmed)
+  if (key === 'color' && isLosslessColor(lower)) {
+    const hex = canonicalizeColor(lower)
     if (hex) return hex
   }
 
   if (key === 'font-weight') {
-    if (trimmed === 'normal') return '400'
-    if (trimmed === 'bold') return '700'
+    if (lower === 'normal') return '400'
+    if (lower === 'bold') return '700'
   }
 
-  if (key === 'line-height' && trimmed === 'normal') {
-    return 'normal'
+  // Only known keywords and literals are case-insensitive. Variable names,
+  // quoted strings and their whitespace must survive inheritance comparisons.
+  return TEXT_STYLE_DEFAULTS.get(key) === lower ? lower : trimmed
+}
+
+function isLosslessColor(value: string): boolean {
+  if (/^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/.test(value)) return true
+
+  const parts = value
+    .match(/^rgba?\(([^)]+)\)$/)?.[1]
+    ?.split(',')
+    .map((part) => part.trim())
+  if (
+    !parts ||
+    (parts.length !== 3 && parts.length !== 4) ||
+    !parts.every((part) => /^[+-]?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?$/.test(part))
+  ) {
+    return false
   }
 
-  return trimmed.replace(ALL_WHITESPACE_RE, '')
+  // The diagnostic color formatter rounds channels and alpha percentages.
+  // That approximation must not remove a distinct inherited text override.
+  const alpha = Number(parts[3] ?? 1)
+  return (
+    parts.slice(0, 3).every((part) => Number.isInteger(Number(part))) &&
+    alpha >= 0 &&
+    alpha <= 1 &&
+    Math.round(alpha * 100) / 100 === alpha
+  )
 }
 
 function formatHex(r: number, g: number, b: number): string {

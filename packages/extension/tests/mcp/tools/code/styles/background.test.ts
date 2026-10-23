@@ -81,6 +81,46 @@ describe('mcp/tools/code/styles/background', () => {
     expect(result.background).not.toContain('lightgray')
   })
 
+  it.each([
+    [0.99, '99', '#0000FFFC'],
+    [0.995, '99.5', '#0000FFFE']
+  ] as const)(
+    'preserves paint opacity %s and native geometry on a gradient above an image',
+    async (opacity, percentage, literal) => {
+      vi.stubGlobal('figma', {
+        variables: { getVariableById: () => ({ name: 'Accent' }) }
+      })
+      const node = createNode('RECTANGLE', {
+        fills: [
+          { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' },
+          {
+            type: 'GRADIENT_LINEAR',
+            opacity,
+            gradientStops: [
+              {
+                position: 0,
+                color: { r: 1, g: 0, b: 0, a: 1 },
+                boundVariables: { color: { type: 'VARIABLE_ALIAS', id: 'accent' } }
+              },
+              { position: 1, color: { r: 0, g: 0, b: 1, a: 1 } }
+            ]
+          }
+        ]
+      })
+      const style = await resolveStylesFromNode(
+        {
+          background:
+            'linear-gradient(37deg, var(--Accent) 25%, blue 75%), url("photo.png") 50% / cover'
+        },
+        node
+      )
+
+      expect(cleanFigmaSpecificStyles(style, node).background).toBe(
+        `linear-gradient(37deg, color-mix(in srgb, var(--Accent) ${percentage}%, transparent) 25%, ${literal} 75%), url("photo.png") 50% / cover`
+      )
+    }
+  )
+
   afterEach(() => {
     vi.unstubAllGlobals()
   })

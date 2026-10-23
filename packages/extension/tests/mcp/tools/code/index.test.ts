@@ -73,7 +73,7 @@ vi.mock('@/mcp/tools/code/tokens', async () => ({
   createTokenConsumerResolver: (await import('@/mcp/tools/code/tokens/resolve'))
     .createTokenConsumerResolver,
   resolveStyleMap: mocks.resolveStyleMap,
-  rewriteTokenNamesInCode: (await import('@/mcp/tools/code/tokens/rewrite')).rewriteTokenNamesInCode
+  createTokenNameRewriter: (await import('@/mcp/tools/code/tokens/rewrite')).createTokenNameRewriter
 }))
 
 vi.mock('@/mcp/tools/code/render', () => ({
@@ -955,6 +955,40 @@ describe('mcp/code handleGetCode', () => {
     expect(result.tokens).toEqual(tokens)
     expect(mocks.renderTree).toHaveBeenCalledTimes(2)
     expect(mocks.createStyleVarResolver).not.toHaveBeenCalled()
+  })
+
+  it('retains encoded token names and removes every fallback after a token rerender', async () => {
+    const root = createSnapshot({ id: 'opacity' })
+    const tree = createTree([root])
+    mockAssetCollection(tree, [], new Set())
+    const styles = new Map([['opacity', { opacity: 'var(--source_token)' }]])
+    mocks.collectNodeData.mockResolvedValue({ nodes: tree.nodes, styles, textSegments: new Map() })
+    mocks.prepareStyles.mockReturnValue({ styles, layout: new Map(), usedCandidateIds: new Set() })
+    mocks.processTokens.mockResolvedValue({
+      code: '<div />',
+      tokensByCanonical: { '--next_token': { kind: 'number', value: '50px' } },
+      sourceIndex: new Map([['--source_token', 'v']]),
+      rewriteMap: new Map([['--source_token', '--next_token']])
+    })
+    mocks.resolveStyleMap.mockImplementation(
+      (await import('@/mcp/tools/code/tokens/resolve')).resolveStyleMap
+    )
+    mocks.renderTree.mockImplementation(async (_id, _tree, ctx) => ({
+      name: 'div',
+      props: {
+        style: ctx.styles.get('opacity'),
+        className: String.raw`w-[calc(var(--source\_token,_8px)_+_var(--source\_token,_4px))] h-(--source_token)`
+      },
+      children: []
+    }))
+
+    const result = await handleGetCode([root.node], 'jsx', false)
+    expect(mocks.renderTree).toHaveBeenCalledTimes(2)
+    expect(result.code).toContain(
+      String.raw`w-[calc(var(--next\_token)_+_var(--next\_token))] h-(--next\_token)`
+    )
+    expect(result.code).toContain('var(--next_token)')
+    expect(result.code).not.toContain('--source')
   })
 
   it.each([{ segments: null }, { segments: [] }])(

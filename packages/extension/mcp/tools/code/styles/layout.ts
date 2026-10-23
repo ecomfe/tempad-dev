@@ -46,7 +46,7 @@ export function mergeInferredAutoLayout(
     merged['align-items'] = align
   }
 
-  if (hasAtomicPadding(merged)) {
+  if (hasPadding(merged)) {
     return merged
   }
 
@@ -218,6 +218,12 @@ function hasGap(s: StyleMap) {
   return !!(s.gap || s['row-gap'] || s['column-gap'])
 }
 
-function hasAtomicPadding(s: StyleMap) {
-  return !!(s['padding-top'] || s['padding-right'] || s['padding-bottom'] || s['padding-left'])
+function hasPadding(s: StyleMap) {
+  return !!(
+    s.padding ||
+    s['padding-top'] ||
+    s['padding-right'] ||
+    s['padding-bottom'] ||
+    s['padding-left']
+  )
 }

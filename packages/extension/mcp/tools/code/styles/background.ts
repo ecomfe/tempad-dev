@@ -229,7 +229,7 @@ function resolveGradientWithOpacity(
 
     const fillOpacity = typeof fill.opacity === 'number' ? fill.opacity : 1
     const hasStopAlpha = fill.gradientStops.some((stop) => (stop.color?.a ?? 1) < 1)
-    if (fillOpacity >= 0.99 && !hasStopAlpha) return group
+    if (fillOpacity >= 1 && !hasStopAlpha) return group
 
     const resolved = resolveGradientPaintValue(fill, undefined, readers)
     return group.map((layer) => {

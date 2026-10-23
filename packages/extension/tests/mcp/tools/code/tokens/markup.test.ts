@@ -2,6 +2,7 @@ import { raw } from '@tempad-dev/plugins'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { DevComponent } from '@/types/plugin'
+import type { CssValueSyntax } from '@/utils/css'
 
 import { mapTokenValues } from '@/mcp/tools/code/tokens/markup'
 import { rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
@@ -9,10 +10,46 @@ import { stripFallback } from '@/utils/css'
 
 const source = 'var(--brand, #fff)'
 const expected = 'var(--renamed)'
-const transform = (value: string) =>
-  rewriteTokenNamesInCode(stripFallback(value), new Map([['--brand', '--renamed']]))
+const transform = (value: string, syntax?: CssValueSyntax) =>
+  rewriteTokenNamesInCode(stripFallback(value, syntax), new Map([['--brand', '--renamed']]))
 
 describe('typed markup token values', () => {
+  it('strips every Tailwind fallback without treating encoded spaces as CSS name characters', () => {
+    const gradient = 'bg-[linear-gradient(var(--brand,_red),_var(--end,_blue))]'
+    const component = {
+      name: 'div',
+      props: { className: [gradient, { [`hover:${gradient}`]: true }] },
+      children: []
+    }
+    const expected = 'bg-[linear-gradient(var(--renamed),_var(--end))]'
+    expect(mapTokenValues(component, transform).props.className).toEqual([
+      expected,
+      { [`hover:${expected}`]: true }
+    ])
+  })
+
+  it('keeps Tailwind literal and custom-name boundaries distinct from ordinary CSS', () => {
+    const className = String.raw`bg-[var(--brand,_red),_url(/var(--literal,_red)_image.svg)] content-['var(--literal,_red)'] [color:foo\_var(--brand,_red)]`
+    const component = {
+      name: 'div',
+      props: {
+        className,
+        style: { color: '_var(--brand, red)', background: 'foo_var(--brand, red)' }
+      },
+      children: []
+    }
+    const observed: string[] = []
+    const mapped = mapTokenValues(component, (value, syntax) => {
+      observed.push(value)
+      return stripFallback(value, syntax)
+    })
+    expect(mapped.props).toEqual({
+      ...component.props,
+      className: String.raw`bg-[var(--brand),_url(/var(--literal,_red)_image.svg)] content-['var(--literal,_red)'] [color:foo\_var(--brand,_red)]`
+    })
+    expect(observed.join('')).not.toContain('--literal')
+  })
+
   it('rewrites styling in nested components without changing literal props, text, or input objects', () => {
     const component: DevComponent = {
       name: 'Card',

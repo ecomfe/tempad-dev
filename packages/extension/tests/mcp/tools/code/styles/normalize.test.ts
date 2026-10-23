@@ -476,6 +476,14 @@ describe('mcp/styles/normalize', () => {
         scale: 1
       }
     )
-    expect(oneTokenSideBorders.some((item) => item.startsWith('before:'))).toBe(true)
+    expect(oneTokenSideBorders.some((item) => item.startsWith('before:'))).toBe(false)
+    expect(oneTokenSideBorders).toEqual(
+      expect.arrayContaining([
+        '[border-top:solid]',
+        '[border-right:solid]',
+        '[border-bottom:solid]',
+        '[border-left:solid]'
+      ])
+    )
   })
 })

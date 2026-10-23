@@ -6,7 +6,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 import { withCodeDeadline } from '@/mcp/tools/code/deadline'
 import { createTokenMatcher, extractTokenNames } from '@/mcp/tools/code/tokens/extract'
 import { processTokens } from '@/mcp/tools/code/tokens/process'
-import { rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
+import { createTokenNameRewriter } from '@/mcp/tools/code/tokens/rewrite'
 import { buildSourceNameIndex } from '@/mcp/tools/code/tokens/source-index'
 import { applyPluginTransformToNames } from '@/mcp/tools/code/tokens/transform'
 import { resolveTokenDefsByIds } from '@/mcp/tools/token/defs'
@@ -23,7 +23,7 @@ vi.mock('@/mcp/tools/code/tokens/extract', () => ({
 }))
 
 vi.mock('@/mcp/tools/code/tokens/rewrite', () => ({
-  rewriteTokenNamesInCode: vi.fn((code: string) => code)
+  createTokenNameRewriter: vi.fn(() => (code: string) => code)
 }))
 
 vi.mock('@/mcp/tools/code/tokens/source-index', () => ({
@@ -117,7 +117,7 @@ describe('tokens/process processTokens', () => {
       rewriteMap: new Map([['--token', '--renamed']]),
       finalBridge: new Map([['--renamed', 'var-1']])
     })
-    vi.mocked(rewriteTokenNamesInCode).mockReturnValue('const a = "var(--renamed)";')
+    vi.mocked(createTokenNameRewriter).mockReturnValue(() => 'const a = "var(--renamed)";')
     vi.mocked(resolveTokenDefsByIds).mockResolvedValue({
       '--renamed': {
         kind: 'color',
@@ -223,7 +223,7 @@ describe('tokens/process processTokens', () => {
       rewriteMap: new Map([['--token', '--renamed']]),
       finalBridge: new Map([['--renamed', 'var-1']])
     })
-    vi.mocked(rewriteTokenNamesInCode).mockReturnValue('short')
+    vi.mocked(createTokenNameRewriter).mockReturnValue(() => 'short')
     vi.mocked(resolveTokenDefsByIds).mockResolvedValue({
       '--renamed': {
         kind: 'color',

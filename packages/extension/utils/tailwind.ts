@@ -1,9 +1,9 @@
 import {
   ALL_WHITESPACE_RE,
-  COMMA_DELIMITER_RE,
-  QUOTES_RE,
   WHITESPACE_RE,
-  normalizeStyleValue
+  normalizeStyleValue,
+  readCssName,
+  skipCssLiteral
 } from '@/utils/css'
 import {
   TAILWIND_ALIGN_ITEMS,
@@ -114,10 +114,6 @@ function isCorner(f: string): f is Corner {
 
 function isAxis(f: string): f is Axis {
   return ['x', 'y'].includes(f)
-}
-
-function formatFontFamily(val: string): string {
-  return val.replace(COMMA_DELIMITER_RE, ',').replace(WHITESPACE_RE, '_').replace(QUOTES_RE, '')
 }
 
 function formatGridTemplate(val: string): FormatterResult {
@@ -578,8 +574,8 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'font',
     mode: 'direct',
     valueKind: 'any',
-    props: { v: 'font-family' },
-    formatter: formatFontFamily
+    arbitraryType: 'family-name',
+    props: { v: 'font-family' }
   },
   fontSize: {
     prefix: 'text',
@@ -941,12 +937,6 @@ function extractValuePart(
     }
   }
 
-  if (inner.includes('calc')) {
-    inner = inner.replace(ALL_WHITESPACE_RE, '_')
-  }
-
-  inner = formatArbitraryValue(inner)
-
   const isStrictKeywordType = kind === 'keyword'
   let text = inner
   const isKeyword = overrideIsKeyword ?? isStrictKeywordType
@@ -954,7 +944,7 @@ function extractValuePart(
   if (!isKeyword) {
     const shouldTag = config.arbitraryType && (inner.includes('var(') || config.valueKind === 'any')
     const customProperty = inner.match(/^var\((--[A-Za-z0-9_-]+)\)$/)?.[1]
-    const value = customProperty ?? inner
+    const value = customProperty ?? formatArbitraryValue(inner)
     const typedValue = shouldTag ? `${config.arbitraryType}:${value}` : value
     text = customProperty ? `(${typedValue})` : `[${typedValue}]`
   }
@@ -1182,8 +1172,55 @@ export function cssToTailwind(rawStyle: Record<string, string>): string {
   return classes.join(' ')
 }
 
+function encodeArbitrarySegment(value: string, inUrl = false): string {
+  // Consume CSS escapes before encoding class whitespace. Six hex digits remove
+  // the optional terminator space without joining the escape to the next token.
+  const normalized = value.replace(
+    /\\(?:([\da-f]{1,6})(?:\r\n|[ \t\r\n\f])?|(\r\n|[\r\n\f])|(.))/giu,
+    (
+      _token: string,
+      hex: string | undefined,
+      continuation: string | undefined,
+      character: string
+    ) => {
+      if (hex) return `\\${hex.padStart(6, '0')}`
+      if (continuation) return ''
+      return `\\${character.codePointAt(0)!.toString(16).padStart(6, '0')}`
+    }
+  )
+  // URL syntax whitespace can be trimmed only after escaped whitespace is encoded.
+  const input = inUrl ? normalized.replace(/^[ \t\r\n\f]+|[ \t\r\n\f]+$/g, '') : normalized
+  return input.replace(/_|[ \t\r\n\f]/g, (token) => {
+    if (token === '_') return inUrl ? '_' : '\\_'
+    return inUrl ? `\\${token.charCodeAt(0).toString(16).padStart(6, '0')}` : '_'
+  })
+}
+
 function formatArbitraryValue(value: string): string {
-  return value.trim().replace(/;+$/, '').replace(ALL_WHITESPACE_RE, '_')
+  const input = value.trim().replace(/;+$/, '')
+  let output = ''
+  for (let index = 0; index < input.length;) {
+    const start = index
+    const ch = input[index]
+    if (ch === '"' || ch === "'") {
+      index = skipCssLiteral(input, index, ch)
+    } else {
+      const name = readCssName(input, index)
+      index += name.length || 1
+      if (name.toLowerCase() === 'url' && input[index] === '(') {
+        const end = skipCssLiteral(input, index, ')')
+        const closed = input[end - 1] === ')'
+        const argument = input.slice(index + 1, closed ? end - 1 : end)
+        // Tailwind preserves URL underscores. Trim syntax whitespace, then encode
+        // actual URL whitespace as CSS escapes to keep the class in one token.
+        output += `url(${encodeArbitrarySegment(argument, true)}${closed ? ')' : ''}`
+        index = end
+        continue
+      }
+    }
+    output += encodeArbitrarySegment(input.slice(start, index))
+  }
+  return output
 }
 
 export function cssToClassNames(style: Record<string, string>): string[] {

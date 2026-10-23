@@ -651,11 +651,11 @@ describe('real collect to render pipeline', () => {
       const code = stringifyComponent(rendered, { lang: 'jsx' })
       if (resolveTokens) {
         expect(code).toContain('opacity-[0.5]')
-        expect(code).toContain(`gap-[${value}]`)
+        expect(code).toContain(`[gap:${value}]`)
         expect(code).not.toContain('var(--shared)')
       } else {
         expect(code).toContain(`opacity-[calc(var(--shared)_/_${denominator})]`)
-        expect(code).toContain('gap-')
+        expect(code).toContain('[gap:var(--shared)]')
         expect(code).toContain('var(--shared)')
       }
       expect(Number.parseFloat(value) / Number.parseFloat(denominator)).toBe(0.5)

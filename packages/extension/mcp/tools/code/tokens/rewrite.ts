@@ -1,4 +1,17 @@
+import type { CssValueSyntax } from '@/utils/css'
+
 import { buildTokenRegex } from './extract'
+
+export function createTokenNameRewriter(names: Map<string, string>) {
+  const tailwindNames = new Map<string, string>()
+  for (const [source, target] of names) {
+    const encodedTarget = target.replaceAll('_', '\\_')
+    tailwindNames.set(source, encodedTarget)
+    tailwindNames.set(source.replaceAll('_', '\\_'), encodedTarget)
+  }
+  return (value: string, syntax?: CssValueSyntax): string =>
+    rewriteTokenNamesInCode(value, syntax === 'tailwind' ? tailwindNames : names)
+}
 
 export function rewriteTokenNamesInCode(code: string, rewriteMap: Map<string, string>): string {
   if (!rewriteMap.size) return code
