@@ -218,7 +218,7 @@ describe('asset-store', () => {
     expect(writeFileSync).toHaveBeenCalled()
   })
 
-  it('logs warning when removing file fails', () => {
+  it('retains failed deletions in the catalog and retries removing the file', () => {
     const indexPath = '/mock/remove-index.json'
     fsState.existing.add(indexPath)
     fsState.contentByPath.set(
@@ -244,6 +244,20 @@ describe('asset-store', () => {
       { hash: 'x1', error: expect.any(Error) },
       'Failed to remove asset file on delete.'
     )
+    expect(store.list().map(({ hash, size }) => ({ hash, size }))).toEqual([
+      { hash: 'x1', size: 1 }
+    ])
+    store.flush()
+    expect(JSON.parse(fsState.contentByPath.get(indexPath)!)).toEqual([
+      expect.objectContaining({ hash: 'x1', size: 1 })
+    ])
+
+    fsState.rmErrorByPath.delete('/mock/assets/x1.png')
+    store.remove('x1')
+    expect(fsState.existing.has('/mock/assets/x1.png')).toBe(false)
+    expect(store.has('x1')).toBe(false)
+    store.flush()
+    expect(JSON.parse(fsState.contentByPath.get(indexPath)!)).toEqual([])
   })
 
   it('reconciles stale records, temp files, and orphan files', () => {

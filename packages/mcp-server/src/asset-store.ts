@@ -142,16 +142,17 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
   function remove(hash: string, { removeFile = true } = {}): void {
     const record = records.get(hash)
     if (!record) return
-    records.delete(hash)
-    persist()
 
     if (removeFile) {
       try {
         rmSync(record.filePath, { force: true })
       } catch (error) {
         log.warn({ hash, error }, 'Failed to remove asset file on delete.')
+        return
       }
     }
+    records.delete(hash)
+    persist()
   }
 
   function reconcile(): void {
