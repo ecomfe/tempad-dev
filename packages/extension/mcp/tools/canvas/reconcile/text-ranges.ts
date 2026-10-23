@@ -75,8 +75,9 @@ export function* textRangesOutside(
   // Authored ranges are ordered. Paragraph expansion can make them overlap.
   for (const range of overrides) {
     const start = Math.max(scope.start, range.start)
+    if (start >= scope.end) break
     const end = Math.min(scope.end, range.end)
-    if (end <= position || start >= scope.end) continue
+    if (end <= position) continue
     if (position < start) yield { start: position, end: start }
     position = end
   }
