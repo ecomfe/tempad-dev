@@ -22,7 +22,7 @@ function replaceScript(current: HTMLScriptElement, src: string): void {
 }
 
 function withCurrentScript(current: HTMLScriptElement, run: () => void): void {
-  const descriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'currentScript')
+  const descriptor = Object.getOwnPropertyDescriptor(document, 'currentScript')
 
   Object.defineProperty(document, 'currentScript', {
     configurable: true,
@@ -56,6 +56,7 @@ export async function rewriteCurrentScript(groups: Group[]): Promise<void> {
 
   try {
     const response = await fetch(src)
+    if (!response.ok) throw new Error(`Script request failed with HTTP ${response.status}: ${src}`)
     const original = await response.text()
     const { content: rewritten, changed } = applyGroups(original, groups)
 

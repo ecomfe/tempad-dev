@@ -82,6 +82,7 @@ describe('rewrite/runtime rewriteCurrentScript', () => {
     const src = 'https://example.com/app.js'
     const { document, current } = setupRuntimeContext(src)
     const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
       text: vi.fn().mockResolvedValue('console.log("original");')
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -104,6 +105,7 @@ describe('rewrite/runtime rewriteCurrentScript', () => {
     expect((globalThis as { window: { figma?: unknown } }).window.figma).toBeUndefined()
     expect((globalThis as { __rewriteExecuted?: string }).__rewriteExecuted).toBe(src)
     expect(document.currentScript).toBe(current)
+    expect(Object.hasOwn(document, 'currentScript')).toBe(false)
     expect(current?.replacedWithNode).toBeNull()
   })
 
@@ -130,14 +132,15 @@ describe('rewrite/runtime rewriteCurrentScript', () => {
     expect(mocks.applyGroups).not.toHaveBeenCalled()
   })
 
-  it('handles unchanged rewrites and restores currentScript without a prototype descriptor', async () => {
+  it('handles unchanged rewrites and restores an own currentScript without a prototype descriptor', async () => {
     const descriptor = Object.getOwnPropertyDescriptor(MockDocument.prototype, 'currentScript')
     Reflect.deleteProperty(MockDocument.prototype, 'currentScript')
 
     try {
       const src = 'https://example.com/unchanged.js'
-      const { document } = setupRuntimeContext(src)
+      const { document, current } = setupRuntimeContext(src)
       const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
         text: vi.fn().mockResolvedValue('console.log("same");')
       })
       vi.stubGlobal('fetch', fetchMock)
@@ -150,12 +153,64 @@ describe('rewrite/runtime rewriteCurrentScript', () => {
 
       expect(mocks.logger.log).not.toHaveBeenCalled()
       expect((globalThis as { __rewriteExecuted?: string }).__rewriteExecuted).toBe('ok')
-      expect(Reflect.has(document, 'currentScript')).toBe(false)
+      expect(document.currentScript).toBe(current)
+      expect(Object.hasOwn(document, 'currentScript')).toBe(true)
     } finally {
       if (descriptor) {
         Object.defineProperty(MockDocument.prototype, 'currentScript', descriptor)
       }
     }
+  })
+
+  it.each([
+    { own: false, throws: false },
+    { own: false, throws: true },
+    { own: true, throws: false },
+    { own: true, throws: true }
+  ])(
+    'restores the currentScript descriptor (own=$own, throws=$throws)',
+    async ({ own, throws }) => {
+      const src = 'https://example.com/owned.js'
+      const { document, current } = setupRuntimeContext(src)
+      if (own)
+        Object.defineProperty(document, 'currentScript', {
+          value: current,
+          writable: false,
+          enumerable: true,
+          configurable: true
+        })
+      const original = Object.getOwnPropertyDescriptor(document, 'currentScript')
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => '' }))
+      mocks.applyGroups.mockReturnValue({
+        content: throws ? 'throw new Error("script failed")' : '',
+        changed: false
+      })
+
+      await rewriteCurrentScript([])
+
+      expect(Object.getOwnPropertyDescriptor(document, 'currentScript')).toEqual(original)
+      expect(current?.replacedWithNode === null).toBe(!throws)
+    }
+  )
+
+  it.each([403, 503])('falls back without evaluating an HTTP %s response body', async (status) => {
+    const src = 'https://example.com/unavailable.js'
+    const { current } = setupRuntimeContext(src)
+    const text = vi.fn().mockResolvedValue('globalThis.__rewriteExecuted = "error response";')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status, text }))
+    mocks.applyGroups.mockReturnValue({ content: '', changed: false })
+
+    await rewriteCurrentScript([])
+
+    expect(mocks.applyGroups).not.toHaveBeenCalled()
+    expect(text).not.toHaveBeenCalled()
+    expect((globalThis as { __rewriteExecuted?: string }).__rewriteExecuted).toBeUndefined()
+    expect(current?.replacedWithNode?.src).toBe(`${src}?fallback`)
+    expect(mocks.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining(String(status))
+      })
+    )
   })
 
   it('falls back to loading original script when rewrite fails', async () => {
