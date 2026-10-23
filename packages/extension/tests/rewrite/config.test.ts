@@ -31,4 +31,9 @@ describe('rewrite/config', () => {
       )
     ).toBe('let{canRunExtensions:a,canAccessFullDevMode:b}=c.openFile;a=true;return a&&b;')
   })
+
+  it('does not confuse a variable ending in openFile with an openFile property access', () => {
+    const input = 'let{canRunExtensions:a,canAccessFullDevMode:b}=someopenFile;return a&&b;'
+    expect(applyFirstReplacement(2, input)).toBe(input)
+  })
 })
