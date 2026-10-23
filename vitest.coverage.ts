@@ -106,7 +106,6 @@ export const EXTENSION_COVERAGE_FILES = [
   'mcp/tools/code/messages.ts',
   'mcp/tools/code/render/plugin.ts',
   'mcp/tools/code/render/props.ts',
-  'mcp/tools/code/variables.ts',
   'mcp/tools/code/sanitize/negative-gap.ts',
   'mcp/tools/code/sanitize/relative-parent.ts',
   'mcp/tools/code/sanitize/stacking.ts',
@@ -136,7 +135,6 @@ export const EXTENSION_COVERAGE_FILES = [
   'mcp/tools/token/candidates.ts',
   'mcp/tools/token/cache.ts',
   'mcp/tools/token/indexer.ts',
-  'mcp/tools/token/mapping.ts',
   'mcp/tools/token/index.ts',
   'mcp/tools/token/value.ts'
 ] as const

@@ -71,6 +71,26 @@ function setupFigma({
 }
 
 describe('utils/variable-output', () => {
+  it('uses field bindings without guessing ownership of a duplicated code syntax', () => {
+    setupFigma({
+      variableById: {
+        a: createVariable('a', 'Width', 'shared'),
+        b: createVariable('b', 'Height', 'shared')
+      }
+    })
+    const node = {
+      type: 'FRAME',
+      boundVariables: { width: { id: 'a' }, height: { id: 'b' } }
+    } as unknown as SceneNode
+    expect(
+      formatNodeStyleForMcp({ width: 'shared', height: 'shared', color: 'shared' }, node)
+    ).toEqual({
+      width: 'var(--Width)',
+      height: 'var(--Height)',
+      color: 'shared'
+    })
+  })
+
   it.each([
     [
       'UI',

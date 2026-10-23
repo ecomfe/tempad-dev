@@ -67,7 +67,7 @@ A stalled root or unusable shell still fails.
 
 3. **Create request-scoped lookup context**
    - Create a `GetCodeCacheContext` near the existing variable cache.
-   - Build variable mappings only from nodes in the bounded visible tree (the root alone for early
+   - Collect variable IDs per node in the bounded visible tree (the root alone for early
      shells), using shared lookup readers without descending into the original subtrees.
    - Pass the same readers through text-segment rendering so bound-variable and style lookups
      discovered during scanning are reused rather than read again.
@@ -82,13 +82,13 @@ A stalled root or unusable shell still fails.
      - `getCSSAsync()` once per node (skipped nodes are excluded).
      - `getStyledTextSegments()` for text nodes.
      - Resolve fill/stroke style-backed CSS through shared lookup readers instead of issuing new ad hoc style/variable lookups per pass.
+     - Project supported variable-backed properties to canonical CSS references using that node's
+       bindings before preprocessing or asset URL replacement.
      - Preprocess styles (clean background, expand shorthands, merge inferred layout, infer resizing, apply overflow).
      - Apply positioning (auto layout absolute, constraints).
      - Replace image fills with uploaded assets.
 
-6. **Canonicalize MCP variable output and sanitize styles**
-   - Rewrite supported variable-backed output into canonical CSS variable IR.
-   - Capture variable usage candidates for token detection and resolution.
+6. **Sanitize projected styles**
    - Patch known layout issues (negative gap).
    - Ensure layout parents are `position: relative` when children are absolute.
 
@@ -280,7 +280,10 @@ rather than the `bg-[...]` image/color utilities.
 - `packages/extension/utils/variable-output.ts` is the explicit output boundary:
   - UI codegen formats supported variable-backed properties with exact `WEB codeSyntax` when present.
   - MCP `get_code` formats the same supported properties as canonical CSS variable references.
-- String-based token rewrites remain a compatibility/backstop pass for legacy CSS output, alias bridging, and downstream transforms.
+- Per-node projection owns native CSS alias bridging; duplicate `codeSyntax` aliases cannot choose
+  a variable, while explicit field bindings retain their exact identity. Do not repeat this step
+  with candidates from the whole subtree: an unrelated literal can equal another node's syntax.
+  Downstream token transforms operate on CSS references, preserving strings and asset URLs.
 
 ## Request-scoped cache layer
 
@@ -416,7 +419,8 @@ The request context is threaded through:
 
 ## Token pipeline (detailed)
 
-1. Build source index from variable IDs and codeSyntax.
+1. Build the source index from collected variable IDs and CSS variable aliases. Raw `codeSyntax`
+   literals are not token names: they can coincide with unrelated colors, lengths or classes.
 2. Strip fallbacks, then extract raw token names from code (boundary-aware). Include font-face
    bindings collected from the text actually emitted by this render.
 3. Apply plugin transforms to names.

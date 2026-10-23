@@ -195,7 +195,11 @@ export async function resolveTokenDefsByIds(
         report(`Variable ${id}, mode ${modeId} has no usable definition.`)
         continue
       }
-      const modeName = collection?.modes.find((mode) => mode.modeId === modeId)?.name ?? modeId
+      const mode = collection?.modes.find((mode) => mode.modeId === modeId)
+      if (collection && !mode) {
+        report(`Mode ${modeId} in collection ${collection.id} is unavailable; definitions use IDs.`)
+      }
+      const modeName = mode?.name ?? modeId
       const key = collection?.name ? `${collection.name}:${modeName}` : modeName
       if (key in values) {
         report(`Variable ${id} has duplicate mode label "${key}".`)

@@ -13,7 +13,8 @@ import { resolveTokenDefsByIds } from '@/mcp/tools/token/defs'
 import { stringifyComponent } from '@/utils/component'
 import { stripFallback } from '@/utils/css'
 
-vi.mock('@/utils/css', () => ({
+vi.mock('@/utils/css', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/css')>()),
   stripFallback: vi.fn((code: string) => code.replace('/*fallback*/', ''))
 }))
 
@@ -48,7 +49,6 @@ const baseInput = () => ({
   component: raw('const a = "/*fallback*/ var(--token)";'),
   serialize: (component: ReturnType<typeof raw>) => stringifyComponent(component, 'jsx'),
   variableIds: new Set<string>(['var-1']),
-  usedCandidateIds: new Set<string>(),
   variableCache: new Map<string, Variable | null>(),
   styles: new Map<string, Record<string, string>>(),
   textSegments: new Map<string, StyledTextSegment[] | null>(),
@@ -210,7 +210,7 @@ describe('tokens/process processTokens', () => {
     expect(report).toHaveBeenCalledWith('token-definition', 'Variable var-1 is unavailable.')
   })
 
-  it('merges candidate ids and records used-stage stamp with partial rename map', async () => {
+  it('merges rendered font-face ids and records used-stage stamp with partial rename map', async () => {
     const matcher = vi.fn((value: string) => value.includes('--token'))
     const sourceIndex = new Map([
       ['--token', 'var-1'],
@@ -236,7 +236,8 @@ describe('tokens/process processTokens', () => {
     const result = await processTokens({
       ...baseInput(),
       resolveTokens: true,
-      usedCandidateIds: new Set(['var-2']),
+      fontStyleVariableIds: new Set(['var-2']),
+      variableCache: new Map([['var-2', { id: 'var-2', name: 'other' } as Variable]]),
       styles: new Map([
         [
           'node-a',

@@ -119,14 +119,14 @@ describe('code cache context', () => {
     const ctx = createGetCodeCacheContext(new Map(), { metrics: true })
 
     let nodeVariableIds: ReadonlySet<string> | undefined
-    const mappings = collectCandidateVariableIds([node], ctx.variables, ctx.readers, {
+    const ids = collectCandidateVariableIds([node], ctx.readers, {
       onNodeVariableIds: (_id, ids) => {
         nodeVariableIds = ids
       }
     })
     const style = formatNodeStyleForMcp({ 'font-size': '12px' }, node, ctx.readers, nodeVariableIds)
 
-    expect(mappings.variableIds).toEqual(new Set(['size']))
+    expect(ids).toEqual(new Set(['size']))
     expect(style['font-size']).toBe('var(--Font-Size)')
     expect(getRangeBoundVariable).toHaveBeenCalledTimes(TEXT_VARIABLE_FIELDS.length)
     expect(ctx.metrics).toMatchObject({
@@ -135,7 +135,7 @@ describe('code cache context', () => {
     })
 
     const nextCtx = createGetCodeCacheContext()
-    collectCandidateVariableIds([node], nextCtx.variables, nextCtx.readers)
+    collectCandidateVariableIds([node], nextCtx.readers)
     expect(getRangeBoundVariable).toHaveBeenCalledTimes(TEXT_VARIABLE_FIELDS.length * 2)
   })
 

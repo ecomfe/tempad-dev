@@ -1,32 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getVariableByIdCached } from '@/mcp/tools/token/cache'
 import { collectCandidateVariableIds } from '@/mcp/tools/token/candidates'
 import { logger } from '@/utils/log'
-
-vi.mock('@/utils/css', () => ({
-  canonicalizeVarName: vi.fn((value: string) => {
-    const match = value.trim().match(/^var\(\s*(--[^,\s)]+)\s*(?:,[^)]+)?\)$/)
-    return match?.[1] ?? null
-  }),
-  normalizeFigmaVarName: vi.fn((value: string) => {
-    const normalized = value.trim().replace(/\s+/g, '-').toLowerCase()
-    return normalized ? `--${normalized}` : '--unnamed'
-  }),
-  toFigmaVarExpr: vi.fn((value: string) => {
-    const normalized = value.trim().replace(/\s+/g, '-').toLowerCase()
-    return normalized ? `var(--${normalized})` : ''
-  })
-}))
 
 vi.mock('@/utils/log', () => ({
   logger: {
     debug: vi.fn()
   }
-}))
-
-vi.mock('@/mcp/tools/token/cache', () => ({
-  getVariableByIdCached: vi.fn()
 }))
 
 function createNode(input: Record<string, unknown>): SceneNode {
@@ -60,7 +40,6 @@ describe('token/candidates collectCandidateVariableIds', () => {
           fillStyleId: 'style'
         })
       ],
-      undefined,
       {
         getStyleById: () =>
           ({
@@ -70,7 +49,7 @@ describe('token/candidates collectCandidateVariableIds', () => {
       }
     )
 
-    expect(result.variableIds).toEqual(new Set(['direct', 'styled']))
+    expect(result).toEqual(new Set(['direct', 'styled']))
   })
 
   it.each(['paints', 'boundVariables'])(
@@ -83,13 +62,12 @@ describe('token/candidates collectCandidateVariableIds', () => {
       })
       const result = collectCandidateVariableIds(
         [createNode({ id: 'root', type: 'RECTANGLE', visible: true, fillStyleId: 'style' })],
-        undefined,
         {
           getStyleById: () => style as unknown as BaseStyle,
           getVariableById: () => null
         }
       )
-      expect(result.variableIds).toEqual(new Set())
+      expect(result).toEqual(new Set())
     }
   )
 
@@ -179,32 +157,9 @@ describe('token/candidates collectCandidateVariableIds', () => {
       })
     } as unknown as PluginAPI
 
-    const vars: Record<string, Variable | null> = {
-      'id-bound': {
-        id: 'id-bound',
-        name: 'Primary Color',
-        codeSyntax: { WEB: 'var(--brand)' }
-      } as unknown as Variable,
-      'id-array': {
-        id: 'id-array',
-        name: 'Primary Color',
-        codeSyntax: { WEB: '$spacing lg' }
-      } as unknown as Variable,
-      'id-fill': { id: 'id-fill', name: 'Fill' } as unknown as Variable,
-      'id-fill-ref': { id: 'id-fill-ref', name: 'Fill Ref' } as unknown as Variable,
-      'id-stroke': { id: 'id-stroke', name: 'Stroke' } as unknown as Variable,
-      'id-stroke-ref': { id: 'id-stroke-ref', name: 'Stroke Ref' } as unknown as Variable,
-      'id-effect': { id: 'id-effect', name: 'Effect' } as unknown as Variable,
-      'id-effect-ref': { id: 'id-effect-ref', name: 'Effect Ref' } as unknown as Variable,
-      'id-child': { id: 'id-child', name: 'Child Var' } as unknown as Variable,
-      'id-style-fill': { id: 'id-style-fill', name: 'Style Fill' } as unknown as Variable,
-      'id-style-stroke': { id: 'id-style-stroke', name: 'Style Stroke' } as unknown as Variable
-    }
-    vi.mocked(getVariableByIdCached).mockImplementation((id: string) => vars[id] ?? null)
-    const cache = new Map<string, Variable | null>()
-    const result = collectCandidateVariableIds([root], cache)
+    const result = collectCandidateVariableIds([root])
 
-    expect(result.variableIds).toEqual(
+    expect(result).toEqual(
       new Set([
         'id-bound',
         'id-array',
@@ -220,15 +175,7 @@ describe('token/candidates collectCandidateVariableIds', () => {
         'id-fill-hidden'
       ])
     )
-    expect(result.rewrites.get('var(--brand)')).toEqual({
-      canonical: '--primary-color',
-      id: 'id-bound'
-    })
-    expect(result.rewrites.get('var(--primary-color)')).toEqual({
-      canonical: '--primary-color',
-      id: 'id-bound'
-    })
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('ids=12 rewrites='))
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('ids=12'))
   })
 
   it('reports each visible node’s ids while preserving the ordered union', () => {
@@ -255,11 +202,11 @@ describe('token/candidates collectCandidateVariableIds', () => {
       ]
     })
 
-    const result = collectCandidateVariableIds([root], undefined, undefined, {
+    const result = collectCandidateVariableIds([root], undefined, {
       onNodeVariableIds
     })
 
-    expect([...result.variableIds]).toEqual(['shared', 'child-only'])
+    expect([...result]).toEqual(['shared', 'child-only'])
     expect(onNodeVariableIds.mock.calls).toEqual([
       ['root', new Set(['shared'])],
       ['child', new Set(['shared', 'child-only'])],
@@ -267,11 +214,11 @@ describe('token/candidates collectCandidateVariableIds', () => {
     ])
 
     onNodeVariableIds.mockClear()
-    const capped = collectCandidateVariableIds([root], undefined, undefined, {
+    const capped = collectCandidateVariableIds([root], undefined, {
       captureNodeId: (id) => id !== 'child',
       onNodeVariableIds
     })
-    expect(capped.variableIds).toEqual(result.variableIds)
+    expect(capped).toEqual(result)
     expect(onNodeVariableIds.mock.calls).toEqual([
       ['root', new Set(['shared'])],
       ['empty', new Set()]
@@ -301,10 +248,8 @@ describe('token/candidates collectCandidateVariableIds', () => {
       })
     } as unknown as PluginAPI
 
-    vi.mocked(getVariableByIdCached).mockReturnValue(null)
     const result = collectCandidateVariableIds([hiddenRoot, styleErrorNode, nonStringStyleIdNode])
-    expect(result.variableIds).toEqual(new Set())
-    expect(result.rewrites).toEqual(new Map())
+    expect(result).toEqual(new Set())
   })
 
   it('can limit candidate scanning to the selected root', () => {
@@ -320,15 +265,12 @@ describe('token/candidates collectCandidateVariableIds', () => {
         })
       ]
     })
-    vi.mocked(getVariableByIdCached).mockImplementation(
-      (id: string) => ({ id, name: id }) as unknown as Variable
-    )
 
-    const result = collectCandidateVariableIds([root], undefined, undefined, {
+    const result = collectCandidateVariableIds([root], undefined, {
       traverseChildren: false
     })
 
-    expect(result.variableIds).toEqual(new Set(['id-root']))
+    expect(result).toEqual(new Set(['id-root']))
   })
 
   it('falls back to Date.now when performance is unavailable', () => {
@@ -340,17 +282,9 @@ describe('token/candidates collectCandidateVariableIds', () => {
       visible: true,
       boundVariables: { color: { id: 'id-1' } }
     })
-    vi.mocked(getVariableByIdCached).mockReturnValue({
-      id: 'id-1',
-      name: 'Fallback Name'
-    } as unknown as Variable)
     const result = collectCandidateVariableIds([root])
 
-    expect(result.variableIds).toEqual(new Set(['id-1']))
-    expect(result.rewrites.get('var(--fallback-name)')).toEqual({
-      canonical: '--fallback-name',
-      id: 'id-1'
-    })
+    expect(result).toEqual(new Set(['id-1']))
 
     if (performanceOriginal) {
       vi.stubGlobal('performance', performanceOriginal)
@@ -386,27 +320,12 @@ describe('token/candidates collectCandidateVariableIds', () => {
       })
     } as unknown as PluginAPI
 
-    vi.mocked(getVariableByIdCached).mockImplementation((id: string) => {
-      const vars: Record<string, Variable> = {
-        'id-range-font': { id: 'id-range-font', name: 'Body Font' } as unknown as Variable,
-        'id-style-size': { id: 'id-style-size', name: 'Body Size' } as unknown as Variable
-      }
-      return vars[id] ?? null
-    })
     const result = collectCandidateVariableIds([root])
 
-    expect(result.variableIds).toEqual(new Set(['id-range-font', 'id-style-size']))
-    expect(result.rewrites.get('var(--body-font)')).toEqual({
-      canonical: '--body-font',
-      id: 'id-range-font'
-    })
-    expect(result.rewrites.get('var(--body-size)')).toEqual({
-      canonical: '--body-size',
-      id: 'id-style-size'
-    })
+    expect(result).toEqual(new Set(['id-range-font', 'id-style-size']))
   })
 
-  it('handles sparse payload branches and avoids duplicate rewrite keys', () => {
+  it('handles sparse payload branches', () => {
     const root = createNode({
       id: 'sparse-root',
       visible: true,
@@ -470,41 +389,10 @@ describe('token/candidates collectCandidateVariableIds', () => {
       })
     } as unknown as PluginAPI
 
-    const vars: Record<string, Variable | null> = {
-      'id-nested': {
-        id: 'id-nested',
-        name: 'Duplicate Name',
-        codeSyntax: { WEB: 'var(--dup)' }
-      } as unknown as Variable,
-      'id-fill-ref-only': {
-        id: 'id-fill-ref-only',
-        name: 'Duplicate Name',
-        codeSyntax: { WEB: 'var(--dup)' }
-      } as unknown as Variable,
-      'id-style-ref': {
-        id: 'id-style-ref',
-        name: '',
-        codeSyntax: { WEB: 'var(--dup)' }
-      } as unknown as Variable,
-      'id-undefined-name': {
-        id: 'id-undefined-name',
-        codeSyntax: { WEB: '$not-canonical' }
-      } as unknown as Variable
-    }
-    vi.mocked(getVariableByIdCached).mockImplementation((id: string) => vars[id] ?? null)
     const result = collectCandidateVariableIds([root, rootWithNullBound, rootWithNullStyle])
 
-    expect(result.variableIds).toEqual(
+    expect(result).toEqual(
       new Set(['id-nested', 'id-fill-ref-only', 'id-style-ref', 'id-undefined-name'])
     )
-    expect(result.rewrites.get('var(--dup)')).toEqual({
-      canonical: '--duplicate-name',
-      id: 'id-nested'
-    })
-    expect(result.rewrites.get('var(--duplicate-name)')).toEqual({
-      canonical: '--duplicate-name',
-      id: 'id-nested'
-    })
-    expect(result.rewrites.size).toBe(2)
   })
 })

@@ -127,7 +127,6 @@ type PipelineInput = {
   rootTag?: string
   lang?: CodeLanguage
   variableIds: Set<string>
-  usedCandidateIds: Set<string>
   variableCache: Map<string, Variable | null>
   tokenContext: TokenReadContext
   resolveTokens?: boolean
@@ -304,9 +303,8 @@ async function generateCode({
   let t = now()
   const variableCache = cache.variables
   const nodeVariableIds = new Map<string, ReadonlySet<string>>()
-  const mappings = collectCandidateVariableIds(
+  const variableIds = collectCandidateVariableIds(
     earlyShell ? nodes : [...tree.nodes.values()].map((snapshot) => snapshot.node),
-    variableCache,
     cache.readers,
     {
       checkpoint,
@@ -355,11 +353,9 @@ async function generateCode({
     ensureEarlyShellRootPositioning(rootId, tree, collected.styles)
   }
 
-  const { usedCandidateIds, layout: layoutStyles } = prepareStyles({
+  const { layout: layoutStyles } = prepareStyles({
     tree,
     styles: collected.styles,
-    mappings,
-    variableCache,
     vectorRoots: plan.vectorRoots,
     cache,
     trace: traceInfo
@@ -403,8 +399,7 @@ async function generateCode({
     vectorRoots: plan.vectorRoots,
     rootTag,
     lang: preferredLang,
-    variableIds: mappings.variableIds,
-    usedCandidateIds,
+    variableIds,
     variableCache,
     tokenContext,
     resolveTokens,
@@ -534,9 +529,10 @@ async function tryRenderPipeline(input: PipelineInput): Promise<PipelineOutput |
   const diagnostics = createTokenDiagnostics()
   addVariableModeHints(
     input.tree,
-    new Set([...input.variableIds, ...input.usedCandidateIds]),
+    input.variableIds,
     input.tokenContext,
-    diagnostics.report
+    diagnostics.report,
+    input.checkpoint
   )
   const rendered = await renderMarkup(input)
   if (!rendered) {
@@ -586,7 +582,6 @@ async function finalizeRenderedOutput(
     component: rendered.component,
     serialize: rendered.serialize,
     variableIds: input.variableIds,
-    usedCandidateIds: input.usedCandidateIds,
     fontStyleVariableIds: rendered.fontStyleVariableIds,
     variableCache: input.variableCache,
     styles: collected.styles,

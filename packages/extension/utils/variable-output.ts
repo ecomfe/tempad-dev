@@ -100,6 +100,7 @@ function buildVariableProjectionContext(
 ): VariableProjectionContext {
   const variablesById = new Map<string, Variable>()
   const variablesByCodeSyntax = new Map<string, Variable>()
+  const ambiguousSyntax = new Set<string>()
   const variableSyntax: Record<string, string> = {}
 
   for (const id of nodeVariableIds ?? collectNodeVariableIds(node, readers)) {
@@ -111,8 +112,13 @@ function buildVariableProjectionContext(
     if (!value) continue
 
     const syntax = value.trim()
-    if (syntax && !variablesByCodeSyntax.has(syntax)) {
-      variablesByCodeSyntax.set(syntax, variable)
+    if (syntax && !ambiguousSyntax.has(syntax)) {
+      if (variablesByCodeSyntax.has(syntax)) {
+        variablesByCodeSyntax.delete(syntax)
+        ambiguousSyntax.add(syntax)
+      } else {
+        variablesByCodeSyntax.set(syntax, variable)
+      }
     }
 
     const name = getVariableCssName(variable)

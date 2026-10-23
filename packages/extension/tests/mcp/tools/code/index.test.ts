@@ -18,10 +18,7 @@ import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 
 const mocks = vi.hoisted(() => ({
   currentCodegenConfig: vi.fn(() => ({ cssUnit: 'px', rootFontSize: 16, scale: 1 })),
-  collectCandidateVariableIds: vi.fn(() => ({
-    variableIds: new Set<string>(),
-    rewrites: new Map()
-  })),
+  collectCandidateVariableIds: vi.fn(() => new Set<string>()),
   planAssets: vi.fn(() => ({ vectorRoots: new Set<string>(), skippedIds: new Set<string>() })),
   collectNodeData: vi.fn(),
   prepareStyles: vi.fn(),
@@ -127,8 +124,7 @@ function mockAssetCollection(
   })
   mocks.prepareStyles.mockReturnValue({
     styles: new Map(),
-    layout: new Map(),
-    usedCandidateIds: new Set<string>()
+    layout: new Map()
   })
   mocks.processTokens.mockImplementation(stringifyTokens)
   vi.stubGlobal('__DEV__', false)
@@ -162,7 +158,6 @@ describe('mcp/code handleGetCode', () => {
     expect(mocks.collectCandidateVariableIds).toHaveBeenCalledOnce()
     expect(mocks.collectCandidateVariableIds).toHaveBeenCalledWith(
       [root.node],
-      expect.any(Map),
       expect.any(Object),
       expect.objectContaining({ traverseChildren: false })
     )
@@ -234,7 +229,7 @@ describe('mcp/code handleGetCode', () => {
       } else {
         mocks.prepareStyles.mockImplementationOnce(() => {
           elapsed = 20_000
-          return { usedCandidateIds: new Set(), layout: new Map() }
+          return { layout: new Map() }
         })
       }
       mocks.getOrderedChildIds.mockReturnValue(['child'])
@@ -520,8 +515,7 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles: input }: { styles: Map<string, Record<string, string>> }) => ({
         styles: input,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
     mocks.processTokens.mockImplementation(stringifyTokens)
@@ -600,8 +594,7 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
         styles,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
     mocks.processTokens.mockImplementation(stringifyTokens)
@@ -717,8 +710,7 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles: input }: { styles: Map<string, Record<string, string>> }) => ({
         styles: input,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
     mocks.processTokens.mockImplementation(stringifyTokens)
@@ -755,8 +747,7 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
         styles,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
     mocks.processTokens.mockImplementation(stringifyTokens)
@@ -771,7 +762,6 @@ describe('mcp/code handleGetCode', () => {
     expect(result.warnings?.map((warning) => warning.type)).toEqual(['shell'])
     expect(mocks.collectCandidateVariableIds).toHaveBeenCalledWith(
       expect.any(Array),
-      expect.any(Map),
       expect.any(Object),
       {
         checkpoint: expect.any(Function),
@@ -814,8 +804,7 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
         styles,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
     mocks.processTokens.mockImplementation(stringifyTokens)
@@ -866,8 +855,7 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
         styles,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
     mocks.processTokens.mockImplementation(stringifyTokens)
@@ -912,8 +900,7 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
         styles,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
     mocks.exportVectorAssets.mockResolvedValue(
@@ -967,7 +954,7 @@ describe('mcp/code handleGetCode', () => {
     mockAssetCollection(tree, [], new Set())
     const styles = new Map([['opacity', { opacity: 'var(--shared)', gap: 'var(--shared)' }]])
     mocks.collectNodeData.mockResolvedValue({ nodes: tree.nodes, styles, textSegments: new Map() })
-    mocks.prepareStyles.mockReturnValue({ styles, layout: new Map(), usedCandidateIds: new Set() })
+    mocks.prepareStyles.mockReturnValue({ styles, layout: new Map() })
     const tokens = { '--plugin-shared': { kind: 'number', value: { Light: '50px', Dark: '0px' } } }
     mocks.processTokens.mockResolvedValue({
       code: '<div />',
@@ -997,7 +984,7 @@ describe('mcp/code handleGetCode', () => {
     mockAssetCollection(tree, [], new Set())
     const styles = new Map([['opacity', { opacity: 'var(--source_token)' }]])
     mocks.collectNodeData.mockResolvedValue({ nodes: tree.nodes, styles, textSegments: new Map() })
-    mocks.prepareStyles.mockReturnValue({ styles, layout: new Map(), usedCandidateIds: new Set() })
+    mocks.prepareStyles.mockReturnValue({ styles, layout: new Map() })
     mocks.processTokens.mockResolvedValue({
       code: '<div />',
       tokensByCanonical: { '--next_token': { kind: 'number', value: '50px' } },
@@ -1039,8 +1026,7 @@ describe('mcp/code handleGetCode', () => {
       })
       mocks.prepareStyles.mockReturnValue({
         styles,
-        layout: new Map(),
-        usedCandidateIds: new Set()
+        layout: new Map()
       })
       const code = '<span className="text-(--color)">Text</span>'
       mocks.processTokens.mockResolvedValue({
@@ -1176,8 +1162,7 @@ describe('mcp/code handleGetCode', () => {
     })
     mocks.prepareStyles.mockReturnValue({
       styles: new Map(),
-      layout: new Map(),
-      usedCandidateIds: new Set<string>()
+      layout: new Map()
     })
     mocks.renderTree.mockResolvedValue(raw('<div />'))
     mocks.processTokens.mockImplementation(stringifyTokens)

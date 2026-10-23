@@ -38,6 +38,22 @@ function aliases(count: number): Variable[] {
 }
 
 describe('used token definitions', () => {
+  it('preserves unlabeled mode values with a diagnostic', async () => {
+    const variable = { ...aliases(1)[0]!, valuesByMode: { m: 1, missing: 2 } }
+    const context = createTokenReadContext(config, undefined, new Map([['0', variable]]))
+    vi.spyOn(context, 'getCollection').mockReturnValue({
+      id: 'c',
+      name: 'Theme',
+      modes: [{ modeId: 'm', name: 'Default' }]
+    } as VariableCollection)
+    const report = vi.fn()
+
+    expect(await resolveTokenDefsByIds(new Map([['--seed', '0']]), context, true, report)).toEqual({
+      '--seed': { kind: 'number', value: { 'Theme:Default': '1px', 'Theme:missing': '2px' } }
+    })
+    expect(report).toHaveBeenCalledWith(expect.stringContaining('missing'))
+  })
+
   it('stops an alias closure before starting further native lookups after its deadline', async () => {
     const variables = aliases(100)
     let reads = 0

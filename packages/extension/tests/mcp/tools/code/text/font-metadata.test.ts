@@ -54,7 +54,6 @@ it.each([undefined, 'plugin'])(
       component: { name: 'span', props: { class: 'italic font-bold' }, children: ['Text'] },
       serialize: (component) => stringifyComponent(component, 'jsx'),
       variableIds: new Set(variables.keys()),
-      usedCandidateIds: new Set(),
       fontStyleVariableIds: new Set(['face']),
       variableCache: variables,
       styles: new Map(),
@@ -80,7 +79,6 @@ it('reports an actually rendered face-name collision without picking either defi
     component: { name: 'span', props: {}, children: ['Text'] },
     serialize: (component) => stringifyComponent(component, 'jsx'),
     variableIds: new Set(['a', 'b']),
-    usedCandidateIds: new Set(),
     fontStyleVariableIds: new Set(['a']),
     variableCache: new Map([
       ['a', variable('a', 'Face', { base: 'Bold' })],

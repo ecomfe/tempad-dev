@@ -73,7 +73,6 @@ describe('get_code token transformations preserve literal content', () => {
       component: { name: 'span', props: { title: prose }, children: [prose] },
       serialize: (component) => stringifyComponent(component, 'jsx'),
       variableIds: new Set(['brand']),
-      usedCandidateIds: new Set(),
       variableCache: new Map(),
       styles: new Map(),
       textSegments: new Map(),

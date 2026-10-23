@@ -1,19 +1,11 @@
 import type { FigmaLookupReaders } from '@/utils/figma-style/types'
 
-import { canonicalizeVarName, normalizeFigmaVarName, toFigmaVarExpr } from '@/utils/css'
-import { collectNodeVariableIdsInto, getVariableRawName } from '@/utils/figma-variables'
+import { collectNodeVariableIdsInto } from '@/utils/figma-variables'
 import { logger } from '@/utils/log'
-
-import { getVariableByIdCached } from './cache'
 
 const DEFAULT_READERS: FigmaLookupReaders = {
   getStyleById: (id: string) => figma.getStyleById(id),
   getVariableById: (id: string) => figma.variables.getVariableById(id)
-}
-
-export type CandidateResult = {
-  variableIds: Set<string>
-  rewrites: Map<string, { canonical: string; id: string }>
 }
 
 type CandidateOptions = {
@@ -29,14 +21,12 @@ function hasChildren(node: SceneNode): node is SceneNode & ChildrenMixin {
 
 export function collectCandidateVariableIds(
   roots: SceneNode[],
-  cache?: Map<string, Variable | null>,
   readers: FigmaLookupReaders = DEFAULT_READERS,
   options: CandidateOptions = {}
-): CandidateResult {
+): Set<string> {
   const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
   const startedAt = now()
   const variableIds = new Set<string>()
-  const rewrites = new Map<string, { canonical: string; id: string }>()
 
   const visit = (node: SceneNode) => {
     options.checkpoint?.()
@@ -63,41 +53,9 @@ export function collectCandidateVariableIds(
     if (root.visible) visit(root)
   })
 
-  const scannedAt = now()
-
-  // Build lookup tables based on collected ids.
-  for (const id of variableIds) {
-    options.checkpoint?.()
-    const v = getVariableByIdCached(id, cache)
-    options.checkpoint?.()
-    if (!v) continue
-
-    const canonical = normalizeFigmaVarName(getVariableRawName(v))
-
-    const cs = v.codeSyntax?.WEB?.trim()
-    if (cs) {
-      const canonicalFromSyntax = canonicalizeVarName(cs)
-      if (canonicalFromSyntax && !rewrites.has(cs)) {
-        rewrites.set(cs, { canonical, id })
-      }
-    }
-
-    const cssVar = toFigmaVarExpr(v.name ?? '')?.trim()
-    if (cssVar) {
-      if (!rewrites.has(cssVar)) {
-        rewrites.set(cssVar, { canonical, id })
-      }
-    }
-  }
-
   options.checkpoint?.()
-
   const total = Math.round((now() - startedAt) * 10) / 10
-  const scanMs = Math.round((scannedAt - startedAt) * 10) / 10
-  const buildMs = Math.round((now() - scannedAt) * 10) / 10
-  logger.debug(
-    `vars scan=${scanMs}ms build=${buildMs}ms total=${total}ms ids=${variableIds.size} rewrites=${rewrites.size}`
-  )
+  logger.debug(`vars scan=${total}ms ids=${variableIds.size}`)
 
-  return { variableIds, rewrites }
+  return variableIds
 }

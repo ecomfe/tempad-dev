@@ -122,7 +122,6 @@ it.each([
       component: rendered,
       serialize: stringify,
       variableIds: new Set(['face']),
-      usedCandidateIds: new Set(),
       variableCache: cache,
       resolveTokens
     })

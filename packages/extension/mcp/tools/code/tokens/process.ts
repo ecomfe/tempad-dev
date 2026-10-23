@@ -22,7 +22,6 @@ type ProcessTokensInput = {
   component: DevComponent
   serialize: (component: DevComponent) => string
   variableIds: Set<string>
-  usedCandidateIds: Set<string>
   fontStyleVariableIds?: Set<string>
   variableCache: Map<string, Variable | null>
   styles: Map<string, Record<string, string>>
@@ -51,7 +50,6 @@ export async function processTokens({
   component,
   serialize,
   variableIds,
-  usedCandidateIds,
   fontStyleVariableIds = new Set(),
   variableCache,
   styles,
@@ -77,10 +75,9 @@ export async function processTokens({
   })
   const tokenSource = values.join('\n')
 
-  const candidateIds =
-    usedCandidateIds.size || fontStyleVariableIds.size
-      ? new Set<string>([...variableIds, ...usedCandidateIds, ...fontStyleVariableIds])
-      : variableIds
+  const candidateIds = fontStyleVariableIds.size
+    ? new Set([...variableIds, ...fontStyleVariableIds])
+    : variableIds
   const fontStyleNames = new Set<string>()
   for (const id of fontStyleVariableIds) {
     checkpoint?.()

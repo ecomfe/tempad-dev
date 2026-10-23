@@ -407,7 +407,7 @@ describe('mcp/code text style', () => {
     } as unknown as TextNode
     const ctx = createGetCodeCacheContext()
 
-    collectCandidateVariableIds([node], ctx.variables, ctx.readers)
+    collectCandidateVariableIds([node], ctx.readers)
     const readsAfterScan = getRangeBoundVariable.mock.calls.length
     const result = resolveTokens(node, createSegment(), ctx.readers)
 

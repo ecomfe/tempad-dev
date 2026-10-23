@@ -42,7 +42,6 @@ function inputFor(name: string) {
     serialize: (component: Parameters<typeof stringifyComponent>[0]) =>
       stringifyComponent(component, 'jsx'),
     variableIds: new Set(['value']),
-    usedCandidateIds: new Set<string>(),
     variableCache: new Map([['value', variable]]),
     styles: new Map(),
     textSegments: new Map(),
