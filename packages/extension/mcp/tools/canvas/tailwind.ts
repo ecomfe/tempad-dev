@@ -329,10 +329,14 @@ export type CanvasClasses = {
 }
 
 export function normalizePortableFontStyle(fontFamily: string, fontStyle: string): string {
-  const aliases = PORTABLE_FONT_STYLE_ALIASES[
-    fontFamily as keyof typeof PORTABLE_FONT_STYLE_ALIASES
-  ] as Record<string, string> | undefined
-  return aliases?.[fontStyle] ?? fontStyle
+  const aliases = ownValue(PORTABLE_FONT_STYLE_ALIASES, fontFamily) as
+    | Record<string, string>
+    | undefined
+  return (aliases && ownValue(aliases, fontStyle)) ?? fontStyle
+}
+
+function ownValue<T extends object>(values: T, key: string | undefined): T[keyof T] | undefined {
+  return key !== undefined && Object.hasOwn(values, key) ? values[key as keyof T] : undefined
 }
 
 function classError(message: string): never {
@@ -388,9 +392,9 @@ export function findUnsupportedCanvasClasses(value: string): {
 function finiteNumber(
   raw: string,
   token: string,
-  options: { allowNegative?: boolean; positive?: boolean } = {}
+  options: { allowNegative?: boolean; positive?: boolean; scale?: number } = {}
 ): number {
-  const value = Number(raw)
+  const value = Number(raw) * (options.scale ?? 1)
   if (
     !Number.isFinite(value) ||
     (options.positive ? value <= 0 : !options.allowNegative && value < 0)
@@ -413,19 +417,19 @@ function pixels(
   if (options.numericScale === undefined || !/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(raw)) {
     return null
   }
-  return finiteNumber(raw, token) * options.numericScale
+  return finiteNumber(raw, token, { scale: options.numericScale })
 }
 
 function fixedSize(raw: string, token: string, containers = false): number | null {
   const value = pixels(raw, token, { numericScale: 4 })
   if (value !== null) return value
-  return containers ? (CONTAINER_WIDTHS[raw as keyof typeof CONTAINER_WIDTHS] ?? null) : null
+  return containers ? (ownValue(CONTAINER_WIDTHS, raw) ?? null) : null
 }
 
 function radius(raw: string, token: string): number | null {
   const arbitrary = pixels(raw, token)
   if (arbitrary !== null) return arbitrary
-  return RADII[raw as keyof typeof RADII] ?? null
+  return ownValue(RADII, raw) ?? null
 }
 
 function color(raw: string): `#${string}` | null {
@@ -511,10 +515,10 @@ function cssColor(raw: string): RGBA | null {
   return r === null || g === null || b === null || a === null ? null : { r, g, b, a }
 }
 
-function shadowLength(raw: string): number | null {
+function shadowLength(raw: string, token: string): number | null {
   if (/^-?0(?:\.0+)?$/.test(raw)) return 0
   const match = /^(-?(?:\d+(?:\.\d+)?|\.\d+))px$/.exec(raw)
-  return match ? Number(match[1]) : null
+  return match ? finiteNumber(match[1]!, token, { allowNegative: true }) : null
 }
 
 function parseShadowEffects(
@@ -542,7 +546,7 @@ function parseShadowEffects(
         color = parsedColor
         continue
       }
-      const length = shadowLength(part)
+      const length = shadowLength(part, token)
       if (length === null) classError(`Invalid shadow value "${part}" in class "${token}".`)
       values.push(length)
     }
@@ -566,25 +570,26 @@ function parseShadowEffects(
 }
 
 function lineHeight(raw: string, token: string): LineHeight | null {
-  const named = LINE_HEIGHTS[raw as keyof typeof LINE_HEIGHTS]
+  const named = ownValue(LINE_HEIGHTS, raw)
   if (named !== undefined) return { unit: 'PERCENT', value: named }
   const spacing = /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(raw)
-    ? finiteNumber(raw, token, { positive: true }) * 4
+    ? finiteNumber(raw, token, { positive: true, scale: 4 })
     : null
   if (spacing !== null) return { unit: 'PIXELS', value: spacing }
   const arbitrary = /^\[((?:\d+(?:\.\d+)?|\.\d+))(px|%|)\]$/.exec(raw)
   if (!arbitrary) return null
-  const value = finiteNumber(arbitrary[1]!, token, { positive: true })
-  return arbitrary[2] === 'px'
-    ? { unit: 'PIXELS', value }
-    : { unit: 'PERCENT', value: arbitrary[2] === '%' ? value : value * 100 }
+  const value = finiteNumber(arbitrary[1]!, token, {
+    positive: true,
+    scale: arbitrary[2] === '' ? 100 : 1
+  })
+  return { unit: arbitrary[2] === 'px' ? 'PIXELS' : 'PERCENT', value }
 }
 
 function textSize(
   raw: string,
   token: string
 ): { defaultLineHeight?: LineHeight; value: number } | null {
-  const named = FONT_SIZES[raw as keyof typeof FONT_SIZES]
+  const named = ownValue(FONT_SIZES, raw)
   if (named) {
     return { value: named[0], defaultLineHeight: { unit: 'PIXELS', value: named[1] } }
   }
@@ -707,7 +712,7 @@ export function parseCanvasClasses(value: string): CanvasClasses {
     }
     if (token.startsWith('mix-blend-')) {
       const name = token.slice('mix-blend-'.length)
-      const blendMode = BLEND_MODES[name as keyof typeof BLEND_MODES]
+      const blendMode = ownValue(BLEND_MODES, name)
       if (!blendMode) classError(`Unsupported blend mode class "${token}".`)
       assign(classes, 'blendMode', blendMode, token)
       continue
@@ -863,15 +868,15 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       continue
     }
 
-    const itemAlignment = ALIGN_ITEM_CLASSES[token]
-    const counterAlign = ITEM_ALIGNMENTS[itemAlignment as keyof typeof ITEM_ALIGNMENTS]
+    const itemAlignment = ownValue(ALIGN_ITEM_CLASSES, token)
+    const counterAlign = ownValue(ITEM_ALIGNMENTS, itemAlignment)
     if (counterAlign) {
       assign(classes, 'counterAlign', counterAlign, token)
       classes.layoutClass ??= token
       continue
     }
-    const justifyContent = JUSTIFY_CONTENT_CLASSES[token]
-    const primaryAlign = JUSTIFY_ALIGNMENTS[justifyContent as keyof typeof JUSTIFY_ALIGNMENTS]
+    const justifyContent = ownValue(JUSTIFY_CONTENT_CLASSES, token)
+    const primaryAlign = ownValue(JUSTIFY_ALIGNMENTS, justifyContent)
     if (primaryAlign) {
       assign(classes, 'primaryAlign', primaryAlign, token)
       classes.layoutClass ??= token
@@ -1054,7 +1059,7 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       classes.textClass ??= token
       continue
     }
-    const fontFamily = FONT_FAMILY_CLASSES[token as keyof typeof FONT_FAMILY_CLASSES]
+    const fontFamily = ownValue(FONT_FAMILY_CLASSES, token)
     if (fontFamily) {
       assign(classes, 'fontFamily', fontFamily, token)
       classes.portableFontFamily = token.slice(5) as PortableFontFamily
@@ -1066,8 +1071,8 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       classes.textClass ??= token
       continue
     }
-    const fontWeight = FONT_WEIGHT_CLASSES[token]
-    const fontStyle = FONT_STYLES[fontWeight as keyof typeof FONT_STYLES]
+    const fontWeight = ownValue(FONT_WEIGHT_CLASSES, token)
+    const fontStyle = ownValue(FONT_STYLES, fontWeight)
     if (fontStyle) {
       assign(classes, 'fontStyle', fontStyle, token)
       classes.literalFontWeight = Number(fontWeight)
@@ -1106,12 +1111,15 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       token
     )
     if (letterSpacing) {
-      const named = LETTER_SPACINGS[letterSpacing[3] as keyof typeof LETTER_SPACINGS]
+      const named = ownValue(LETTER_SPACINGS, letterSpacing[3])
       if (letterSpacing[3] && named === undefined) classError(`Unsupported class "${token}".`)
       const unit = letterSpacing[2]
       const value =
         named ??
-        finiteNumber(letterSpacing[1]!, token, { allowNegative: true }) * (unit === 'em' ? 100 : 1)
+        finiteNumber(letterSpacing[1]!, token, {
+          allowNegative: true,
+          scale: unit === 'em' ? 100 : 1
+        })
       assign(
         classes,
         'letterSpacing',
@@ -1124,22 +1132,22 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       classes.textClass ??= token
       continue
     }
-    const textAlign = TEXT_ALIGN_CLASSES[token]
-    const textAlignment = TEXT_ALIGNMENTS[textAlign as keyof typeof TEXT_ALIGNMENTS]
+    const textAlign = ownValue(TEXT_ALIGN_CLASSES, token)
+    const textAlignment = ownValue(TEXT_ALIGNMENTS, textAlign)
     if (textAlignment) {
       assign(classes, 'textAlign', textAlignment, token)
       classes.textClass ??= token
       continue
     }
-    const textTransform = TEXT_CASE_CLASSES[token]
-    const textCase = TEXT_CASES[textTransform as keyof typeof TEXT_CASES]
+    const textTransform = ownValue(TEXT_CASE_CLASSES, token)
+    const textCase = ownValue(TEXT_CASES, textTransform)
     if (textCase) {
       assign(classes, 'textCase', textCase, token)
       classes.textClass ??= token
       continue
     }
-    const decorationLine = TEXT_DECORATION_CLASSES[token]
-    const textDecoration = TEXT_DECORATIONS[decorationLine as keyof typeof TEXT_DECORATIONS]
+    const decorationLine = ownValue(TEXT_DECORATION_CLASSES, token)
+    const textDecoration = ownValue(TEXT_DECORATIONS, decorationLine)
     if (textDecoration) {
       assign(classes, 'textDecoration', textDecoration, token)
       classes.textClass ??= token

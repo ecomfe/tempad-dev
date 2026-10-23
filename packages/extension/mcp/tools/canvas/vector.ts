@@ -21,6 +21,7 @@ function numberToken(token: string | undefined): number {
 }
 
 function formatNumber(value: number): string {
+  if (!Number.isFinite(value)) throw new Error('Derived vector path coordinates must be finite.')
   return String(Object.is(value, -0) ? 0 : value)
 }
 
