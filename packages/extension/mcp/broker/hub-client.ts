@@ -313,7 +313,7 @@ export class McpHubClient {
     if (this.ws !== ws) return
     const message = parseHubMessage(event)
     if (!message) {
-      this.rejectConnectedMessage(
+      this.disconnectSocket(
         ws,
         isRegistrationFrame(event)
           ? createProtocolMismatchError().message
@@ -322,7 +322,7 @@ export class McpHubClient {
       return
     }
     if (message.type === 'registered') {
-      this.rejectConnectedMessage(
+      this.disconnectSocket(
         ws,
         servesThisExtension(message)
           ? 'Received duplicate registration from MCP server'
@@ -331,7 +331,7 @@ export class McpHubClient {
       return
     }
     if (message.type === 'state' && !isAllowedAssetServerUrl(message.assetServerUrl)) {
-      this.rejectConnectedMessage(ws, 'MCP server advertised a non-loopback asset URL')
+      this.disconnectSocket(ws, 'MCP server advertised a non-loopback asset URL')
       return
     }
     if (
@@ -339,18 +339,23 @@ export class McpHubClient {
       this.assetServerUrl !== null &&
       message.assetServerUrl !== this.assetServerUrl
     ) {
-      this.rejectConnectedMessage(ws, 'MCP server changed its asset server URL')
+      this.disconnectSocket(ws, 'MCP server changed its asset server URL')
       return
     }
     this.handleHubMessage(message)
   }
 
-  private rejectConnectedMessage(ws: WebSocket, message: string): void {
+  private disconnectSocket(ws: WebSocket, errorMessage: string | null): void {
     if (this.ws !== ws) return
-    this.errorMessage = message
+    // Revoke the route before close(), whose handshake can outlive this connection.
+    this.cleanupSocket()
+    this.activeId = null
+    this.assetServerUrl = null
+    this.registeredId = null
     this.status = 'connecting'
+    this.errorMessage = errorMessage
     this.emitSnapshot()
-    closeWebSocket(ws)
+    this.scheduleReconnect()
   }
 
   private handleHubMessage(message: MessageToExtension): void {
@@ -384,15 +389,7 @@ export class McpHubClient {
   }
 
   private handleClose(ws: WebSocket, event: CloseEvent): void {
-    if (this.ws !== ws) return
-    this.cleanupSocket()
-    this.activeId = null
-    this.assetServerUrl = null
-    this.registeredId = null
-    this.status = 'connecting'
-    this.errorMessage = event.wasClean ? null : 'MCP connection closed unexpectedly'
-    this.emitSnapshot()
-    this.scheduleReconnect()
+    this.disconnectSocket(ws, event.wasClean ? null : 'MCP connection closed unexpectedly')
   }
 
   private handleError(ws: WebSocket, event: Event): void {

@@ -448,6 +448,50 @@ describe('mcp/broker/hub-client', () => {
     client.stop()
   })
 
+  it('revokes a rejected socket immediately without waiting for its close handshake', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const onToolCall = vi.fn()
+    const client = createClient(sockets, { onToolCall })
+    try {
+      client.start()
+      await flushMicrotasks()
+      const rejected = sockets[0]!
+      completeHandshake(rejected, 'gateway-1')
+      await flushMicrotasks()
+      // Browser close() enters CLOSING before a later close event confirms teardown.
+      vi.spyOn(rejected, 'close').mockImplementation(() => {
+        rejected.readyState = 2
+      })
+      rejected.receiveRaw('{')
+
+      expect(client.getSnapshot()).toMatchObject({
+        activeId: null,
+        assetServerUrl: null,
+        registeredId: null,
+        status: 'connecting',
+        errorMessage: 'Received malformed message from MCP server'
+      })
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(sockets).toHaveLength(2)
+      completeHandshake(sockets[1]!, 'gateway-1')
+      await flushMicrotasks()
+      rejected.receive({
+        id: 'stale-call',
+        payload: { args: {}, name: 'get_code' },
+        type: 'toolCall'
+      })
+      rejected.closeFromRemote()
+      expect(onToolCall).not.toHaveBeenCalled()
+      expect(client.getSnapshot()).toMatchObject({ status: 'connected', errorMessage: null })
+      expect(sockets[1]!.readyState).toBe(1)
+    } finally {
+      client.stop()
+    }
+  })
+
   it.each([
     ['malformed traffic', ['{']],
     [
