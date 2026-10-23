@@ -11,7 +11,7 @@ import type {
 
 import { getCurrentContextNodeById, getNodeById, getContainingPage } from '../../../local-resources'
 import { scopeError, specError } from '../errors'
-import { readOwnedNodeKey, pagesByKey } from '../identity'
+import { readOwnedNodeKey, pagesByKey, assertNodeKey } from '../identity'
 import {
   isCanvasNodeType,
   type CanvasNodeTypeHints,
@@ -213,6 +213,7 @@ function validateExistingNodeIdentity(
   if (state.scope && !isWithinScope(node, state.scope)) {
     scopeError(`Node "${node.id}" is outside the requested update scope.`)
   }
+  assertNodeKey(node.id, spec.key, readOwnedNodeKey(node))
   if (node.type !== spec.type) {
     const recovery =
       spec.type === 'INSTANCE'

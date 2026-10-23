@@ -81,9 +81,7 @@ export function claimNodeKey(node: SceneNode, key: string): boolean {
   }
   const current = readOwnedNodeKey(node)
   const owner = readAuthoringKey(node, CANVAS_NODE_OWNER_NAME)
-  if (current && current !== key) {
-    specError(`Node "${node.id}" is already owned by canvas key "${current}".`)
-  }
+  assertNodeKey(node.id, key, current)
 
   const keyChanged = current !== key
   const ownerChanged = owner !== node.id
@@ -92,6 +90,12 @@ export function claimNodeKey(node: SceneNode, key: string): boolean {
     node.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_OWNER_NAME, node.id)
   }
   return keyChanged || ownerChanged
+}
+
+export function assertNodeKey(id: string, key: string, current: string | undefined): void {
+  if (current && current !== key) {
+    specError(`Node "${id}" is already owned by canvas key "${current}".`)
+  }
 }
 
 export function assertAuthoringKey(

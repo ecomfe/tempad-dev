@@ -108,7 +108,8 @@ export function preflightMovedChildren(root: CanvasNodeSpec, state: ApplyState):
   const incoming = new Map<string, number[]>()
   const outgoing = new Map<CanvasParentNode, { ids: Set<string>; lastMove: number }>()
   for (const parentSpec of walkSpecs(root)) {
-    const destination = findExistingNode(parentSpec, state)
+    // targetNodeId identifies an adopted root before its canvas key is claimed.
+    const destination = parentSpec === root ? state.scope : findExistingNode(parentSpec, state)
     for (const childSpec of parentSpec.children ?? []) {
       const child = findExistingNode(childSpec, state)
       const parent = child?.parent
