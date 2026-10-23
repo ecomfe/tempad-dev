@@ -737,6 +737,10 @@ that the alias disappeared. Empty paragraphs without a safe setter/fallback reje
 changes rather than silently skipping them or writing into another paragraph. Identical supported
 requests still converge without writes. These checks do not imply support for conflicting values
 assigned to the same native paragraph.
+Clearing a character-metric range alias does not guarantee independence from later node-level
+typography changes. Native font size can still inherit the node's value when the range alias reads
+back as absent. For a fixed local value, author the intended literal and verify its independence
+from retained node bindings; a successful `null` unlink or equal-valued readback alone is insufficient.
 Mode changes prepare fonts only for affected typography, text-content, or size bindings, including
 aliases and extended collections. Unbound text and descendant mode overrides do not require unrelated
 fonts to load. Affected text metrics still require the current fonts even without a font-family binding.
