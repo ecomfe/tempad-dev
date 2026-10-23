@@ -97,11 +97,11 @@ export function inferResizingStyles(
   }
 
   if (layoutNode.layoutSizingHorizontal === 'HUG') {
-    delete next.width
+    next.width = 'max-content'
   }
 
   if (layoutNode.layoutSizingVertical === 'HUG') {
-    delete next.height
+    next.height = 'max-content'
   }
 
   return next

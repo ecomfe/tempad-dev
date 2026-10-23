@@ -148,7 +148,9 @@ describe('mcp/code styles layout', () => {
       { layoutMode: 'HORIZONTAL' } as unknown as SceneNode
     )
     expect(stretched).toEqual({
-      'align-self': 'stretch'
+      'align-self': 'stretch',
+      width: 'max-content',
+      height: 'max-content'
     })
 
     const fillNode = {
@@ -189,14 +191,14 @@ describe('mcp/code styles layout', () => {
       } as unknown as SceneNode,
       {} as unknown as SceneNode
     )
-    expect(noParentLayout).toEqual({})
+    expect(noParentLayout).toEqual({ width: 'max-content' })
 
     const parentless = inferResizingStyles({ height: '80px' }, {
       layoutSizingHorizontal: 'FIXED',
       layoutSizingVertical: 'HUG',
       layoutAlign: 'INHERIT'
     } as unknown as SceneNode)
-    expect(parentless).toEqual({})
+    expect(parentless).toEqual({ height: 'max-content' })
   })
 
   it('returns style unchanged when node does not expose auto-layout sizing fields', () => {

@@ -251,6 +251,88 @@ describe('get_code with native opacity bindings', () => {
 })
 
 describe('real collect to render pipeline', () => {
+  it('serializes hug dimensions as intrinsic Tailwind sizes through the public code handler', async () => {
+    vi.stubGlobal('__DEV__', false)
+    vi.stubGlobal('figma', {
+      mixed: Symbol('mixed'),
+      variables: { getVariableById: () => null, getVariableCollectionById: () => null },
+      getStyleById: () => null
+    })
+    const child = node('child', 'FRAME', 0, 0)
+    const root = node('root', 'FRAME', 0, 0, [child], {
+      display: 'flex',
+      width: '120px',
+      height: '60px',
+      padding: '10px'
+    })
+    Object.assign(root, {
+      width: 120,
+      height: 60,
+      absoluteBoundingBox: { x: 0, y: 0, width: 120, height: 60 },
+      absoluteRenderBounds: { x: 0, y: 0, width: 120, height: 60 },
+      layoutMode: 'HORIZONTAL',
+      layoutSizingHorizontal: 'HUG',
+      layoutSizingVertical: 'HUG'
+    })
+    Object.assign(child, { parent: root })
+
+    const result = await handleGetCode([root])
+
+    expect(result.code).toContain('w-max')
+    expect(result.code).toContain('h-max')
+    expect(result.code).not.toContain('w-[120px]')
+    expect(result.code).not.toContain('h-[60px]')
+  })
+
+  it('preserves cross-gap tokens and absolute offsets while exporting overlapping flow items', async () => {
+    vi.stubGlobal('figma', {
+      mixed: Symbol('mixed'),
+      variables: { getVariableById: () => null },
+      getStyleById: () => null
+    })
+    const children = ['a', 'b', 'absolute'].map((id) => node(id, 'FRAME', 5, 7))
+    const root = node('root', 'FRAME', 0, 0, children, {
+      display: 'flex',
+      'row-gap': 'var(--cross-gap)',
+      'column-gap': '-10px'
+    })
+    Object.assign(root, { layoutMode: 'HORIZONTAL' })
+    for (const child of children) {
+      Object.assign(child, {
+        parent: root,
+        layoutPositioning: child.id === 'absolute' ? 'ABSOLUTE' : 'AUTO'
+      })
+    }
+    const config = { cssUnit: 'px', scale: 1, rootFontSize: 16 } as const
+    const tree = buildVisibleTree([root])
+    const cache = createGetCodeCacheContext()
+    const collected = await collectNodeData(tree, config, new Map(), cache)
+    sanitizeStyles(tree, collected.styles, new Set(), cache)
+
+    expect(collected.styles.get('root')).toMatchObject({
+      'row-gap': 'var(--cross-gap)',
+      'column-gap': '0px',
+      'padding-left': '10px'
+    })
+    expect(collected.styles.get('absolute')).toMatchObject({
+      position: 'absolute',
+      left: '5px',
+      top: '7px'
+    })
+    expect(collected.styles.get('absolute')).not.toHaveProperty('margin-left')
+    for (const id of ['a', 'b']) expect(collected.styles.get(id)?.['margin-left']).toBe('-10px')
+    const rendered = await renderTree(root.id, tree, {
+      ...collected,
+      nodes: new Map([...tree.nodes].map(([id, snapshot]) => [id, snapshot.node])),
+      layout: new Map(),
+      svgs: new Map(),
+      config,
+      preferredLang: 'jsx'
+    })
+    if (!rendered || typeof rendered === 'string') throw new Error('Expected component tree')
+    expect(stringifyComponent(rendered, { lang: 'jsx' })).toContain('--cross-gap')
+  })
+
   it.each([false, true])(
     'preserves interleaved native stacking with reverse=%s',
     async (reverse) => {

@@ -194,18 +194,23 @@ A stalled root or unusable shell still fails.
 - `mergeInferredAutoLayout`:
   - Inject inferred flex/padding/gap where applicable.
 - `inferResizingStyles`:
-  - Translate Figma layout sizing into `align-self` and size deletions.
+  - Translate fill/stretch into `align-self` and hug dimensions into `max-content`.
+    Deleting a hug dimension would let CSS block/flex auto sizing stretch it to the containing box.
 - `applyOverflowStyles`:
   - Add overflow rules based on clips/scroll.
 
 ### Sanitize (tree-level)
 
 - `patchNegativeGapStyles`
+  - Replace proven negative gap axes with flow-child margin/padding compensation.
+    Absolute/fixed children keep their offsets and do not count toward flow compensation.
+    Preserve other axis values and leave unknown shorthand arity intact.
 - `canonicalizeAutoLayoutStyles`
   - Only runs on proven single-child auto-layout containers.
-  - Resolves each axis as fixed/hug/fill/absolute/unknown.
-  - Removes only redundant size or padding expressions without changing the emitted flow model.
+  - Removes redundant symmetric padding only on fixed axes, keeping hug/fill dimensions and
+    the emitted flow model intact. Intrinsic sizing belongs to preprocessing.
 - `ensureRelativeForAbsoluteChildren`
+  - Make an unpositioned or explicitly static layout parent relative, preserving other positioning modes.
 
 ### Tailwind output
 

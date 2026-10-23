@@ -5,6 +5,112 @@ import { patchNegativeGapStyles } from '@/mcp/tools/code/sanitize/negative-gap'
 import { createSnapshot, createTree } from '../test-helpers'
 
 describe('mcp/code sanitize negative-gap', () => {
+  it.each(['var(--cross-gap)', 'calc(8px + 2px)', '12%'])(
+    'retains the other axis value %s while replacing a negative gap',
+    (crossGap) => {
+      const root = createSnapshot({ id: 'root', children: ['a', 'b'] })
+      const tree = createTree([
+        root,
+        ...root.children.map((id) => createSnapshot({ id, parentId: root.id }))
+      ])
+      const styles = new Map<string, Record<string, string>>([
+        ['root', { 'row-gap': crossGap, 'column-gap': '-4px' }]
+      ])
+
+      patchNegativeGapStyles(tree, styles)
+
+      expect(styles.get('root')).toEqual({
+        'row-gap': crossGap,
+        'column-gap': '0px',
+        'padding-left': '4px'
+      })
+    }
+  )
+
+  it('keeps a known function-valued shorthand axis intact', () => {
+    const root = createSnapshot({ id: 'root', children: ['a', 'b'] })
+    const tree = createTree([
+      root,
+      ...root.children.map((id) => createSnapshot({ id, parentId: root.id }))
+    ])
+    const styles = new Map<string, Record<string, string>>([
+      ['root', { gap: '-4px calc(8px + 2px)' }]
+    ])
+
+    patchNegativeGapStyles(tree, styles)
+
+    expect(styles.get('root')).toEqual({
+      'row-gap': '0px',
+      'column-gap': 'calc(8px + 2px)',
+      'padding-top': '4px'
+    })
+  })
+
+  it('still processes the inner flow of an absolute child without shifting that child', () => {
+    const root = createSnapshot({ id: 'root', children: ['flow', 'absolute'] })
+    const absolute = createSnapshot({ id: 'absolute', parentId: root.id, children: ['a', 'b'] })
+    const tree = createTree([
+      root,
+      createSnapshot({ id: 'flow', parentId: root.id }),
+      absolute,
+      ...absolute.children.map((id) => createSnapshot({ id, parentId: absolute.id }))
+    ])
+    const styles = new Map<string, Record<string, string>>([
+      ['root', { gap: '-10px' }],
+      ['absolute', { position: 'absolute', left: '5px', gap: '-2px' }]
+    ])
+
+    patchNegativeGapStyles(tree, styles)
+
+    expect(styles.get('root')).toEqual({ 'row-gap': '0px', 'column-gap': '0px' })
+    expect(styles.get('absolute')).toEqual({
+      position: 'absolute',
+      left: '5px',
+      'row-gap': '0px',
+      'column-gap': '0px',
+      'padding-top': '2px',
+      'padding-left': '2px'
+    })
+    for (const id of absolute.children) {
+      expect(styles.get(id)).toMatchObject({ 'margin-top': '-2px', 'margin-left': '-2px' })
+    }
+  })
+
+  it('preserves unknown shorthand arity and explicit overrides on other axes', () => {
+    const root = createSnapshot({ id: 'root' })
+    const styles = new Map<string, Record<string, string>>([
+      ['root', { gap: 'var(--gaps)', 'column-gap': '-2px' }]
+    ])
+    patchNegativeGapStyles(createTree([root]), styles)
+    expect(styles.get('root')).toEqual({ gap: 'var(--gaps)', 'column-gap': '0px' })
+
+    styles.set('root', { gap: '-4px -2px', 'row-gap': 'var(--row)' })
+    patchNegativeGapStyles(createTree([root]), styles)
+    expect(styles.get('root')).toEqual({ 'row-gap': 'var(--row)', 'column-gap': '0px' })
+  })
+
+  it('adds fractional overlap to unitless CSS zero without creating mixed-unit calc expressions', () => {
+    const root = createSnapshot({ id: 'root', children: ['a', 'b'] })
+    const tree = createTree([
+      root,
+      ...root.children.map((id) => createSnapshot({ id, parentId: root.id }))
+    ])
+    const styles = new Map<string, Record<string, string>>([
+      ['root', { gap: '-.5px', 'padding-left': '0', 'padding-top': '.0' }],
+      ['a', { 'margin-left': '+0', 'margin-top': '-0.0' }]
+    ])
+
+    patchNegativeGapStyles(tree, styles)
+
+    expect(styles.get('root')).toEqual({
+      'row-gap': '0px',
+      'column-gap': '0px',
+      'padding-left': '0.5px',
+      'padding-top': '0.5px'
+    })
+    expect(styles.get('a')).toMatchObject({ 'margin-left': '-0.5px', 'margin-top': '-0.5px' })
+  })
+
   it('normalizes negative gap and compensates parent and children when there are multiple children', () => {
     const root = createSnapshot({ id: 'root', children: ['c1', 'c2'] })
     const c1 = createSnapshot({ id: 'c1', parentId: 'root' })
@@ -90,7 +196,7 @@ describe('mcp/code sanitize negative-gap', () => {
     patchNegativeGapStyles(tree, styles)
 
     expect(styles.get('root')).toBeUndefined()
-    expect(styles.get('child')).toEqual({ 'column-gap': '0px' })
+    expect(styles.get('child')).toEqual({ 'row-gap': hugePx, 'column-gap': '0px' })
     expect(styles.get('blank-root')).toEqual({ gap: '   ', color: 'blue' })
   })
 

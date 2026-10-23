@@ -57,7 +57,7 @@ describe('mcp/code sanitize auto-layout canonical', () => {
     })
   })
 
-  it('removes redundant explicit size on hug axes while preserving padding', () => {
+  it('preserves intrinsic sizes and padding established by hug preprocessing', () => {
     const root = createSnapshot({ id: 'root', children: ['child'] })
     const child = createSnapshot({ id: 'child', parentId: 'root', type: 'VECTOR' })
     root.bounds = { x: 0, y: 0, width: 20, height: 12 }
@@ -85,8 +85,8 @@ describe('mcp/code sanitize auto-layout canonical', () => {
         {
           display: 'flex',
           'flex-direction': 'row',
-          width: '20px',
-          height: '12px',
+          width: 'max-content',
+          height: 'max-content',
           'padding-left': '4px',
           'padding-right': '4px',
           'padding-top': '2px',
@@ -100,6 +100,8 @@ describe('mcp/code sanitize auto-layout canonical', () => {
     expect(styles.get('root')).toEqual({
       display: 'flex',
       'flex-direction': 'row',
+      width: 'max-content',
+      height: 'max-content',
       'padding-left': '4px',
       'padding-right': '4px',
       'padding-top': '2px',

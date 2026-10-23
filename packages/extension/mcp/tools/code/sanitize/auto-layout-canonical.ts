@@ -5,7 +5,6 @@ import { getNodeSemanticsCached } from '../cache'
 
 type StyleMap = Map<string, Record<string, string>>
 type Axis = 'x' | 'y'
-type AxisState = 'fixed' | 'hug' | 'fill' | 'absolute' | 'unknown'
 
 const FLEX_DISPLAYS = new Set(['flex', 'inline-flex'])
 const EPSILON = 0.5
@@ -47,43 +46,14 @@ function canonicalizeAxis(
     return
   }
 
-  const state = resolveAxisState(axis, snapshot, style, child, childStyle, ctx)
-  if (state === 'fixed') {
-    canonicalizeFixedAxis(axis, snapshot, style, child, childStyle, ctx)
+  const ownSizing = getSizingMode(snapshot.node, axis, ctx)
+  if (
+    ownSizing === 'HUG' ||
+    ownSizing === 'FILL' ||
+    getSizingMode(child.node, axis, ctx) === 'FILL'
+  ) {
     return
   }
-  if (state === 'hug') {
-    canonicalizeHugAxis(axis, snapshot, style, child)
-  }
-}
-
-function resolveAxisState(
-  axis: Axis,
-  snapshot: NodeSnapshot,
-  style: Record<string, string>,
-  child: NodeSnapshot,
-  childStyle: Record<string, string>,
-  ctx?: GetCodeCacheContext
-): AxisState {
-  if (isAbsolute(childStyle)) return 'absolute'
-  if (isFillSizing(child.node, axis, ctx)) return 'fill'
-
-  const ownSizing = getSizingMode(snapshot.node, axis, ctx)
-  if (ownSizing === 'FILL') return 'fill'
-  if (ownSizing === 'HUG') return 'hug'
-  if (ownSizing === 'FIXED') return 'fixed'
-
-  return hasExplicitAxisSize(style, axis) ? 'fixed' : 'unknown'
-}
-
-function canonicalizeFixedAxis(
-  axis: Axis,
-  snapshot: NodeSnapshot,
-  style: Record<string, string>,
-  child: NodeSnapshot,
-  childStyle: Record<string, string>,
-  ctx?: GetCodeCacheContext
-): void {
   if (
     !hasExplicitAxisSize(style, axis) ||
     !isCenteredOnAxis(axis, snapshot.node, style, childStyle, ctx)
@@ -107,27 +77,6 @@ function canonicalizeFixedAxis(
 
   delete style[startKey]
   delete style[endKey]
-}
-
-function canonicalizeHugAxis(
-  axis: Axis,
-  snapshot: NodeSnapshot,
-  style: Record<string, string>,
-  child: NodeSnapshot
-): void {
-  const sizeKey = getSizeKey(axis)
-  const explicitSize = style[sizeKey]
-  if (!explicitSize || parsePxLiteral(explicitSize) == null) return
-
-  const [startKey, endKey] = getPaddingKeys(axis)
-  const start = parsePxOrZero(style[startKey])
-  const end = parsePxOrZero(style[endKey])
-  if (start == null || end == null) return
-
-  const expected = getAxisSize(child.bounds, axis) + start + end
-  if (!approxEqual(getAxisSize(snapshot.bounds, axis), expected)) return
-
-  delete style[sizeKey]
 }
 
 function isAutoLayoutContainer(style: Record<string, string>): boolean {
@@ -178,10 +127,6 @@ function getSizingMode(
     return value
   }
   return undefined
-}
-
-function isFillSizing(node: SceneNode, axis: Axis, ctx?: GetCodeCacheContext): boolean {
-  return getSizingMode(node, axis, ctx) === 'FILL'
 }
 
 function hasExplicitAxisSize(style: Record<string, string>, axis: Axis): boolean {
