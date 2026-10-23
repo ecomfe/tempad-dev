@@ -94,18 +94,18 @@ export async function renderTextSegments(
   // flattened later, so emitting conflicting wrapper/run utilities is unsafe.
   restoreDefaultTextMetrics(commonStyle, sharedDefaults, inheritedBaseStyle)
   const inheritedRunStyle = { ...inheritedBaseStyle, ...commonStyle }
+  const renderRuns = (runs: TextRun[]) =>
+    buildInlineTree(runs, commonStyle, classProp, ctx, node, inheritedRunStyle)
 
   const outputSegments: Array<DevComponent | string> = []
 
   for (const [index, block] of blocks.entries()) {
     const renderedBlock = renderBlock(
       block,
-      commonStyle,
       classProp,
-      ctx,
-      node,
+      ctx.config,
       index < blocks.length - 1,
-      inheritedRunStyle
+      renderRuns
     )
     optimizeComponentTree(renderedBlock, classProp)
     outputSegments.push(renderedBlock)
@@ -116,16 +116,13 @@ export async function renderTextSegments(
 
 function renderBlock(
   block: TextBlock,
-  commonStyle: Record<string, string>,
   classProp: 'class' | 'className',
-  ctx: RenderContext,
-  node: TextNode,
+  config: RenderContext['config'],
   hasFollowingBlock: boolean,
-  inheritedRunStyle: Record<string, string>
+  renderRuns: (runs: TextRun[]) => Array<DevComponent | string>
 ): DevComponent {
   const { type, lines, attrs } = block
   const { paragraphIndent, paragraphSpacing } = attrs
-  const { config } = ctx
 
   const isList = type === 'ordered-list' || type === 'unordered-list'
 
@@ -155,14 +152,7 @@ function renderBlock(
         // Native forced lines repeat the indent, but automatic wraps do not.
         // Separate line boxes inherit text-indent without adding paragraph gaps.
         for (const runs of splitSoftLines(line.runs)) {
-          const children = buildInlineTree(
-            runs,
-            commonStyle,
-            classProp,
-            ctx,
-            node,
-            inheritedRunStyle
-          )
+          const children = renderRuns(runs)
           if (isCollapsibleLine(runs)) {
             children.push({ name: 'br', props: {}, children: [] })
           }
@@ -173,9 +163,7 @@ function renderBlock(
           })
         }
       } else {
-        container.children.push(
-          ...buildInlineTree(line.runs, commonStyle, classProp, ctx, node, inheritedRunStyle)
-        )
+        container.children.push(...renderRuns(line.runs))
         if (
           idx === lines.length - 1 &&
           (isCollapsibleLine(line.runs) || endsWithEmptySoftLine(line.runs))
@@ -258,14 +246,7 @@ function renderBlock(
       stack.push(parentStackItem)
     }
 
-    const lineChildren = buildInlineTree(
-      line.runs,
-      commonStyle,
-      classProp,
-      ctx,
-      node,
-      inheritedRunStyle
-    )
+    const lineChildren = renderRuns(line.runs)
     if (isCollapsibleLine(line.runs) || endsWithEmptySoftLine(line.runs)) {
       lineChildren.push({ name: 'br', props: {}, children: [] })
     }
