@@ -6,6 +6,7 @@ const fixture = vi.hoisted(() => ({
   listener: undefined as ((response: Response) => void) | undefined,
   goto: vi.fn(),
   click: vi.fn(),
+  newPage: vi.fn(),
   close: vi.fn(),
   log: vi.fn(),
   error: vi.fn()
@@ -14,20 +15,7 @@ const fixture = vi.hoisted(() => ({
 vi.mock('playwright', () => ({
   chromium: {
     launch: async () => ({
-      newPage: async () => ({
-        on: (_event: string, listener: (response: Response) => void) => {
-          fixture.listener = listener
-        },
-        off: () => {
-          fixture.listener = undefined
-        },
-        goto: fixture.goto,
-        fill: async () => {},
-        click: fixture.click,
-        waitForURL: async () => {},
-        waitForLoadState: async () => {},
-        url: () => 'https://www.figma.com/design/test'
-      }),
+      newPage: fixture.newPage,
       close: fixture.close
     })
   }
@@ -49,11 +37,34 @@ function emitScript(text: () => Promise<string>) {
 
 beforeEach(() => {
   fixture.listener = undefined
+  fixture.newPage.mockReset().mockResolvedValue({
+    on: (_event: string, listener: (response: Response) => void) => {
+      fixture.listener = listener
+    },
+    off: () => {
+      fixture.listener = undefined
+    },
+    goto: fixture.goto,
+    fill: async () => {},
+    click: fixture.click,
+    waitForURL: async () => {},
+    waitForLoadState: async () => {},
+    url: () => 'https://www.figma.com/design/test'
+  })
   fixture.goto.mockReset()
   fixture.click.mockReset()
   fixture.close.mockReset().mockResolvedValue(undefined)
   fixture.log.mockClear()
   fixture.error.mockClear()
+})
+
+it('closes the launched browser when page creation fails without replacing the error', async () => {
+  const failure = new Error('Page creation failed')
+  fixture.newPage.mockRejectedValueOnce(failure)
+
+  await expect(runCheck()).rejects.toBe(failure)
+
+  expect(fixture.close).toHaveBeenCalledOnce()
 })
 
 it('waits for a captured script body before reporting rewrite compatibility', async () => {
