@@ -107,7 +107,7 @@ function extractHeadingText(tokens: InlineTokens): string {
   return normalizeHeadingText(tocTextParser.parseInline(tokens, tocTextRenderer))
 }
 
-function slugifyHeading(value: string, slugCounts: Map<string, number>): string {
+function slugifyHeading(value: string, usedIds: Set<string>): string {
   const base =
     value
       .toLowerCase()
@@ -118,10 +118,10 @@ function slugifyHeading(value: string, slugCounts: Map<string, number>): string 
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-') || 'section'
 
-  const count = slugCounts.get(base) ?? 0
-  slugCounts.set(base, count + 1)
-
-  return count === 0 ? base : `${base}-${count}`
+  let id = base
+  for (let suffix = 1; usedIds.has(id); suffix++) id = `${base}-${suffix}`
+  usedIds.add(id)
+  return id
 }
 
 function renderHeadingHtml(depth: number, content: string, id?: string): string {
@@ -145,7 +145,7 @@ export function renderSkillPreview(
   sourceUrl: string,
   files: ReadonlyMap<string, string> = new Map()
 ): { html: string; toc: readonly TocEntry[] } {
-  const slugCounts = new Map<string, number>()
+  const usedIds = new Set<string>()
   const toc: TocEntry[] = []
   const renderer = new marked.Renderer()
   const renderLink = renderer.link.bind(renderer)
@@ -157,7 +157,7 @@ export function renderSkillPreview(
 
     if (!text) return renderHeadingHtml(token.depth, content)
 
-    const id = slugifyHeading(text, slugCounts)
+    const id = slugifyHeading(text, usedIds)
     const entry = { depth: token.depth, id, text }
     if (token.depth === 2) toc.push(entry)
 

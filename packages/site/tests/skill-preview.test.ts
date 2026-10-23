@@ -56,6 +56,17 @@ describe('multi-file skill previews', () => {
     expect(preview.html).toContain('https://github.com/ecomfe/tempad-dev/blob/main/README.md')
   })
 
+  it('keeps explicit numbered headings distinct from generated duplicate suffixes', () => {
+    const preview = renderSkillPreview(
+      '## Tokens\n\n## Tokens\n\n## Tokens-1\n\n## Tokens\n\n## Tokens-1',
+      `${root}SKILL.md`,
+      files
+    )
+    const ids = preview.toc.map(({ id }) => id)
+    expect(ids).toEqual(['tokens', 'tokens-1', 'tokens-1-1', 'tokens-2', 'tokens-1-2'])
+    expect(Array.from(preview.html.matchAll(/ id="([^"]+)"/g), (match) => match[1])).toEqual(ids)
+  })
+
   it('leaves code examples as code rather than navigable links', () => {
     const preview = renderSkillPreview(
       '```md\n[Assets](references/assets.md)\n```',

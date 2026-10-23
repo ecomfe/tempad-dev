@@ -17,7 +17,60 @@ let host: HTMLElement | undefined
 afterEach(() => {
   app?.unmount()
   host?.remove()
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
   vi.restoreAllMocks()
+})
+
+it.each(['copied', 'rejected', 'throws'] as const)(
+  'reports a legacy clipboard result of %s and restores the copy button focus',
+  async (result) => {
+    vi.spyOn(navigator, 'clipboard', 'get').mockReturnValue(undefined as unknown as Clipboard)
+    let input: HTMLTextAreaElement | undefined
+    const copy = vi.spyOn(document, 'execCommand').mockImplementation(() => {
+      input = document.activeElement as HTMLTextAreaElement
+      expect(input.value).toBe(AGENT_INTEGRATIONS_BY_ID.codex.actions[0]!.value)
+      if (result === 'throws') throw new Error('Clipboard denied')
+      return result === 'copied'
+    })
+    host = document.createElement('div')
+    document.body.append(host)
+    app = createApp(ConnectSection)
+    app.mount(host)
+    const button = host.querySelector<HTMLButtonElement>('.site-command-copy')!
+    button.focus()
+    try {
+      button.click()
+      await nextTick()
+      expect(copy).toHaveBeenCalledWith('copy')
+      expect.soft(input?.isConnected).toBe(false)
+      expect.soft(document.activeElement).toBe(button)
+      expect(host.querySelector('.site-feedback')?.textContent?.trim()).toBe(
+        result === 'copied'
+          ? 'Copied setup command.'
+          : 'Clipboard access failed. Please copy it manually.'
+      )
+      expect(button.title === 'Copied').toBe(result === 'copied')
+    } finally {
+      input?.remove()
+    }
+  }
+)
+
+it('clears the previous success indicator when a later copy fails', async () => {
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+  host = document.createElement('div')
+  document.body.append(host)
+  app = createApp(ConnectSection)
+  app.mount(host)
+  const button = host.querySelector<HTMLButtonElement>('.site-command-copy')!
+  button.click()
+  await expect.poll(() => button.title).toBe('Copied')
+  copy.mockRejectedValue(new Error('Clipboard denied'))
+  button.click()
+  await expect
+    .poll(() => host?.querySelector('.site-feedback')?.textContent?.trim())
+    .toBe('Clipboard access failed. Please copy it manually.')
+  expect(button.title).not.toBe('Copied')
 })
 
 it.each(['codex', 'kiro-cli', 'codebuddy', 'deepseek'] as const)(
