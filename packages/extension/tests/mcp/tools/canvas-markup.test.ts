@@ -85,6 +85,35 @@ describe('canvas markup', () => {
     ).toThrow()
   })
 
+  it.each(['1:2', ' 1:2 '])('does not reserve the grid cell of adopted node %j', (nodeId) => {
+    const result = parseCanvasMarkup(
+      {
+        mode: 'update',
+        targetNodeId: '1:1',
+        markup: `<div data-key="root" class="grid grid-cols-1 grid-rows-1 w-80 h-80"><div data-key="adopted" data-node-id="${nodeId}" class="size-full col-start-1 row-start-1"/></div>`
+      },
+      undefined,
+      {
+        byKey: new Map(),
+        byNodeId: new Map(),
+        keys: new Set(['root']),
+        grids: new Map([
+          [
+            'root',
+            {
+              itemsPositioning: 'MANUAL',
+              children: [{ id: '1:2', row: 0, column: 0, rowSpan: 1, columnSpan: 1 }]
+            }
+          ]
+        ])
+      }
+    )
+    expect(result.root.children?.[0]).toMatchObject({
+      nodeId: '1:2',
+      gridChild: { row: 0, column: 0 }
+    })
+  })
+
   it('scales the default line height with an arbitrary font size', () => {
     const markup =
       '<div data-key="root" class="flex flex-col w-80 h-80"><span data-key="title" class="w-fit h-fit text-[48px]">Heading</span></div>'
@@ -2247,6 +2276,17 @@ describe('canvas markup', () => {
     )
 
     expect(result.root.children?.[0]?.text?.characters).toBe('A\u00a0\u00a0B')
+  })
+
+  it.each([
+    [' \t&nbsp;Copy&nbsp;\n ', '\u00a0Copy\u00a0'],
+    ['&nbsp;<br> &nbsp; ', '\u00a0\n\u00a0'],
+    [' \u2028Copy\u2028 ', '\u2028Copy\u2028']
+  ])('preserves non-HTML whitespace at text boundaries: %j', (source, expected) => {
+    const result = parse(
+      `<div data-key="root" class="flex flex-col w-80 h-80"><span data-key="copy" class="w-fit h-fit">${source}</span></div>`
+    )
+    expect(result.root.children?.[0]?.text?.characters).toBe(expected)
   })
 
   it('uses UTF-16 text-range offsets and rejects out-of-bounds ranges', () => {

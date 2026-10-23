@@ -453,7 +453,7 @@ function assertStaticMarkupLegality(
 function textContent(value: string, preserve: boolean, lineBreakOffsets: number[]): string {
   const normalize = preserve
     ? (segment: string) => segment
-    : (segment: string) => segment.replace(/[\t\n\f\r ]+/g, ' ').trim()
+    : (segment: string) => segment.replace(/[\t\n\f\r ]+/g, ' ').replace(/^ | $/g, '')
   if (!lineBreakOffsets.length) return normalize(value)
 
   let start = 0
@@ -1874,7 +1874,9 @@ function compileElementUnchecked(
       insideComponent || type === 'COMPONENT' || type === 'COMPONENT_SET' || type === 'SLOT'
     if (placement && liveGrid) {
       const childKeys = new Set(element.children.map((child) => child.attributes['data-key']))
-      const childIds = new Set(element.children.map((child) => child.attributes['data-node-id']))
+      const childIds = new Set(
+        element.children.map((child) => child.attributes['data-node-id']?.trim())
+      )
       for (const child of liveGrid.children) {
         if (
           (child.key && (childKeys.has(child.key) || state.removedKeys.has(child.key))) ||
