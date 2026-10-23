@@ -1,8 +1,28 @@
+import { parseArgs, type ParseArgsOptionsConfig } from 'node:util'
+
 export type ScreenshotScenario = {
   group: 'inspect' | 'setup' | 'status'
   id: string
   mcpStatus?: string
   view: string
+  visualReview?: Array<{ kind: 'measurement-labels'; values: number[] }>
+}
+
+export const selectionOptions = {
+  only: { type: 'string' },
+  group: { type: 'string' },
+  themes: { type: 'string' }
+} as const
+
+export function parseScreenshotOptions<T extends ParseArgsOptionsConfig>(
+  options: T,
+  args = process.argv.slice(2)
+) {
+  const { values } = parseArgs({ options, args })
+  for (const [name, value] of Object.entries(values)) {
+    if (value === '') throw new Error(`--${name} requires a value.`)
+  }
+  return values
 }
 
 export function needsFixtureRuntime(scenarios: readonly ScreenshotScenario[]): boolean {

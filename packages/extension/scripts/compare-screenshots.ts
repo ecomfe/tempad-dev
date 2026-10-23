@@ -2,7 +2,13 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { selectScenarios, selectThemes, type ScreenshotScenario } from './screenshot-plan'
+import {
+  parseScreenshotOptions,
+  selectionOptions,
+  selectScenarios,
+  selectThemes,
+  type ScreenshotScenario
+} from './screenshot-plan'
 
 type Scenario = ScreenshotScenario & { height: number; width: number }
 type Manifest = {
@@ -12,11 +18,6 @@ type Manifest = {
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const manifestPath = fileURLToPath(new URL('../screenshots/scenarios.json', import.meta.url))
-
-function readArgument(name: string): string | null {
-  const index = process.argv.indexOf(name)
-  return index >= 0 ? (process.argv[index + 1] ?? null) : null
-}
 
 function escapeHtml(value: string): string {
   return value
@@ -31,28 +32,40 @@ async function imageData(path: string): Promise<string> {
 }
 
 async function main(): Promise<void> {
+  const options = parseScreenshotOptions({
+    ...selectionOptions,
+    'candidate-dir': { type: 'string' },
+    'baseline-dir': { type: 'string' },
+    output: { type: 'string' }
+  })
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Manifest
-  const candidateDirArgument = readArgument('--candidate-dir')
+  const candidateDirArgument = options['candidate-dir']
   const candidateDir = candidateDirArgument
     ? resolve(repoRoot, candidateDirArgument)
     : `${repoRoot}.artifacts/marketing-screenshots`
-  const baselineDirArgument = readArgument('--baseline-dir')
+  const baselineDirArgument = options['baseline-dir']
   const baselineDir = baselineDirArgument
     ? resolve(repoRoot, baselineDirArgument)
     : `${repoRoot}packages/site/public/marketing`
-  const outputArgument = readArgument('--output')
+  const outputArgument = options.output
   const outputPath = outputArgument
     ? resolve(repoRoot, outputArgument)
     : `${candidateDir}/comparison.html`
   const selected = selectScenarios(manifest.scenarios, {
-    only: readArgument('--only'),
-    group: readArgument('--group')
+    only: options.only,
+    group: options.group
   })
-  const themes = selectThemes(manifest.capture.themes, readArgument('--themes'))
+  const themes = selectThemes(manifest.capture.themes, options.themes ?? null)
   const rows: string[] = []
 
   for (const scenario of selected) {
     const displayWidth = scenario.width / manifest.capture.sourceScale
+    const visualReview = (scenario.visualReview ?? [])
+      .map(
+        ({ values }) =>
+          `<p>Visual review required: confirm the native canvas measurement labels read ${escapeHtml(values.join(', '))}.</p>`
+      )
+      .join('')
     for (const theme of themes) {
       const filename = `${scenario.id}-${theme}.png`
       const baselinePath = resolve(baselineDir, filename)
@@ -68,6 +81,7 @@ async function main(): Promise<void> {
       rows.push(`
         <section class="comparison">
           <h2>${escapeHtml(scenario.id)} <span>${escapeHtml(theme)}</span></h2>
+          ${visualReview}
           <div class="pair">
             <figure><figcaption>Committed baseline</figcaption>${baseline ? `<img src="${baseline}" width="${displayWidth}">` : '<p>New scenario — no committed baseline.</p>'}</figure>
             <figure><figcaption>New candidate</figcaption><img src="${candidate}" width="${displayWidth}"></figure>

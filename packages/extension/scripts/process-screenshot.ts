@@ -5,6 +5,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
+import { parseScreenshotOptions } from './screenshot-plan'
+
 type Scenario = {
   clip?: ClipRect
   id: string
@@ -37,11 +39,14 @@ const execFileAsync = promisify(execFile)
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const manifestPath = fileURLToPath(new URL('../screenshots/scenarios.json', import.meta.url))
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as ScreenshotManifest
-
-function readArgument(name: string): string | null {
-  const index = process.argv.indexOf(name)
-  return index >= 0 ? (process.argv[index + 1] ?? null) : null
-}
+const options = parseScreenshotOptions({
+  scenario: { type: 'string' },
+  theme: { type: 'string' },
+  input: { type: 'string' },
+  output: { type: 'string' },
+  'clip-x': { type: 'string' },
+  'clip-y': { type: 'string' }
+})
 
 function fail(message: string): never {
   throw new Error(
@@ -49,21 +54,21 @@ function fail(message: string): never {
   )
 }
 
-function readNumberArgument(name: string): number | null {
-  const value = readArgument(name)
-  if (value === null) return null
+function readNumberArgument(name: 'clip-x' | 'clip-y'): number | null {
+  const value = options[name]
+  if (value === undefined) return null
 
   const number = Number(value)
   if (!Number.isFinite(number)) {
-    fail(`${name} must be a finite number.`)
+    fail(`--${name} must be a finite number.`)
   }
 
   return number
 }
 
-const scenarioId = readArgument('--scenario') ?? fail('Missing --scenario.')
-const theme = readArgument('--theme') ?? fail('Missing --theme.')
-const input = readArgument('--input') ?? fail('Missing --input.')
+const scenarioId = options.scenario ?? fail('Missing --scenario.')
+const theme = options.theme ?? fail('Missing --theme.')
+const input = options.input ?? fail('Missing --input.')
 const scenario = manifest.scenarios.find((candidate) => candidate.id === scenarioId)
 
 if (!scenario) {
@@ -80,11 +85,10 @@ if (process.platform !== 'darwin') {
 
 const inputPath = resolve(input)
 const outputPath = resolve(
-  readArgument('--output') ??
-    `${repoRoot}packages/site/public/marketing/${scenario.id}-${theme}.png`
+  options.output ?? `${repoRoot}packages/site/public/marketing/${scenario.id}-${theme}.png`
 )
-const clipX = readNumberArgument('--clip-x')
-const clipY = readNumberArgument('--clip-y')
+const clipX = readNumberArgument('clip-x')
+const clipY = readNumberArgument('clip-y')
 
 if ((clipX === null) !== (clipY === null)) {
   fail('--clip-x and --clip-y must be provided together.')

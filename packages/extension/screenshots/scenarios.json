@@ -333,12 +333,9 @@
         {
           "kind": "panel-title",
           "text": "Frame 2"
-        },
-        {
-          "kind": "measurement-labels",
-          "values": [20, 20, 20, 20]
         }
       ],
+      "visualReview": [{ "kind": "measurement-labels", "values": [20, 20, 20, 20] }],
       "width": 1440,
       "height": 960,
       "group": "inspect",
