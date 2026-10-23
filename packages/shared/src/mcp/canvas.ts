@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { MCP_HASH_PATTERN } from './constants'
 import { DesignTaskParameterSchema, DesignTaskEpochSchema } from './design-task'
+import { stringRecord } from './string-record'
 
 export const CanvasStableKeySchema = z
   .string()
@@ -405,7 +406,7 @@ export const CanvasFigmaPaintSchema = z.union([
     .object({
       type: z.literal('SHADER'),
       id: z.string().min(1),
-      properties: z.record(z.string().min(1), CanvasFigmaShaderPropertyValueSchema).optional(),
+      properties: stringRecord(z.string().min(1), CanvasFigmaShaderPropertyValueSchema).optional(),
       ...CanvasFigmaPaintFields
     })
     .strict()
@@ -554,7 +555,7 @@ export const CanvasFigmaEffectSchema = z.union([
       type: z.literal('SHADER'),
       id: z.string().min(1),
       visible: z.boolean().optional(),
-      properties: z.record(z.string().min(1), CanvasFigmaShaderPropertyValueSchema).optional()
+      properties: stringRecord(z.string().min(1), CanvasFigmaShaderPropertyValueSchema).optional()
     })
     .strict()
 ])
@@ -608,9 +609,10 @@ export const CanvasVariableBindingsSchema = z
 
 export type CanvasVariableBindings = z.infer<typeof CanvasVariableBindingsSchema>
 
-export const CanvasVariableModesSchema = z
-  .record(z.string().min(1), z.string().min(1).nullable())
-  .refine(hasFields, 'Variable mode overrides cannot be empty.')
+export const CanvasVariableModesSchema = stringRecord(
+  z.string().min(1),
+  z.string().min(1).nullable()
+).refine(hasFields, 'Variable mode overrides cannot be empty.')
 
 export type CanvasVariableModes = z.infer<typeof CanvasVariableModesSchema>
 
@@ -702,8 +704,7 @@ const CanvasVariableResourceSchema = z
       })
       .optional(),
     codeSyntax: CanvasVariableCodeSyntaxSchema.optional(),
-    values: z
-      .record(z.string().min(1), CanvasVariableValueSchema)
+    values: stringRecord(z.string().min(1), CanvasVariableValueSchema)
       .refine(hasFields, 'Variable values cannot be empty.')
       .optional()
   })
@@ -715,8 +716,7 @@ const CanvasExtendedVariableOverrideSchema = z
     variable: CanvasVariableReferenceSchema.describe(
       'Inherited variable to override in this extended collection.'
     ),
-    values: z
-      .record(z.string().min(1), CanvasVariableValueSchema.nullable())
+    values: stringRecord(z.string().min(1), CanvasVariableValueSchema.nullable())
       .refine(hasFields, 'Extended variable override values cannot be empty.')
       .describe(
         'Extended-mode IDs, inherited parent-mode IDs, or parent authoring keys to override values; null removes an existing override.'
@@ -732,8 +732,7 @@ const CanvasVariableCollectionResourceSchema = z
     extends: CanvasVariableCollectionReferenceSchema.describe(
       'Existing local or published parent collection for a new extended collection.'
     ).optional(),
-    modes: z
-      .record(CanvasStableKeySchema, CanvasVariableModeResourceSchema.nullable())
+    modes: stringRecord(CanvasStableKeySchema, CanvasVariableModeResourceSchema.nullable())
       .refine(hasFields, 'Variable collection modes cannot be empty.')
       .optional(),
     overrides: z
@@ -741,8 +740,7 @@ const CanvasVariableCollectionResourceSchema = z
       .min(1)
       .describe('Explicit inherited-variable overrides for an extended collection.')
       .optional(),
-    variables: z
-      .record(CanvasStableKeySchema, CanvasVariableResourceSchema.nullable())
+    variables: stringRecord(CanvasStableKeySchema, CanvasVariableResourceSchema.nullable())
       .refine(hasFields, 'Variable collection variables cannot be empty.')
       .optional()
   })
@@ -751,8 +749,10 @@ const CanvasVariableCollectionResourceSchema = z
 
 export const MAX_CANVAS_VARIABLE_RESOURCES = 100
 
-export const CanvasVariableCollectionsSchema = z
-  .record(CanvasStableKeySchema, CanvasVariableCollectionResourceSchema.nullable())
+export const CanvasVariableCollectionsSchema = stringRecord(
+  CanvasStableKeySchema,
+  CanvasVariableCollectionResourceSchema.nullable()
+)
   .refine(hasFields, 'Variable collections cannot be empty.')
   .superRefine((collections, context) => {
     const variableKeys = new Set<string>()
@@ -1297,8 +1297,10 @@ const CanvasStyleResourceSchema = z.discriminatedUnion('type', [
 
 export const MAX_CANVAS_STYLE_RESOURCES = 100
 
-export const CanvasStylesSchema = z
-  .record(CanvasStableKeySchema, CanvasStyleResourceSchema.nullable())
+export const CanvasStylesSchema = stringRecord(
+  CanvasStableKeySchema,
+  CanvasStyleResourceSchema.nullable()
+)
   .refine(hasFields, 'Styles cannot be empty.')
   .refine((styles) => Object.keys(styles).length <= MAX_CANVAS_STYLE_RESOURCES, {
     message: `Styles may describe at most ${MAX_CANVAS_STYLE_RESOURCES} resources.`
@@ -1414,9 +1416,10 @@ const CanvasFigmaComponentPropertyDefinitionSchema = z.discriminatedUnion('type'
     .strict()
 ])
 
-const CanvasFigmaComponentPropertiesSchema = z
-  .record(z.string().min(1).max(256), CanvasFigmaComponentPropertyDefinitionSchema.nullable())
-  .refine(hasFields, 'Component property patches cannot be empty.')
+const CanvasFigmaComponentPropertiesSchema = stringRecord(
+  z.string().min(1).max(256),
+  CanvasFigmaComponentPropertyDefinitionSchema.nullable()
+).refine(hasFields, 'Component property patches cannot be empty.')
 
 const CanvasFigmaAuthoredComponentSchema = z
   .object({
@@ -1611,8 +1614,7 @@ export const CanvasBindingSchema = z
     component: CanvasDesignReferenceSchema.describe(
       'Design-system component used by the childless div with this data-key.'
     ).optional(),
-    componentProperties: z
-      .record(z.string().min(1), CanvasComponentPropertyValueSchema)
+    componentProperties: stringRecord(z.string().min(1), CanvasComponentPropertyValueSchema)
       .describe(
         'Exposed component values. Direct values remove a variable alias, variable references bind one, and omission preserves the property.'
       )
@@ -1674,11 +1676,12 @@ export const MAX_CANVAS_NODES = 160
 export const MAX_CANVAS_DEPTH = 12
 export const MAX_CANVAS_MARKUP_LENGTH = 200_000
 
-const CanvasBindingsSchema = z
-  .record(CanvasStableKeySchema, CanvasBindingSchema)
-  .refine((bindings) => Object.keys(bindings).length <= MAX_CANVAS_NODES, {
+const CanvasBindingsSchema = stringRecord(CanvasStableKeySchema, CanvasBindingSchema).refine(
+  (bindings) => Object.keys(bindings).length <= MAX_CANVAS_NODES,
+  {
     message: `Canvas bindings may contain at most ${MAX_CANVAS_NODES} entries.`
-  })
+  }
+)
 
 const CanvasRemoveKeysSchema = z
   .array(CanvasStableKeySchema)
@@ -1701,8 +1704,7 @@ const CanvasAssetSchema = z.union([
   z.object({ type: z.literal('SVG'), assetHash: CanvasAssetHashSchema }).strict(),
   z.object({ type: z.literal('IMAGE'), assetHash: CanvasAssetHashSchema }).strict()
 ])
-export const CanvasAssetsSchema = z
-  .record(CanvasStableKeySchema, CanvasAssetSchema)
+export const CanvasAssetsSchema = stringRecord(CanvasStableKeySchema, CanvasAssetSchema)
   .refine((assets) => Object.keys(assets).length <= 32, {
     message: 'Canvas assets may contain at most 32 entries.'
   })
@@ -1730,16 +1732,16 @@ const CanvasNativeBindingSchema = z
       .strict()
       .describe('Exact live component or component-set id from prior canvas work.')
       .optional(),
-    componentProperties: z
-      .record(z.string().min(1), CanvasComponentPropertyValueSchema)
+    componentProperties: stringRecord(z.string().min(1), CanvasComponentPropertyValueSchema)
       .describe('Values keyed by an exact Figma property name or a TemPad-authored stable key.')
       .optional(),
-    variables: z
-      .record(z.string(), z.object({ variableKey: CanvasStableKeySchema }).strict().nullable())
+    variables: stringRecord(
+      z.string(),
+      z.object({ variableKey: CanvasStableKeySchema }).strict().nullable()
+    )
       .describe('Local authored-variable bindings and explicit null removals.')
       .optional(),
-    variableModes: z
-      .record(z.string(), z.string().nullable())
+    variableModes: stringRecord(z.string(), z.string().nullable())
       .describe('Explicit collection modes; catalog kN/mN_M refs require catalogId.')
       .optional(),
     styles: z
@@ -1753,8 +1755,7 @@ const CanvasNativeBindingSchema = z
       .strict()
       .describe('Local authored-style bindings and explicit null removals.')
       .optional(),
-    figma: z
-      .record(z.string(), z.unknown())
+    figma: stringRecord(z.string(), z.unknown())
       .describe(
         'Strict desired state for the selected Figma-native capability. Use the matching progressive reference from the design-in-figma skill for its exact shape.'
       )
@@ -1764,24 +1765,20 @@ const CanvasNativeBindingSchema = z
 
 export const CanvasThemeSchema = z
   .object({
-    variables: z
-      .record(
-        z.string().regex(/^--[a-zA-Z0-9_-]+$/),
-        z.union([
-          z.object({ ref: z.string().min(1) }).strict(),
-          z.object({ variableKey: CanvasStableKeySchema }).strict()
-        ])
-      )
-      .optional(),
-    textStyles: z
-      .record(
-        z.string().regex(/^type-[a-zA-Z0-9_-]+$/),
-        z.union([
-          z.object({ ref: z.string().min(1) }).strict(),
-          z.object({ styleKey: CanvasStableKeySchema }).strict()
-        ])
-      )
-      .optional()
+    variables: stringRecord(
+      z.string().regex(/^--[a-zA-Z0-9_-]+$/),
+      z.union([
+        z.object({ ref: z.string().min(1) }).strict(),
+        z.object({ variableKey: CanvasStableKeySchema }).strict()
+      ])
+    ).optional(),
+    textStyles: stringRecord(
+      z.string().regex(/^type-[a-zA-Z0-9_-]+$/),
+      z.union([
+        z.object({ ref: z.string().min(1) }).strict(),
+        z.object({ styleKey: CanvasStableKeySchema }).strict()
+      ])
+    ).optional()
   })
   .strict()
 
@@ -1936,33 +1933,28 @@ export const ApplyCanvasParametersSchema = z
         `Canvas HTML serialization of the desired managed Figma layer tree, with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels. Conflicting classes are rejected, not resolved by order: replace default font sizes, colors, or line heights instead of appending overrides. When catalogId is supplied, use its component tags and bind its variable or style refs with data-var-<field>="vN" or data-style-<field>="sN"; use "none" to unlink.`
       )
       .optional(),
-    native: z
-      .record(CanvasStableKeySchema, CanvasNativeBindingSchema)
+    native: stringRecord(CanvasStableKeySchema, CanvasNativeBindingSchema)
       .describe(
         'Desired native Figma state and bindings for selected capabilities. With markup, every native key must match a data-key in that supplied tree, even for existing nodes. Without markup, update may bind existing stable keys inside targetNodeId. For a mixed structural/native edit, include the bound nodes in the supplied structure or use a separate native-only update.'
       )
       .optional(),
-    variableCollections: z
-      .record(CanvasStableKeySchema, z.unknown())
+    variableCollections: stringRecord(CanvasStableKeySchema, z.unknown())
       .describe(
         'Optional local variable collections, modes, and variables keyed by file-wide authoring identities. This does not require catalogId; use the design-in-figma variables reference for the exact shape.'
       )
       .optional(),
-    styles: z
-      .record(CanvasStableKeySchema, z.unknown())
+    styles: stringRecord(CanvasStableKeySchema, z.unknown())
       .describe(
         'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide authoring identities. This does not require catalogId; use the design-in-figma local-styles reference for the exact shape.'
       )
       .optional(),
-    assets: z
-      .record(CanvasStableKeySchema, z.unknown())
+    assets: stringRecord(CanvasStableKeySchema, z.unknown())
       .describe(
         'Optional call-scoped inline SVG or content-addressed Hub assets referenced by native desired state.'
       )
       .optional(),
     removeKeys: CanvasRemoveKeysSchema.optional(),
-    page: z
-      .record(z.string(), z.unknown())
+    page: stringRecord(z.string(), z.unknown())
       .describe(
         'Optional local page identity and desired state. Use the design-in-figma document-geometry reference for the exact shape.'
       )
@@ -2058,7 +2050,7 @@ export const ApplyCanvasResultSchema = z
   .object({
     rootNodeId: z.string().min(1).optional(),
     rootRemoved: z.literal(true).optional(),
-    nodeIdsByKey: z.record(z.string(), z.string().min(1)),
+    nodeIdsByKey: stringRecord(z.string(), z.string().min(1)),
     createdNodeIds: z.array(z.string().min(1)),
     updatedNodeIds: z.array(z.string().min(1)),
     removedNodeIds: z.array(z.string().min(1)),

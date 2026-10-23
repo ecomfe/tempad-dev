@@ -53,14 +53,15 @@ function nativeShaderProperties(
 ): Record<string, ShaderPropertyValue> | undefined {
   const shader = state.shaderCache.get(id)
   if (!shader) applyError(`Shader "${id}" was not preflighted.`)
-  const properties = Object.fromEntries(
-    Object.entries(shader.propertyDefinitions ?? {})
+  const properties = Object.fromEntries([
+    ...Object.entries(shader.propertyDefinitions ?? {})
       .filter(([, definition]) => definition.defaultValue !== undefined)
-      .map(([propertyId, definition]) => [propertyId, definition.defaultValue!])
-  ) as Record<string, ShaderPropertyValue>
-  for (const [propertyId, value] of Object.entries(values ?? {})) {
-    properties[propertyId] = nativeShaderValue(value, state)
-  }
+      .map(([propertyId, definition]) => [propertyId, definition.defaultValue!]),
+    ...Object.entries(values ?? {}).map(([propertyId, value]) => [
+      propertyId,
+      nativeShaderValue(value, state)
+    ])
+  ]) as Record<string, ShaderPropertyValue>
   return Object.keys(properties).length ? properties : undefined
 }
 

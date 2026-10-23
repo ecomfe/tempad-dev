@@ -167,7 +167,8 @@ function contextPropertyType(
   key: string,
   state: ApplyState
 ): ComponentPropertyType | undefined {
-  const desired = context.spec?.figma?.component?.properties?.[key]
+  const properties = context.spec?.figma?.component?.properties
+  const desired = properties && Object.hasOwn(properties, key) ? properties[key] : undefined
   if (desired !== undefined) return desired?.type
   const owner = context.existing
   if (!owner) return undefined
@@ -219,7 +220,10 @@ async function preflightAuthoredComponentProperties(
   const keys = owner ? componentPropertyKeys(owner, state) : undefined
   for (const [key, desired] of Object.entries(properties)) {
     const propertyName = owner ? (keys?.[key] ?? key) : undefined
-    const current = propertyName ? owner?.componentPropertyDefinitions[propertyName] : undefined
+    const current =
+      owner && propertyName && Object.hasOwn(owner.componentPropertyDefinitions, propertyName)
+        ? owner.componentPropertyDefinitions[propertyName]
+        : undefined
     if (desired === null) {
       if (!owner || (!keys?.[key] && !current)) {
         specError(`Component property "${key}" on "${spec.key}" does not exist.`)
@@ -595,7 +599,9 @@ export function applyAuthoredComponentProperties(
   const keys = componentPropertyKeys(owner, state)
   for (const [key, desired] of Object.entries(properties)) {
     const propertyName = keys[key] ?? key
-    const current = owner.componentPropertyDefinitions[propertyName]
+    const current = Object.hasOwn(owner.componentPropertyDefinitions, propertyName)
+      ? owner.componentPropertyDefinitions[propertyName]
+      : undefined
     if (desired === null) {
       if (!current) continue
       if (!keys[key]) setComponentPropertyKey(owner, key, propertyName, state)

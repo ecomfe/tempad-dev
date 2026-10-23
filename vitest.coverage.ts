@@ -175,6 +175,7 @@ export const SHARED_SCHEMA_COVERAGE_FILES = [
   'src/index.ts',
   'src/mcp/browser-gateway.ts',
   'src/mcp/constants.ts',
+  'src/mcp/string-record.ts',
   'src/mcp/design-task.ts',
   'src/mcp/errors.ts',
   'src/mcp/index.ts',
