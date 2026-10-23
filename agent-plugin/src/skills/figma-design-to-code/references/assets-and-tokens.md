@@ -8,11 +8,13 @@ code, including references whose token metadata is missing.
 Follow the project's established asset and icon policy before TemPad delivery
 details.
 
-- Download bytes only from a TemPad-provided `asset.url`. Never substitute a
-  public internet asset.
+- Use the returned `asset.localPath` when accessible; otherwise download
+  `asset.url`. These are temporary Hub delivery locations: copy needed files
+  into the project's normal asset location. Never substitute a public internet
+  asset.
 - Treat assets as files to store or reference, not text evidence to parse.
 - If project policy forbids storing them, reference TemPad URLs only when the
-  user accepts the local-server dependency, and report it.
+  user accepts the temporary local-server dependency, and report it.
 - Treat emitted `<svg data-src="...">` markup as design truth for structure,
   size, and instance color. Refactor delivery only through an existing project
   SVG path.

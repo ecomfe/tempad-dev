@@ -12,8 +12,9 @@ let socket
 const deadline = setTimeout(() => process.exit(0), 750)
 try {
   let text = ''
+  process.stdin.setEncoding('utf8')
   for await (const chunk of process.stdin) {
-    text += String(chunk)
+    text += chunk
     if (text.length > 1_000_000) process.exit(0)
   }
   const input = JSON.parse(text)
@@ -58,55 +59,49 @@ try {
   const path =
     process.platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(runtimeDir, 'mcp.sock')
   assertTrustedSocket(path)
-  socket = connect(path)
-  const pending = new Map()
-  let sequence = 0
-  let buffer = ''
-  socket.on('data', (data) => {
-    buffer += data.toString()
-    if (buffer.length > 1_000_000) {
-      socket.destroy()
-      return
-    }
-    let index
-    while ((index = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, index)
-      buffer = buffer.slice(index + 1)
-      let message
-      try {
-        message = JSON.parse(line)
-      } catch {
-        continue
+  socket = connect(path).setEncoding('utf8')
+  const result = await new Promise((resolve, reject) => {
+    let buffer = ''
+    socket.on('data', (data) => {
+      buffer += data
+      if (buffer.length > 1_000_000) {
+        socket.destroy()
+        return
       }
-      const entry = pending.get(message.id)
-      if (!entry) continue
-      pending.delete(message.id)
-      if (message.error) entry.reject(new Error('The Hub does not support this hook request.'))
-      else entry.resolve(message.result)
-    }
-  })
-  const disconnected = () => {
-    for (const entry of pending.values()) entry.reject(new Error('The Hub hook connection closed.'))
-    pending.clear()
-  }
-  socket.on('error', disconnected)
-  socket.on('close', disconnected)
-  await new Promise((resolve, reject) => {
-    socket.once('connect', resolve)
-    socket.once('error', reject)
-  })
-  const request = (method, params) =>
-    new Promise((resolve, reject) => {
-      const id = ++sequence
-      pending.set(id, { resolve, reject })
-      socket.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
+      let index
+      while ((index = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, index)
+        buffer = buffer.slice(index + 1)
+        let message
+        try {
+          message = JSON.parse(line)
+        } catch {
+          continue
+        }
+        if (message?.id !== 1) continue
+        if (message.error) reject(new Error('The Hub does not support this hook request.'))
+        else resolve(message.result)
+        return
+      }
     })
-  const result = await request('tempad/client-hook', {
-    ...identity,
-    event,
-    invocationId: randomUUID(),
-    ...(taskId ? { taskId } : {}),
-    ...(typeof input.turn_id === 'string' ? { turnId: input.turn_id } : {})
+    socket.on('error', reject)
+    socket.once('close', () => reject(new Error('The Hub hook connection closed.')))
+    socket.once('connect', () => {
+      socket.write(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tempad/client-hook',
+          params: {
+            ...identity,
+            event,
+            invocationId: randomUUID(),
+            ...(taskId ? { taskId } : {}),
+            ...(typeof input.turn_id === 'string' ? { turnId: input.turn_id } : {})
+          }
+        }) + '\n'
+      )
+    })
   })
   // Old Hubs may still offer comment batches; never emit or acknowledge those.
   if (

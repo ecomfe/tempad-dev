@@ -241,7 +241,7 @@ the call returns the set as `rootNodeId`, this creates Default and Hover:
 ```json
 {
   "mode": "create",
-  "markup": "<div data-key=\"screen\" class=\"flex flex-row w-[384px] h-[96px] gap-[24px] p-[24px]\"><div data-key=\"screen/default\" class=\"w-[168px] h-[48px]\"></div><div data-key=\"screen/hover\" class=\"w-[168px] h-[48px]\"></div></div>",
+  "markup": "<div data-key=\"screen\" class=\"flex flex-row w-[408px] h-[96px] gap-[24px] p-[24px]\"><div data-key=\"screen/default\" class=\"w-[168px] h-[48px]\"></div><div data-key=\"screen/hover\" class=\"w-[168px] h-[48px]\"></div></div>",
   "native": {
     "screen/default": {
       "component": { "id": "ComponentSetID:created-button-set" }

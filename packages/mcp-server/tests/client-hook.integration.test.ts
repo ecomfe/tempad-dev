@@ -88,22 +88,122 @@ async function runHook(
   })
   let stdout = '',
     stderr = ''
-  child.stdout.on('data', (data) => {
-    stdout += String(data)
+  child.stdout.setEncoding('utf8').on('data', (data) => {
+    stdout += data
   })
-  child.stderr.on('data', (data) => {
-    stderr += String(data)
+  child.stderr.setEncoding('utf8').on('data', (data) => {
+    stderr += data
   })
   child.stdin.end(
     JSON.stringify({ hook_event_name: event, session_id: 'thread-a', turn_id: 'turn-a', ...extra })
   )
-  const code = await new Promise<number | null>((resolve) => child.once('exit', resolve))
+  const code = await new Promise<number | null>((resolve) => child.once('close', resolve))
   return { code, stdout, stderr }
 }
 
 // The installed Windows hook ignores runtime-directory overrides for its fixed pipe.
 // Only the in-memory protocol test is safe there; never probe the user's real Hub.
 describe('plugin hook transport', () => {
+  it.skipIf(process.platform === 'win32').each([
+    { name: 'a normal reply', prefix: '' },
+    {
+      name: 'unrelated frames before the reply',
+      prefix: 'not JSON\nnull\n42\n{}\n{"id":2,"error":{"message":"Other request"}}\n'
+    }
+  ])('preserves split UTF-8 with $name', async ({ prefix }) => {
+    const directory = await mkdtemp(join(tmpdir(), 'th-'))
+    const input = {
+      hook_event_name: 'PostToolUse',
+      session_id: 'thread-会话',
+      tool_name: 'mcp__tempad-dev__manage_design_task',
+      tool_input: { action: 'begin' },
+      tool_response: { structuredContent: { taskId: 'task-設計' } }
+    }
+    const output = {
+      hookSpecificOutput: {
+        hookEventName: input.hook_event_name,
+        additionalContext: 'Stop · 已停止 🛑'
+      }
+    }
+    const requestBytes = Buffer.from(JSON.stringify(input))
+    const requestSplit = requestBytes.indexOf(Buffer.from('会')) + 1
+    let received: ClientHook | undefined
+    let finishResponse: (() => void) | undefined
+    const sockets = new Set<import('node:net').Socket>()
+    const server = createServer((socket) => {
+      sockets.add(socket)
+      let buffer = ''
+      socket.setEncoding('utf8')
+      socket.on('data', (chunk) => {
+        buffer += chunk
+        if (!buffer.endsWith('\n')) return
+        const message = JSON.parse(buffer)
+        const request = ClientHookRequestSchema.parse(message)
+        received = request.params
+        const bytes = Buffer.from(
+          prefix + JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { output } }) + '\n'
+        )
+        const split = bytes.indexOf(Buffer.from('🛑')) + 1
+        finishResponse = () => socket.end(bytes.subarray(split))
+        socket.write(bytes.subarray(0, split))
+      })
+      socket.once('close', () => sockets.delete(socket))
+    })
+    let child: ReturnType<typeof spawn> | undefined
+    try {
+      await new Promise<void>((resolve) => server.listen(join(directory, 'mcp.sock'), resolve))
+      await chmod(join(directory, 'mcp.sock'), 0o600)
+      // Observe actual stream delivery before sending the rest. Separate writes alone can
+      // coalesce, hiding the split character; no timing delay or fake decoder is involved.
+      const observer = `
+          import { Socket } from 'node:net'
+          const emit = Socket.prototype.emit
+          Socket.prototype.emit = function(event, ...args) {
+            const result = Reflect.apply(emit, this, [event, ...args])
+            if (event === 'data') process.send(this === process.stdin ? 'stdin' : 'socket')
+            return result
+          }
+          process.channel.unref()
+        `
+      const hookProcess = spawn(
+        process.execPath,
+        ['--import', `data:text/javascript,${encodeURIComponent(observer)}`, hook, 'claude'],
+        {
+          env: { ...process.env, TEMPAD_MCP_RUNTIME_DIR: directory },
+          stdio: ['pipe', 'pipe', 'pipe', 'ipc']
+        }
+      )
+      child = hookProcess
+      let stdout = '',
+        stderr = ''
+      hookProcess.stdout!.setEncoding('utf8').on('data', (chunk) => (stdout += chunk))
+      hookProcess.stderr!.setEncoding('utf8').on('data', (chunk) => (stderr += chunk))
+      const chunks = new Set<unknown>()
+      hookProcess.on('message', (source) => {
+        if (chunks.has(source)) return
+        chunks.add(source)
+        if (source === 'stdin') hookProcess.stdin!.end(requestBytes.subarray(requestSplit))
+        if (source === 'socket') finishResponse?.()
+      })
+      const closed = new Promise<number | null>((resolve) => hookProcess.once('close', resolve))
+      hookProcess.stdin!.write(requestBytes.subarray(0, requestSplit))
+      expect(await closed).toBe(0)
+      expect(stderr).toBe('')
+      expect(chunks).toContain('stdin')
+      expect(chunks).toContain('socket')
+      expect.soft(received).toMatchObject({
+        sessionId: input.session_id,
+        taskId: input.tool_response.structuredContent.taskId
+      })
+      expect(JSON.parse(stdout)).toEqual(output)
+    } finally {
+      child?.kill()
+      for (const socket of sockets) socket.destroy()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it.skipIf(process.platform === 'win32')(
     'keeps the isolated Hub after legacy root changes and refuses ambiguous roots',
     async () => {
@@ -375,6 +475,18 @@ describe('plugin hook transport', () => {
           stdout: '',
           stderr: ''
         })
+      })
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'exits quietly when the Hub rejects the hook',
+    async () => {
+      await withHookHub(async (directory, hooks) => {
+        vi.spyOn(hooks, 'handle').mockImplementation(() => {
+          throw new Error('Unsupported hook')
+        })
+        expect(await runHook(directory, 'PreToolUse')).toEqual({ code: 0, stdout: '', stderr: '' })
       })
     }
   )

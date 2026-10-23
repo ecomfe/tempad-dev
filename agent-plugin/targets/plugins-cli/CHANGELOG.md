@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.7
+
+- Preserved Unicode text in Claude lifecycle messages and tolerated malformed Hub replies.
+- Corrected component sizing examples and guidance for asset storage and shadow inspection.
+
 ## 0.5.6
 
 - Clarified safe recovery after failed edits and native text binding limits.

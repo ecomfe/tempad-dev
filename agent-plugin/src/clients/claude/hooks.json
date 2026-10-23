@@ -1,5 +1,5 @@
 {
-  "description": "Bind Figma tasks, collect user feedback at host lifecycle boundaries, and honor task Stop.",
+  "description": "Bind Figma tasks, report host lifecycle, and deliver task Stop notices.",
   "hooks": {
     "Stop": [
       {
