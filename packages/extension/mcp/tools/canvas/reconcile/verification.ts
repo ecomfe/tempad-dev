@@ -19,7 +19,7 @@ import {
   variableLinkMatches
 } from './binding-values'
 import { clearedVariableMatches, verifyTextRangeBinding } from './bindings'
-import { GEOMETRY_TOLERANCE, nativeValueEqual } from './comparison'
+import { GEOMETRY_TOLERANCE, nativeValueEqual, scalarValuesEqual } from './comparison'
 import {
   componentDefinitionOwner,
   componentPropertyName,
@@ -285,7 +285,7 @@ function verifyNativeNodeState(
     if ((!isFrameContainer(node) && node.type !== 'INSTANCE') || !('guides' in node)) {
       applyError(`Verification failed for "${spec.key}": guides are unsupported.`)
     }
-    if (!nativeValueEqual(node.guides, guides)) {
+    if (!nativeValueEqual(node.guides, guides, scalarValuesEqual)) {
       applyError(`Verification failed for "${spec.key}": guides do not match.`)
     }
   }

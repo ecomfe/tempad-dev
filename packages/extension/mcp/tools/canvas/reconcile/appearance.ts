@@ -239,7 +239,7 @@ export function applyAppearance(
     }
     if (
       stroke.dashPattern !== undefined &&
-      !nativeValueEqual(node.dashPattern, stroke.dashPattern)
+      !nativeValueEqual(node.dashPattern, stroke.dashPattern, scalarValuesEqual)
     ) {
       node.dashPattern = stroke.dashPattern
       markMutation(state, node)
@@ -371,7 +371,7 @@ export function applyGuides(
   guides: CanvasPageProperties['guides'],
   state: ApplyState
 ): void {
-  if (guides === undefined || nativeValueEqual(node.guides, guides)) return
+  if (guides === undefined || nativeValueEqual(node.guides, guides, scalarValuesEqual)) return
   node.guides = guides
   markMutation(state, node)
 }

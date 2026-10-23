@@ -16,6 +16,17 @@ function rounded(value: unknown): unknown {
   return value
 }
 
+function roundProperty(node: object, field: string): void {
+  let value: unknown = Reflect.get(node, field)
+  Object.defineProperty(node, field, {
+    configurable: true,
+    get: () => value,
+    set: (next: unknown) => {
+      value = rounded(next)
+    }
+  })
+}
+
 const cases = [
   ['fills', (value: number) => [{ type: 'SOLID', color: { r: value, g: 0, b: 0 } }]],
   ['strokes', (value: number) => [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 }, opacity: value }]],
@@ -29,14 +40,7 @@ it.each(cases)(
     const fixture = createFixture()
     vi.mocked(figma.createFrame).mockImplementationOnce(() => {
       const node = fixture.createNode('FRAME') as unknown as FrameNode
-      let value: unknown = node[field]
-      Object.defineProperty(node, field, {
-        configurable: true,
-        get: () => value,
-        set: (next: unknown) => {
-          value = rounded(next)
-        }
-      })
+      roundProperty(node, field)
       return node
     })
     const request = (value: number): CanvasResolvedApplyParameters => ({
@@ -62,6 +66,78 @@ it.each(cases)(
     await expect(update(0.301)).resolves.toMatchObject({ mutationCount: 0 })
   }
 )
+
+it.each(['guides', 'dashPattern', 'page guides'] as const)(
+  'converges float32 %s while preserving edits, ordering and clearing',
+  async (field) => {
+    const fixture = createFixture()
+    const property = field === 'dashPattern' ? 'dashPattern' : 'guides'
+    if (field === 'page guides') roundProperty(fixture.page, property)
+    else {
+      vi.mocked(figma.createFrame).mockImplementationOnce(() => {
+        const node = fixture.createNode('FRAME') as unknown as FrameNode
+        roundProperty(node, property)
+        return node
+      })
+    }
+    const guides = (offsets: number[]): Guide[] => offsets.map((offset) => ({ axis: 'X', offset }))
+    const request = (offsets: number[]): CanvasResolvedApplyParameters => ({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-40 h-40"/>',
+      ...(field === 'page guides'
+        ? { page: { guides: guides(offsets) } }
+        : {
+            bindings: {
+              root: {
+                figma:
+                  field === 'dashPattern'
+                    ? { stroke: { dashPattern: offsets } }
+                    : { guides: guides(offsets) }
+              }
+            }
+          })
+    })
+    const created = await applyResolvedCanvas(request([0.3, 0.7]))
+    const node = field === 'page guides' ? fixture.page : fixture.getNode(created.rootNodeId!)
+    const update = (offsets: number[]) =>
+      applyResolvedCanvas({
+        ...request(offsets),
+        mode: 'update',
+        targetNodeId: created.rootNodeId!
+      })
+    await expect(update([0.3, 0.7])).resolves.toMatchObject({ mutationCount: 0 })
+    for (const offsets of [[0.301, 0.7], [0.7, 0.301], []]) {
+      await expect(update(offsets)).resolves.toMatchObject({ mutationCount: 1 })
+      expect(Reflect.get(node, property)).toEqual(
+        rounded(field === 'dashPattern' ? offsets : guides(offsets))
+      )
+      await expect(update(offsets)).resolves.toMatchObject({ mutationCount: 0 })
+    }
+  }
+)
+
+it.each([
+  { axis: 'Y', offset: Math.fround(0.3) },
+  { axis: 'X', offset: Math.fround(0.301) }
+] as const)('rejects mismatched guide readback $axis/$offset', async (guide) => {
+  const fixture = createFixture()
+  vi.mocked(figma.createFrame).mockImplementationOnce(() => {
+    const node = fixture.createNode('FRAME') as unknown as FrameNode
+    Object.defineProperty(node, 'guides', {
+      configurable: true,
+      get: () => [guide],
+      set: () => {}
+    })
+    return node
+  })
+  await expect(
+    applyResolvedCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-40 h-40"/>',
+      bindings: { root: { figma: { guides: [{ axis: 'X', offset: 0.3 }] } } }
+    })
+  ).rejects.toThrow('guides do not match')
+})
 
 it('compares own record keys even when their values are undefined', () => {
   expect(nativeValueEqual({ first: undefined }, { second: undefined })).toBe(false)
