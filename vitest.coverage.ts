@@ -6,6 +6,14 @@ export const AGGREGATE_COVERAGE_THRESHOLDS = {
   perFile: false
 } as const
 
+export const FULL_COVERAGE_THRESHOLDS = {
+  branches: 100,
+  functions: 100,
+  lines: 100,
+  statements: 100,
+  perFile: true
+} as const
+
 // A per-file floor prevents a new or neglected core module from disappearing
 // into the aggregate. It does not replace the stronger existing baseline.
 export const CORE_COVERAGE_THRESHOLDS = {

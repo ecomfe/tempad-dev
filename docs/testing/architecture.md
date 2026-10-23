@@ -29,9 +29,9 @@ For contributor workflow and commands, see `TESTING.md`.
 
 - Coverage provider: `istanbul`.
 - Build artifacts are excluded from coverage (`**/dist/**`, `**/.output/**`).
-- Shared schemas and the plugin SDK retain their package-owned 100% thresholds. Shared installation
-  and response helpers are also reported; they participate in the root aggregate baseline rather
-  than being omitted from the shared report.
+- Shared schemas and the plugin SDK enforce the same per-file 100% thresholds in package and
+  workspace coverage runs. Shared installation and response helpers are also reported but only
+  participate in the root aggregate baseline.
 - Root, extension, and MCP report all TypeScript runtime modules in their node source scope,
   including untested modules. The shared agent/Hub runtime-path JavaScript helper also participates
   in the root and MCP reports and baseline. Their existing baseline groups retain the thresholds in
