@@ -11,7 +11,7 @@ import { createServer as createHttpServer } from 'node:http'
 import { connect, createServer, type Server, type Socket } from 'node:net'
 import lockfile from 'proper-lockfile'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { WebSocketServer } from 'ws'
+import { WebSocket, WebSocketServer } from 'ws'
 
 const fixture = await vi.hoisted(async () => {
   const { mkdtempSync } = await import('node:fs')
@@ -143,11 +143,17 @@ function connectExtension(terminalReceipts = false) {
   const calls: ToolCallMessage[] = []
   const peer = Object.assign(new EventEmitter(), {
     protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+    readyState: WebSocket.OPEN as number,
     send: vi.fn((data: string) => {
       const message = JSON.parse(data)
       if (message.type === 'toolCall') calls.push(message)
     }),
-    close: vi.fn()
+    close: vi.fn(() => {
+      peer.readyState = WebSocket.CLOSING
+    })
+  })
+  peer.once('close', () => {
+    peer.readyState = WebSocket.CLOSED
   })
   const send = (message: object) =>
     peer.emit('message', Buffer.from(JSON.stringify(message)), false)

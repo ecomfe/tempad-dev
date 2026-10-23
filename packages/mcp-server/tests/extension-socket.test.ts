@@ -22,11 +22,60 @@ afterEach(async () => {
 })
 
 describe('extension socket lifecycle', () => {
+  it('ignores queued messages after rejecting the runtime handshake', async () => {
+    const registry = new ExtensionRegistry(10_000)
+    registries.push(registry)
+    const onActivated = vi.fn()
+    const onRuntimeHello = vi.fn()
+    const started = await startExtensionWebSocketServer({
+      maxConnections: 1,
+      maxPayloadBytes: 4096,
+      originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
+      portCandidates: [0]
+    })
+    servers.push(started.server)
+    started.server.on('connection', (socket) =>
+      attachExtensionSocket(socket, {
+        createId: () => 'rejected',
+        origin: STORE_ORIGIN,
+        registry,
+        onActivated,
+        onRuntimeHello,
+        onStateChange: () => {},
+        onToolResult: () => {},
+        onToolError: () => {}
+      })
+    )
+    const client = new WebSocket(`ws://127.0.0.1:${started.port}/`, TEMPAD_MCP_BRIDGE_SUBPROTOCOL, {
+      origin: STORE_ORIGIN
+    })
+    await waitForOpen(client)
+    const closed = waitForClose(client)
+    const hello = {
+      type: 'runtimeHello',
+      extensionVersion: '1.0.0',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    }
+    client.send(
+      JSON.stringify({
+        ...hello,
+        protocolVersion: Math.max(...TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS) + 1
+      })
+    )
+    client.send(JSON.stringify({ ...hello, protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION }))
+    client.send(JSON.stringify({ type: 'activate' }))
+
+    await closed
+    expect(onRuntimeHello).not.toHaveBeenCalled()
+    expect(onActivated).not.toHaveBeenCalled()
+  })
+
   it('requires negotiated receipts and allows a failed acknowledgment to be retried', () => {
     const registry = new ExtensionRegistry(10000)
     registries.push(registry)
     const socket = Object.assign(new EventEmitter(), {
       protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+      readyState: WebSocket.OPEN,
       send: vi.fn<(data: string) => void>(),
       close: vi.fn()
     })
@@ -63,6 +112,7 @@ describe('extension socket lifecycle', () => {
     // A separate negotiated connection must survive losing the acknowledgment.
     const negotiated = Object.assign(new EventEmitter(), {
       protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+      readyState: WebSocket.OPEN,
       send: vi.fn<(data: string) => void>(),
       close: vi.fn()
     })
@@ -100,6 +150,7 @@ describe('extension socket lifecycle', () => {
     const peer = (id: string) => {
       const socket = Object.assign(new EventEmitter(), {
         protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+        readyState: WebSocket.OPEN,
         send: vi.fn(),
         close: vi.fn()
       })

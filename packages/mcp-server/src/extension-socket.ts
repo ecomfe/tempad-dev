@@ -1,5 +1,4 @@
 import type { DesignAction, TempadMcpErrorPayload, ToolCompletionMessage } from '@tempad-dev/shared'
-import type { RawData, WebSocket } from 'ws'
 
 import {
   MessageFromExtensionSchema,
@@ -9,6 +8,7 @@ import {
   TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS,
   type RegisteredMessage
 } from '@tempad-dev/shared'
+import { WebSocket, type RawData } from 'ws'
 
 import type { ExtensionRegistry } from './extension-registry'
 import type { ExtensionConnection } from './types'
@@ -66,6 +66,8 @@ export function attachExtensionSocket(
   scheduleAutoActivation(options)
 
   ws.on('message', (raw: RawData, isBinary: boolean) => {
+    // Policy rejection starts a closing handshake; queued frames may still arrive.
+    if (ws.readyState !== WebSocket.OPEN) return
     if (isBinary) {
       options.onProtocolWarning?.({ extensionId: extension.id, kind: 'binary' })
       return
