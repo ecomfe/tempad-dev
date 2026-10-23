@@ -41,12 +41,28 @@ it('enables typed promise checks in every package inheriting the root ESLint con
   }
 })
 
-it('accepts cleaned Git-generated subjects without weakening ordinary commit validation', () => {
+it.each<[subject: string, status: number, commentChar?: string]>([
+  ['fix(extension): preserve layout', 0],
+  ['fixup! fix(extension): preserve layout', 0],
+  ['squash! an old nonconventional subject', 0],
+  ['amend! fix(extension): preserve layout', 0],
+  ['Merge branch main', 0],
+  ['Revert "fix: preserve layout"', 0],
+  ['Reapply "fix: preserve layout"', 0],
+  ['\n# Editor instructions\n\nfix: preserve layout\n\nBody', 0],
+  ['\r\n# Editor instructions\r\nfix: preserve layout\r\n', 0],
+  ['\n# Editor instructions\nsome change', 1],
+  ['# Only a comment', 1],
+  ['fixup! ', 1],
+  ['fix: ', 1],
+  ['some change', 1],
+  ['; Editor instructions\n\nfix: preserve layout', 0, ';']
+])('validates cleaned commit message %j', (subject, status, commentChar = '#') => {
   const directory = mkdtempSync(join(tmpdir(), 'tempad-commit-message-'))
   const path = join(directory, 'message')
-  const check = (subject: string, commentChar = '#') => {
+  try {
     writeFileSync(path, subject + '\n')
-    return spawnSync(
+    const result = spawnSync(
       process.execPath,
       [join(repository, 'scripts/check-commit-message.mjs'), path],
       {
@@ -58,28 +74,8 @@ it('accepts cleaned Git-generated subjects without weakening ordinary commit val
           GIT_CONFIG_VALUE_0: commentChar
         }
       }
-    ).status
-  }
-  try {
-    for (const [subject, status] of [
-      ['fix(extension): preserve layout', 0],
-      ['fixup! fix(extension): preserve layout', 0],
-      ['squash! an old nonconventional subject', 0],
-      ['amend! fix(extension): preserve layout', 0],
-      ['Merge branch main', 0],
-      ['Revert "fix: preserve layout"', 0],
-      ['Reapply "fix: preserve layout"', 0],
-      ['\n# Editor instructions\n\nfix: preserve layout\n\nBody', 0],
-      ['\r\n# Editor instructions\r\nfix: preserve layout\r\n', 0],
-      ['\n# Editor instructions\nsome change', 1],
-      ['# Only a comment', 1],
-      ['fixup! ', 1],
-      ['fix: ', 1],
-      ['some change', 1]
-    ] as const) {
-      expect(check(subject), subject).toBe(status)
-    }
-    expect(check('; Editor instructions\n\nfix: preserve layout', ';')).toBe(0)
+    )
+    expect(result.status, result.error?.message ?? result.stderr?.toString()).toBe(status)
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
