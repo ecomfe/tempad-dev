@@ -6,7 +6,9 @@ function* walkNodes(
   while (stack.length) {
     const node = stack.pop()!
     yield node
-    if ('children' in node && shouldDescend(node)) stack.push(...node.children)
+    if ('children' in node && shouldDescend(node)) {
+      for (const child of node.children) stack.push(child)
+    }
   }
 }
 
