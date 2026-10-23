@@ -7,7 +7,7 @@ import { SVG_POLICY_VERSION, resolvedSvgAsset } from '../assets'
 import { specError } from '../errors'
 import { CANVAS_KEY_NAMESPACE } from '../identity'
 import { walkSpecs } from './nodes'
-import { type ApplyState, markMutation, type SupportedCanvasNode } from './state'
+import { type ApplyState, markMutation, recordCreatedNode, type SupportedCanvasNode } from './state'
 
 const CANVAS_SVG_CHILD_NAME = 'svg-child'
 
@@ -57,7 +57,7 @@ function placeSvgChild(child: FrameNode, wrapper: FrameNode, state: ApplyState):
     child.y = y
     changed = true
   }
-  if (changed) state.mutations.count += 1
+  if (changed) markMutation(state, child)
 }
 
 export function finalizeSvgPositions(specs: Iterable<CanvasNodeSpec>, state: ApplyState): void {
@@ -133,6 +133,7 @@ export async function applySvg(
       `SVG asset "${placement.assetKey}" could not be imported by Figma.`
     )
   }
+  recordCreatedNode(imported, state, false)
   if (
     !Number.isFinite(imported.width) ||
     !Number.isFinite(imported.height) ||
@@ -140,7 +141,6 @@ export async function applySvg(
     imported.height <= 0 ||
     countSceneNodes(imported) > 500
   ) {
-    imported.remove()
     throw createCodedError(
       TEMPAD_MCP_ERROR_CODES.SVG_IMPORT_FAILED,
       `SVG asset "${placement.assetKey}" produced invalid or excessive Figma layers.`
