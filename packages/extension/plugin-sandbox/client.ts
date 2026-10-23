@@ -37,6 +37,7 @@ export class PluginSandboxClient {
   readonly #pending = new Map<number, PendingRequest>()
 
   #connectPromise: Promise<MessagePort> | null = null
+  #cancelConnect: ((error: Error) => void) | null = null
   #iframe: HTMLIFrameElement | null = null
   #nextId = 0
   #port: MessagePort | null = null
@@ -61,6 +62,9 @@ export class PluginSandboxClient {
     }
 
     const port = await this.#connect()
+    if (port !== this.#port) {
+      throw new Error('Plugin sandbox connection was reset before sending the request.')
+    }
     const id = this.#nextId
     this.#nextId += 1
 
@@ -101,11 +105,12 @@ export class PluginSandboxClient {
     if (this.#port) return this.#port
     if (this.#connectPromise) return await this.#connectPromise
 
-    this.#connectPromise = this.#createConnection()
+    const connecting = this.#createConnection()
+    this.#connectPromise = connecting
     try {
-      return await this.#connectPromise
+      return await connecting
     } finally {
-      this.#connectPromise = null
+      if (this.#connectPromise === connecting) this.#connectPromise = null
     }
   }
 
@@ -123,6 +128,7 @@ export class PluginSandboxClient {
       const cleanup = () => {
         clearTimeout(timer)
         window.removeEventListener('message', onReady)
+        if (this.#cancelConnect === fail) this.#cancelConnect = null
       }
       const fail = (error: Error) => {
         if (settled) return
@@ -179,6 +185,7 @@ export class PluginSandboxClient {
         )
       }
 
+      this.#cancelConnect = fail
       window.addEventListener('message', onReady)
       document.documentElement.append(iframe)
     })
@@ -204,6 +211,7 @@ export class PluginSandboxClient {
   }
 
   #reset(error: Error): void {
+    this.#cancelConnect?.(error)
     this.#port?.close()
     this.#port = null
     this.#iframe?.remove()
