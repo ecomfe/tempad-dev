@@ -97,7 +97,7 @@ describe('canvas rollback verification', () => {
         throw cause
       }, state).catch((error: unknown) => error)
 
-      // The protected snapshot intentionally does not cover every text property.
+      // Undo restored the name but left the paragraph metric changed.
       expect(label.paragraphSpacing).toBe(before + 20)
       expect(fixture.triggerUndo).toHaveBeenCalledOnce()
       expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED', cause })
@@ -159,6 +159,47 @@ describe('canvas rollback verification', () => {
     expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED', cause })
     expect((error as Error).message).toContain(`Rollback changed pre-existing node ${label.id}`)
   })
+
+  it.each(
+    (['add', 'remove', 'value'] as const).flatMap((change) =>
+      [false, true].map((restored) => ({ change, restored }))
+    )
+  )(
+    'detects component property $change and verifies restoration=$restored',
+    async ({ change, restored }) => {
+      const fixture = createFixture()
+      const component = figma.createComponent()
+      const property = component.addComponentProperty('Label', 'TEXT', 'Before')
+      const definitions = component.componentPropertyDefinitions
+      const before = structuredClone(definitions)
+      const state = createApplyState(component, new Set())
+      const cause = new Error('Later operation failed')
+      if (restored) {
+        fixture.triggerUndo.mockImplementationOnce(() => {
+          for (const name of Object.keys(definitions)) delete definitions[name]
+          Object.assign(definitions, before)
+        })
+      }
+      const error = await withUndoBoundary(async () => {
+        if (change === 'add') component.addComponentProperty('Visible', 'BOOLEAN', true)
+        else if (change === 'remove') component.deleteComponentProperty(property)
+        else component.editComponentProperty(property, { defaultValue: 'After' })
+        markMutation(state, component)
+        throw cause
+      }, state).catch((error: unknown) => error)
+
+      expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+      expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED', cause })
+      if (restored) {
+        expect(definitions).toEqual(before)
+        expect((error as Error).message).not.toContain('automatic rollback was not available')
+      } else {
+        expect((error as Error).message).toContain(
+          `Rollback changed pre-existing node ${component.id}`
+        )
+      }
+    }
+  )
 
   it.each([
     'fontSize',

@@ -36,7 +36,6 @@ export type WrappedContainerSpec = CanvasNodeSpec & { type: WrappedContainerNode
 export type ProtectedNodeSnapshot = {
   content: string
   childIds: string[] | null
-  componentPropertyNames: string[] | null
   geometry: { height: number; width: number; x: number; y: number } | null
   key: string
   owner: string

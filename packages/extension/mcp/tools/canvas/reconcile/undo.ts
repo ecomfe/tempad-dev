@@ -241,9 +241,6 @@ function snapshotProtectedNode(node: BaseNode, captureTextRanges = true): Protec
         : {})
     }),
     childIds: 'children' in node ? node.children.map((child) => child.id) : null,
-    componentPropertyNames: isComponentPropertyOwner(node)
-      ? Object.keys(node.componentPropertyDefinitions).sort()
-      : null,
     geometry: isSceneNode(node)
       ? { height: node.height, width: node.width, x: node.x, y: node.y }
       : null,
