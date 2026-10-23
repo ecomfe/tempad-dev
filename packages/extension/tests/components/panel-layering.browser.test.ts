@@ -21,6 +21,43 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it('finishes resizing when the page intercepts pointer release', async () => {
+  await page.viewport(900, 700)
+  vi.stubGlobal('computed', computed)
+  vi.stubGlobal('ref', ref)
+  vi.stubGlobal('useTemplateRef', useTemplateRef)
+  options.value.panelPosition = { left: 100, top: 100, width: 300 }
+  const host = mount(
+    defineComponent(() => () => h(Panel, { style: { height: '220px' } })),
+    { tag: 'tempad' }
+  )
+  const panel = host.querySelector<HTMLElement>('.tp-panel')!
+  const handle = host.querySelector<HTMLElement>('.tp-panel-resize-handle-right')!
+  const rect = handle.getBoundingClientRect()
+  const target = document.createElement('div')
+  Object.assign(target.style, {
+    position: 'fixed',
+    width: '2px',
+    height: '2px',
+    left: `${rect.left + rect.width / 2 + 79}px`,
+    top: `${rect.top + rect.height / 2 - 1}px`
+  })
+  document.body.append(target)
+  const released = vi.fn()
+  handle.addEventListener('lostpointercapture', released)
+  const intercept = (event: PointerEvent) => event.stopPropagation()
+  document.addEventListener('pointerup', intercept, true)
+  try {
+    await userEvent.dragAndDrop(handle, target)
+    expect(released).toHaveBeenCalledOnce()
+    expect(panel.getBoundingClientRect().width).toBe(380)
+    expect(options.value.panelPosition.width).toBe(380)
+  } finally {
+    document.removeEventListener('pointerup', intercept, true)
+    target.remove()
+  }
+})
+
 it('layers feedback popovers above the main panel while keeping canvas controls below it and native tooltips above both', async () => {
   await page.viewport(900, 700)
   // Supply the same Vue auto-imports as the extension build.
