@@ -11,6 +11,7 @@ let database: DatabaseSync | undefined
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'tempad-server-queue-'))
   vi.stubEnv('CODEX_HOME', directory)
+  vi.stubEnv('CODEX_SQLITE_HOME', '')
 })
 afterEach(async () => {
   database?.close()
