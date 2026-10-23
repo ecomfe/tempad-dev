@@ -15,11 +15,17 @@ import {
   selectCodexPageUrl
 } from '@/scripts/reinstall-codex-dev-plugin-runtime'
 
-/** Real `ps -axo pid=,ppid=,lstart=,command=` rows, so the shared parser is exercised too. */
-function rows(...entries: [pid: number, ppid: number, command: string][]) {
+/** Both native ps tables exercise the same discovery parser as preflight and reinstall. */
+function rows(...entries: [pid: number, ppid: number, command: string, executable?: string][]) {
   return parseProcessTable(
     entries
       .map(([pid, ppid, command]) => `${pid} ${ppid} Thu Sep 18 14:00:00 2026 ${command}`)
+      .join('\n'),
+    entries
+      .map(
+        ([pid, ppid, , executable = '/usr/bin/node']) =>
+          `${pid} ${ppid} Thu Sep 18 14:00:00 2026 ${executable}`
+      )
       .join('\n')
   )
 }
@@ -226,18 +232,19 @@ describe('App restart and CDP target boundaries', () => {
     expect(
       matchingProcesses(
         rows(
-          [1, 1, executable],
-          [2, 1, `${executable} --flag`],
+          [1, 1, executable, executable],
+          [2, 1, `${executable} --flag`, executable],
           [3, 1, `${executable}Helper`],
           [4, 1, '/Other/Codex'],
-          [5, 1, `/bin/sh -c ${executable}`]
+          [5, 1, `/bin/sh -c ${executable}`, '/bin/sh'],
+          [6, 1, executable, '/other/program']
         ),
         executable
       )
     ).toEqual([1, 2])
   })
 
-  it('selects this checkout’s runtime entries wherever they appear in the command', () => {
+  it('selects this checkout’s runtime entries launched directly by Node', () => {
     const cli = '/checkout/packages/mcp-server/dist/cli.mjs'
     const hub = '/checkout/packages/mcp-server/dist/hub.mjs'
     expect(
@@ -252,6 +259,43 @@ describe('App restart and CDP target boundaries', () => {
         [cli, hub]
       )
     ).toEqual([1, 2])
+  })
+
+  it('does not stop editors, wrappers, or other Node scripts that mention a runtime entry', () => {
+    const cli = '/checkout/packages/mcp-server/dist/cli.mjs'
+    const hub = '/checkout/packages/mcp-server/dist/hub.mjs'
+    expect(
+      checkoutRuntimeProcesses(
+        rows(
+          [1, 1, `/usr/bin/node ${cli}`],
+          [2, 1, `vim ${cli}`, '/usr/bin/vim'],
+          [3, 1, `node /other/tool.mjs ${hub}`],
+          [4, 1, `/bin/sh -c "node ${cli}"`, '/bin/sh'],
+          [5, 1, `/bin/sh -c /usr/bin/node ${hub}`, '/bin/sh'],
+          [6, 1, `node --eval "console.log('${hub}')"`],
+          [7, 1, `node /other/node ${cli}`],
+          [8, 1, `/usr/bin/node /other/node ${cli}`, '/usr/bin/node']
+        ),
+        [cli, hub]
+      )
+    ).toEqual([1])
+  })
+
+  it('supports native Node paths with spaces and symlinks without guessing other executables', () => {
+    const cli = '/checkout with spaces/packages/mcp-server/dist/cli.mjs'
+    const executable = '/tools with spaces/node'
+    expect(
+      checkoutRuntimeProcesses(
+        rows(
+          [1, 1, `${executable} ${cli}`, executable],
+          [2, 1, `node ${cli}`, executable],
+          [3, 1, `"${executable}" "${cli}"`, executable],
+          [4, 1, `/other/node ${cli}`, executable],
+          [5, 1, `nodejs ${cli}`, '/usr/bin/nodejs']
+        ),
+        [cli]
+      )
+    ).toEqual([1, 2, 3, 5])
   })
 
   it('rejects duplicate detached jobs before restarting', () => {

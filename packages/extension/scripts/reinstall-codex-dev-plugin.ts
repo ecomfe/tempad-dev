@@ -7,11 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { chromium } from 'playwright'
 
-import {
-  parseProcessTable,
-  resolveCodexExecutable,
-  type RuntimeProcess
-} from './agent-authoring-runtime-preflight'
+import { listRuntimeProcesses, resolveCodexExecutable } from './agent-authoring-runtime-preflight'
 import {
   assertCdpOwner,
   assertNoRestartJob,
@@ -49,14 +45,6 @@ async function cdpReady(url: string): Promise<boolean> {
   }
 }
 
-/** One table serves executable matching, checkout runtime matching, and CDP ownership. */
-async function processes(): Promise<RuntimeProcess[]> {
-  const { stdout } = await exec('ps', ['-axo', 'pid=,ppid=,lstart=,command='], {
-    maxBuffer: 16 * 1024 * 1024
-  })
-  return parseProcessTable(stdout)
-}
-
 async function appExecutable(appPath: string): Promise<string> {
   const { stdout } = await exec('/usr/libexec/PlistBuddy', [
     '-c',
@@ -71,11 +59,11 @@ async function appExecutable(appPath: string): Promise<string> {
 async function restartApp(args: ReinstallArguments, appPath: string, appBinary: string) {
   if (await cdpReady(args.cdpUrl))
     throw new Error('CDP became available before restart; rerun without --restart-codex.')
-  const pids = matchingProcesses(await processes(), appBinary)
+  const pids = matchingProcesses(await listRuntimeProcesses(), appBinary)
   if (pids.length > 1) throw new Error('Multiple main processes match the configured Codex App.')
   const waitForExit = (label: string) =>
     waitUntil(
-      async () => matchingProcesses(await processes(), appBinary).length === 0,
+      async () => matchingProcesses(await listRuntimeProcesses(), appBinary).length === 0,
       label,
       10_000
     )
@@ -91,7 +79,7 @@ async function restartApp(args: ReinstallArguments, appPath: string, appBinary: 
       )
       await waitForExit('Codex to quit')
     } catch {
-      const remaining = matchingProcesses(await processes(), appBinary)
+      const remaining = matchingProcesses(await listRuntimeProcesses(), appBinary)
       if (remaining.some((pid) => !pids.includes(pid)))
         throw new Error('Codex process changed during restart; refusing to stop its replacement.')
       for (const pid of remaining) process.kill(pid, 'SIGTERM')
@@ -151,7 +139,7 @@ async function stopCheckoutRuntime() {
   const entries = ['cli.mjs', 'hub.mjs'].map((name) =>
     join(repoRoot, 'packages/mcp-server/dist', name)
   )
-  const matching = async () => checkoutRuntimeProcesses(await processes(), entries)
+  const matching = async () => checkoutRuntimeProcesses(await listRuntimeProcesses(), entries)
   // Uninstall in the App first, so its MCP connections cannot relaunch the old runtime.
   for (const pid of await matching()) {
     try {
@@ -279,7 +267,7 @@ async function main() {
     )
   const [listeners, running] = await Promise.all([
     exec('lsof', ['-nP', `-iTCP:${args.cdpPort}`, '-sTCP:LISTEN', '-Fp']),
-    processes()
+    listRuntimeProcesses()
   ])
   assertCdpOwner(listeners.stdout, matchingProcesses(running, appBinary), running)
   // Resolve via native fetch, then connect directly: the App's local endpoint must not

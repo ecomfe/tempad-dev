@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { access, readFile, stat } from 'node:fs/promises'
+import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, normalize, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, normalize, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
@@ -22,6 +22,7 @@ const monthIndexes = new Map(
 
 export interface RuntimeProcess {
   command: string
+  executable: string | null
   pid: number
   ppid: number
   startedAtMs: number
@@ -277,20 +278,28 @@ export function evaluateActiveExtensionRuntime(
   }
 }
 
-/** Matches the path as a whole argument, so a longer path that merely starts with it cannot pass. */
-export function exactPathPattern(path: string): RegExp {
-  const escapedPath = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`(?:^|[\\s'"])${escapedPath}(?=$|[\\s'"])`)
+function argumentPattern(value: string): string {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return `(?:${escaped}|"${escaped}"|'${escaped}')`
 }
 
-export function commandIncludesExactPath(command: string, path: string): boolean {
-  return exactPathPattern(path).test(command)
+/** Generated CLI and Hub launches put the entry immediately after the Node executable. */
+export function processRunsRuntimeEntry(process: RuntimeProcess, entry: string): boolean {
+  if (!process.executable || !['node', 'nodejs'].includes(basename(process.executable))) {
+    return false
+  }
+  const executable = [process.executable, basename(process.executable)]
+    .map(argumentPattern)
+    .join('|')
+  return new RegExp(`^(?:${executable})\\s+${argumentPattern(entry)}(?=$|\\s)`).test(
+    process.command
+  )
 }
 
-export function parseProcessTable(output: string): RuntimeProcess[] {
+function parseProcessRows(output: string): Omit<RuntimeProcess, 'executable'>[] {
   return output
     .split('\n')
-    .map((line): RuntimeProcess | null => {
+    .map((line): Omit<RuntimeProcess, 'executable'> | null => {
       const match = line.match(
         /^\s*(\d+)\s+(\d+)\s+\S+\s+(\S+)\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})\s+(.*)$/
       )
@@ -321,7 +330,21 @@ export function parseProcessTable(output: string): RuntimeProcess[] {
       if (!Number.isFinite(startedAtMs)) return null
       return { command: command.trim(), pid: Number(pid), ppid: Number(ppid), startedAtMs }
     })
-    .filter((process): process is RuntimeProcess => process !== null)
+    .filter((process): process is Omit<RuntimeProcess, 'executable'> => process !== null)
+}
+
+export function parseProcessTable(output: string, executableOutput: string): RuntimeProcess[] {
+  const executables = new Map(parseProcessRows(executableOutput).map((entry) => [entry.pid, entry]))
+  return parseProcessRows(output).map((process) => {
+    const executable = executables.get(process.pid)
+    return {
+      ...process,
+      executable:
+        executable?.ppid === process.ppid && executable.startedAtMs === process.startedAtMs
+          ? executable.command
+          : null
+    }
+  })
 }
 
 export function evaluateRuntimeProcesses(
@@ -332,8 +355,8 @@ export function evaluateRuntimeProcesses(
   hub: RuntimeProcess[]
   issues: PreflightIssue[]
 } {
-  const cli = processes.filter(({ command }) => commandIncludesExactPath(command, paths.cli))
-  const hub = processes.filter(({ command }) => commandIncludesExactPath(command, paths.hub))
+  const cli = processes.filter((process) => processRunsRuntimeEntry(process, paths.cli))
+  const hub = processes.filter((process) => processRunsRuntimeEntry(process, paths.hub))
   const issues: PreflightIssue[] = []
 
   if (cli.length === 0 && hub.length === 0) {
@@ -419,6 +442,17 @@ async function resolveRuntimeConfiguration(checkout: string): Promise<RuntimeCon
   }
   const cliArgument = server.args[0]
   const cli = normalize(isAbsolute(cliArgument) ? cliArgument : resolve(pluginRoot, cliArgument))
+  const expectedCli = resolve(checkout, 'packages/mcp-server/dist/cli.mjs')
+  const sameCheckout =
+    cli === expectedCli ||
+    (await Promise.all([realpath(cli), realpath(expectedCli)])
+      .then(([actual, expected]) => actual === expected)
+      .catch(() => false))
+  if (!sameCheckout) {
+    fail(
+      'Generated development plugin CLI does not belong to this checkout. Run pnpm agent-plugin:build before preflight.'
+    )
+  }
   const hub = join(dirname(cli), 'hub.mjs')
   const serverEnv = server.env === undefined ? {} : objectValue(server.env, `${mcpPath}#env`)
   const configuredRuntimeDir = serverEnv.TEMPAD_MCP_RUNTIME_DIR
@@ -451,12 +485,22 @@ async function resolveCheckoutExtensionFingerprint(checkout: string): Promise<st
   return fingerprintModule.computeExtensionRuntimeFingerprint(checkout)
 }
 
-async function listProcesses(): Promise<RuntimeProcess[]> {
-  const { stdout } = await execFileAsync('ps', ['-axo', 'pid=,ppid=,lstart=,command='], {
-    encoding: 'utf8',
-    maxBuffer: 4 * 1024 * 1024
-  })
-  return parseProcessTable(stdout)
+export async function listRuntimeProcesses(
+  platform: NodeJS.Platform = process.platform
+): Promise<RuntimeProcess[]> {
+  // Keep each free-form value last: command paths can contain spaces. Reject rows
+  // whose parent or start time changed between the command and executable snapshots.
+  const readTable = (field: string) =>
+    execFileAsync('ps', ['-axww', '-o', `pid=,ppid=,lstart=,${field}=`], {
+      encoding: 'utf8',
+      env: { ...process.env, LC_ALL: undefined, LC_TIME: 'C' },
+      maxBuffer: 16 * 1024 * 1024
+    })
+  const [commands, executables] = await Promise.all([
+    readTable('command'),
+    readTable(platform === 'linux' ? 'exe' : 'comm')
+  ])
+  return parseProcessTable(commands.stdout, executables.stdout)
 }
 
 export function resolveCodexExecutable(
@@ -519,7 +563,7 @@ export async function runPreflight(
     stat(runtime.paths.cli),
     stat(runtime.paths.hub),
     readFile(runtime.paths.hub),
-    listProcesses(),
+    listRuntimeProcesses(),
     listEnabledPlugins(codexExecutable),
     resolveCheckoutExtensionFingerprint(args.checkout),
     readOptionalJson(runtime.hubRuntimeIdentityPath),

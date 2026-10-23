@@ -1,6 +1,6 @@
 import { normalize, resolve } from 'node:path'
 
-import { exactPathPattern, type RuntimeProcess } from './agent-authoring-runtime-preflight'
+import { processRunsRuntimeEntry, type RuntimeProcess } from './agent-authoring-runtime-preflight'
 
 export const devPluginName = 'tempad-dev-dev'
 export const devPluginId = `${devPluginName}@${devPluginName}`
@@ -194,14 +194,17 @@ export function selectCodexPageUrl(urls: string[], requested?: string): string {
 
 export function matchingProcesses(processes: RuntimeProcess[], executable: string): number[] {
   return processes
-    .filter(({ command }) => command === executable || command.startsWith(`${executable} `))
+    .filter(
+      (process) =>
+        process.executable === executable &&
+        (process.command === executable || process.command.startsWith(`${executable} `))
+    )
     .map(({ pid }) => pid)
 }
 
 export function checkoutRuntimeProcesses(processes: RuntimeProcess[], entries: string[]): number[] {
-  const patterns = entries.map(exactPathPattern)
   return processes
-    .filter(({ command }) => patterns.some((pattern) => pattern.test(command)))
+    .filter((process) => entries.some((entry) => processRunsRuntimeEntry(process, entry)))
     .map(({ pid }) => pid)
 }
 
