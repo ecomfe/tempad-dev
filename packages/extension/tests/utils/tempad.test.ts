@@ -68,6 +68,25 @@ describe('utils/tempad extractJSX', () => {
 })
 
 describe('utils/tempad getTemPadComponent', () => {
+  it.each(['constructor', 'toString', '__proto__'])(
+    'does not invent a display name for an unknown library named %s',
+    (libName) => {
+      const node = makeFrameNode({
+        sharedData: {
+          source: JSON.stringify({ name: 'Card', libName }),
+          code: jsxStack('<Card />')
+        }
+      })
+
+      expect(getTemPadComponent(node)).toEqual({
+        code: '<Card />',
+        link: null,
+        name: 'Card',
+        libName
+      })
+    }
+  )
+
   it('returns null for non-TemPad nodes', () => {
     const node = { type: 'FRAME', name: 'Card' } as unknown as SceneNode
 

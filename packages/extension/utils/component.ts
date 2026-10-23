@@ -13,7 +13,7 @@ import type {
 
 import { rgbToHex } from './color'
 import { prune } from './object'
-import { camelToKebab, escapeHTML, looseEscapeHTML, stringify, indentAll } from './string'
+import { camelToKebab, escapeHTML, stringify, indentAll } from './string'
 
 type ComponentPropertyData = {
   type: string
@@ -31,20 +31,24 @@ export function getDesignComponent(node: SceneNode): DesignComponent | null {
   for (const [name, data] of Object.entries(componentProperties)) {
     const key = name.split('#')[0]
     if (!key) continue
+    let value = data.value as ComponentPropertyValue
     if (data.type === 'INSTANCE_SWAP') {
       const component = figma.getNodeById(data.value as string)
-      if (component?.type === 'COMPONENT') {
-        properties[key] = {
-          name: component.name,
-          type: 'INSTANCE',
-          properties: {},
-          children: [],
-          visible: true
-        }
+      if (component?.type !== 'COMPONENT') continue
+      value = {
+        name: component.name,
+        type: 'INSTANCE',
+        properties: {},
+        children: [],
+        visible: true
       }
-    } else {
-      properties[key] = data.value as ComponentPropertyValue
     }
+    Object.defineProperty(properties, key, {
+      value,
+      enumerable: true,
+      configurable: true,
+      writable: true
+    })
   }
 
   const main = getMainComponentSummary(node)
@@ -474,17 +478,19 @@ function stringifyVueComponent(
     (key, value, inSvg, isCustomTag) => {
       const eventName = getEventName(key)
       if (eventName) {
-        const callback = typeof value === 'string' ? looseEscapeHTML(value) : '() => {}'
+        const callback = typeof value === 'string' ? escapeHTML(value) : '() => {}'
         return `@${camelToKebab(eventName)}="${callback.trim()}"`
       }
 
-      const name = getVueAttributeName(key, inSvg, isCustomTag)
+      // A static __proto__ attribute becomes an object-literal prototype setter.
+      const name =
+        key === '__proto__' ? "['__proto__']" : getVueAttributeName(key, inSvg, isCustomTag)
 
-      if (typeof value === 'string') {
-        return `${name}="${escapeHTML(value).trim()}"`
+      if (typeof value === 'string' && key !== '__proto__') {
+        return `${name}="${escapeHTML(value)}"`
       }
 
-      if (typeof value === 'boolean') {
+      if (typeof value === 'boolean' && key !== '__proto__') {
         if (!inSvg && !isCustomTag && HTML_PRESENCE_BOOLEAN_ATTRIBUTES.has(name)) {
           return value ? name : ''
         }
@@ -502,10 +508,10 @@ function stringifyVueComponent(
         if (pruned == null) {
           return ''
         }
-        return `:${name}="${looseEscapeHTML(stringify(pruned)).trim()}"`
+        return `:${name}="${escapeHTML(stringify(pruned)).trim()}"`
       }
 
-      return `:${name}="${looseEscapeHTML(stringify(value)).trim()}"`
+      return `:${name}="${escapeHTML(stringify(value)).trim()}"`
     },
     indentLevel,
     isInline
@@ -525,23 +531,23 @@ function stringifyJSXComponent(
         return `${key}={${callback}}`
       }
 
-      if (typeof value === 'string') {
-        return `${key}="${escapeHTML(value).trim()}"`
+      if (typeof value === 'string' && key !== '__proto__') {
+        return `${key}="${escapeHTML(value)}"`
       }
 
-      if (typeof value === 'boolean') {
+      if (typeof value === 'boolean' && key !== '__proto__') {
         return value ? key : `${key}={false}`
       }
 
       if (typeof value === 'object' && value != null) {
-        const pruned = prune(value)
-        if (pruned == null) {
+        value = prune(value)
+        if (value == null) {
           return ''
         }
-        return `${key}={${stringify(pruned)}}`
       }
 
-      return `${key}={${stringify(value)}}`
+      const expression = stringify(value)
+      return key === '__proto__' ? `{...{['__proto__']: ${expression}}}` : `${key}={${expression}}`
     },
     indentLevel,
     isInline
@@ -583,7 +589,7 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
   while (i < code.length && /[a-zA-Z0-9\-_:.]/.test(code.charAt(i))) i++
   const tagNameEnd = i
 
-  const existingAttrs = new Map<string, { valueStart: number; valueEnd: number; quote: string }>()
+  const existingAttrs = new Map<string, { valueStart: number; valueEnd: number; quote?: string }>()
 
   while (i < code.length) {
     // Skip whitespace
@@ -603,6 +609,8 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
     const attrNameStart = i
     while (i < code.length && /[^=\s/>]/.test(code.charAt(i))) i++
     const attrName = code.slice(attrNameStart, i)
+    if (!attrName) return code
+    const attrNameEnd = i
 
     // Skip whitespace after name
     while (i < code.length && /\s/.test(code.charAt(i))) i++
@@ -638,9 +646,8 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
     } else {
       // Boolean attribute
       existingAttrs.set(attrName, {
-        valueStart: i,
-        valueEnd: i,
-        quote: ''
+        valueStart: attrNameEnd,
+        valueEnd: attrNameEnd
       })
     }
   }
@@ -670,13 +677,14 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
 
     const { valueStart, valueEnd, quote } = existing
     const isClass = key === 'class' || key === 'className'
-    const content = escapeHTML(
-      isClass ? mergeClasses(code.slice(valueStart, valueEnd), String(value)) : String(value)
-    )
+    // Existing source is already entity-encoded. Escape only the injected value.
+    let content = escapeHTML(String(value))
+    if (isClass) content = mergeClasses(code.slice(valueStart, valueEnd), content)
+    if (quote === "'") content = content.replaceAll("'", '&#39;')
     let replacement = content
     if (!quote) {
       replacement = `"${content}"`
-      if (!isClass && valueStart === valueEnd) replacement = `=${replacement}`
+      if (quote === undefined) replacement = `=${replacement}`
     }
     replacements.push({ start: valueStart, end: valueEnd, content: replacement })
   }

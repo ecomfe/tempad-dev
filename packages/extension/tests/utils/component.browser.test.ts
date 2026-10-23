@@ -2,7 +2,31 @@ import { expect, it } from 'vitest'
 import * as Vue from 'vue'
 import { compileTemplate } from 'vue/compiler-sfc'
 
-import { stringifyComponent } from '@/utils/component'
+import { mergeAttributes, stringifyComponent } from '@/utils/component'
+
+it('leaves a malformed opening tag unchanged without blocking raw component output', async () => {
+  // Run the scanner in an isolated Worker so a non-advancing parser cannot hang the suite.
+  const source = '<div / foo></div>'
+  const url = URL.createObjectURL(
+    new Blob([
+      `postMessage((${mergeAttributes.toString()})(${JSON.stringify(source)}, {class: 'one'}))`
+    ])
+  )
+  const worker = new Worker(url)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const result = await new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('Attribute merge did not finish')), 10000)
+      worker.onmessage = (event) => resolve(event.data)
+      worker.onerror = (event) => reject(new Error(event.message))
+    })
+    expect(result).toBe(source)
+  } finally {
+    clearTimeout(timer)
+    worker.terminate()
+    URL.revokeObjectURL(url)
+  }
+}, 15000)
 
 function mountVueMarkup(source: string) {
   const compiled = compileTemplate({

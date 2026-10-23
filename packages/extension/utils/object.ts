@@ -60,7 +60,12 @@ function pruneValue(value: unknown, insideArray: boolean): unknown {
     const pruned = pruneValue(item, false)
     if (pruned === undefined) continue
 
-    result[key] = pruned
+    Object.defineProperty(result, key, {
+      value: pruned,
+      enumerable: true,
+      configurable: true,
+      writable: true
+    })
   }
 
   if (Object.keys(result).length === 0) {

@@ -170,6 +170,36 @@ describe('utils/component', () => {
     expect(getDesignComponent(instance)?.properties).toEqual({ size: 'Large' })
   })
 
+  it.each(['TEXT', 'INSTANCE_SWAP'] as const)(
+    'preserves a prototype-named %s property as an own data property',
+    (type) => {
+      vi.stubGlobal('figma', {
+        getNodeById: () => ({ type: 'COMPONENT', name: 'Icon' })
+      })
+      try {
+        const instance = createNode('INSTANCE', 'instance', {
+          componentProperties: { '__proto__#1:2': { type, value: 'value' } }
+        })
+        const properties = getDesignComponent(instance)!.properties
+        expect(Object.keys(properties)).toEqual(['__proto__'])
+        expect(Object.getPrototypeOf(properties)).toBe(Object.prototype)
+        expect(properties.__proto__).toEqual(
+          type === 'TEXT'
+            ? 'value'
+            : {
+                name: 'Icon',
+                type: 'INSTANCE',
+                properties: {},
+                children: [],
+                visible: true
+              }
+        )
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    }
+  )
+
   it('extracts design component data with instance swap and vector fills', () => {
     const getNodeById = vi.fn((id: string) => {
       if (id === 'swap-target') {
@@ -388,6 +418,19 @@ describe('utils/component', () => {
     ['<input disabled>', { disabled: 'false' }, '<input disabled="false">'],
     ['<div class="one two"></div>', { class: 'two three' }, '<div class="one two three"></div>'],
     ['<div class=one></div>', { class: 'two' }, '<div class="one two"></div>'],
+    ['<div class></div>', { class: 'one' }, '<div class="one"></div>'],
+    ['<div class id="item"></div>', { class: 'one' }, '<div class="one" id="item"></div>'],
+    ['<div title=></div>', { title: 'text' }, '<div title="text"></div>'],
+    [
+      '<div class="a&amp;b content-[&quot;&gt;&quot;]"></div>',
+      { class: 'a&b extra' },
+      '<div class="a&amp;b content-[&quot;&gt;&quot;] extra"></div>'
+    ],
+    [
+      "<div title='old'></div>",
+      { title: "It's new & safe" },
+      "<div title='It&#39;s new &amp; safe'></div>"
+    ],
     ['<Widget className="one" />', { className: 'one two' }, '<Widget className="one two" />']
   ])('preserves attribute quoting and class merging for %s', (source, attributes, expected) => {
     expect(mergeAttributes(source, attributes)).toBe(expected)

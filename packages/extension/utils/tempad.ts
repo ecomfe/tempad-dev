@@ -131,7 +131,7 @@ export function getTemPadComponent(node: SceneNode): TemPadComponent | null {
   }
 
   const libDisplayName =
-    tempadData?.libName && tempadData.libName in LIB_DISPLAY_NAMES
+    tempadData?.libName && Object.hasOwn(LIB_DISPLAY_NAMES, tempadData.libName)
       ? LIB_DISPLAY_NAMES[tempadData.libName]
       : null
 
