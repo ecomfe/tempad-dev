@@ -133,6 +133,7 @@ it.skipIf(process.platform === 'win32').each([
         format: ['esm'],
         platform: 'node',
         target: 'node22',
+        inputOptions: { resolve: { conditionNames: ['source'] } },
         dts: false,
         logLevel: 'silent'
       })
