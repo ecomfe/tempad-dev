@@ -40,17 +40,21 @@ function comparableEntries(value: Record<string, unknown>): Array<[string, unkno
   )
 }
 
-export function nativeValueEqual(current: unknown, desired: unknown, numberTolerance = 0): boolean {
+export function nativeValueEqual(
+  current: unknown,
+  desired: unknown,
+  numbersEqual: (current: number, desired: number) => boolean = (a, b) => a === b
+): boolean {
   if (Object.is(current, desired)) return true
   if (typeof current === 'number' && typeof desired === 'number') {
-    return Math.abs(current - desired) <= numberTolerance
+    return numbersEqual(current, desired)
   }
   if (Array.isArray(current) || Array.isArray(desired)) {
     return (
       Array.isArray(current) &&
       Array.isArray(desired) &&
       current.length === desired.length &&
-      current.every((value, index) => nativeValueEqual(value, desired[index], numberTolerance))
+      current.every((value, index) => nativeValueEqual(value, desired[index], numbersEqual))
     )
   }
   if (!isRecord(current) || !isRecord(desired)) return false
@@ -58,11 +62,12 @@ export function nativeValueEqual(current: unknown, desired: unknown, numberToler
   const desiredEntries = comparableEntries(desired)
   return (
     currentEntries.length === desiredEntries.length &&
-    currentEntries.every(([key, value]) => nativeValueEqual(value, desired[key], numberTolerance))
+    currentEntries.every(
+      ([key, value]) =>
+        Object.hasOwn(desired, key) && nativeValueEqual(value, desired[key], numbersEqual)
+    )
   )
 }
-
-export const FIGMA_NATIVE_TOLERANCE = 1 / 255 + Number.EPSILON
 
 export function textMeasuresEqual(
   field: 'lineHeight' | 'letterSpacing',

@@ -10,7 +10,7 @@ import type { ApplyState } from './state'
 
 import { applyError } from '../errors'
 import { resolvedVariable } from '../variables'
-import { isRecord, isVariableBinding, nativeValueEqual, FIGMA_NATIVE_TOLERANCE } from './comparison'
+import { isRecord, isVariableBinding, nativeValueEqual, scalarValuesEqual } from './comparison'
 import { resolveCanvasKey } from './nodes'
 
 function nativeShaderValue(
@@ -260,7 +260,6 @@ function comparableLayoutGrid(grid: LayoutGrid, expected: LayoutGrid): Record<st
   return {
     ...comparable,
     visible: grid.visible ?? true,
-    ...(expected.color === undefined ? {} : { color: grid.color }),
     boundVariables: grid.boundVariables ?? {}
   }
 }
@@ -271,13 +270,26 @@ export function layoutGridsEqual(
 ): boolean {
   return (
     current.length === desired.length &&
-    current.every((grid, index) =>
-      nativeValueEqual(
-        comparableLayoutGrid(grid, desired[index]!),
-        comparableLayoutGrid(desired[index]!, desired[index]!),
-        FIGMA_NATIVE_TOLERANCE
+    current.every((grid, index) => {
+      const expected = desired[index]!
+      return (
+        // Grid colors may be stored as byte channels; this does not justify
+        // rounding grid dimensions or accepting arbitrary nearby color values.
+        (expected.color === undefined ||
+          nativeValueEqual(
+            grid.color,
+            expected.color,
+            (actual, value) =>
+              scalarValuesEqual(actual, value) ||
+              scalarValuesEqual(actual, Math.round(value * 255) / 255)
+          )) &&
+        nativeValueEqual(
+          comparableLayoutGrid(grid, expected),
+          comparableLayoutGrid(expected, expected),
+          scalarValuesEqual
+        )
       )
-    )
+    })
   )
 }
 
@@ -367,7 +379,7 @@ export function paintStacksEqual(current: readonly Paint[], desired: readonly Pa
         nativeValueEqual(
           comparablePaint(paint, expected),
           comparablePaint(expected, expected),
-          FIGMA_NATIVE_TOLERANCE
+          scalarValuesEqual
         )
       )
     })
@@ -428,7 +440,7 @@ function effectEqual(current: Effect, desired: Effect): boolean {
     nativeValueEqual(
       comparableEffect(current, desired),
       comparableEffect(desired, desired),
-      FIGMA_NATIVE_TOLERANCE
+      scalarValuesEqual
     )
   )
 }

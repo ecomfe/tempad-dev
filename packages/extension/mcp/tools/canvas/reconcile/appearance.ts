@@ -11,7 +11,7 @@ import { resolveStyle } from '../styles'
 import { variableReferenceCacheKey } from '../variables'
 import { vectorPathsEqual, canonicalVectorPaths } from '../vector'
 import { currentBoundVariableId } from './binding-values'
-import { nativeValueEqual, FIGMA_NATIVE_TOLERANCE, rotationsMatch } from './comparison'
+import { nativeValueEqual, scalarValuesEqual, rotationsMatch } from './comparison'
 import { preservesComponentPropertyReference } from './components'
 import {
   paintStacksEqual,
@@ -425,7 +425,7 @@ function vectorNetworksEqual(current: VectorNetwork, desired: VectorNetwork): bo
   return nativeValueEqual(
     comparableVectorNetwork(current, desired),
     comparableVectorNetwork(desired, desired),
-    FIGMA_NATIVE_TOLERANCE
+    scalarValuesEqual
   )
 }
 
