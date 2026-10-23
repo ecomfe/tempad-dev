@@ -852,3 +852,53 @@ it.skipIf(process.platform === 'win32')(
   },
   5000
 )
+
+it.skipIf(process.platform === 'win32')(
+  'drains complete Hub output before reconnecting when the consumer is backpressured',
+  async () => {
+    const runtime = join(directory, 'bridge-output')
+    mkdirSync(runtime, { mode: 0o700 })
+    const messages = [1, 2, 3].map(
+      (id) => JSON.stringify({ jsonrpc: '2.0', id, result: { text: 'x'.repeat(100_000) } }) + '\n'
+    )
+    const sockets = new Set<Socket>()
+    let connections = 0
+    let notifyClosed!: () => void
+    const firstClosed = new Promise<void>((resolve) => {
+      notifyClosed = resolve
+    })
+    const server = createServer((socket) => {
+      sockets.add(socket)
+      socket.on('close', () => sockets.delete(socket))
+      socket.on('error', () => {})
+      socket.resume()
+      if (++connections !== 1) return
+      socket.on('close', notifyClosed)
+      socket.end(messages.join(''))
+    })
+    let attempt: ReturnType<typeof launch> | undefined
+    try {
+      server.listen(join(runtime, 'mcp.sock'))
+      await once(server, 'listening')
+      chmodSync(join(runtime, 'mcp.sock'), 0o600)
+      attempt = launch('cli.mjs', runtime)
+      attempt.child.stdout!.pause()
+      await firstClosed
+      attempt.child.stdout!.resume()
+      await vi.waitFor(() => expect(attempt!.stdout().length).toBe(messages.join('').length), {
+        timeout: 3000
+      })
+      expect(attempt.stdout()).toBe(messages.join(''))
+      attempt.child.stdin!.end()
+      expect((await attempt.exited)[0], attempt.stderr()).toBe(0)
+    } finally {
+      if (attempt && attempt.child.exitCode === null && attempt.child.signalCode === null) {
+        attempt.child.kill()
+        await attempt.exited
+      }
+      for (const socket of sockets) socket.destroy()
+      if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  },
+  10000
+)

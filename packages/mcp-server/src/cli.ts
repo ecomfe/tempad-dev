@@ -6,6 +6,7 @@ import type { Socket } from 'node:net'
 import { spawn } from 'node:child_process'
 import { connect } from 'node:net'
 import { join, resolve } from 'node:path'
+import { finished } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 
@@ -89,18 +90,28 @@ function bridge(socket: Socket): Promise<boolean> {
       socket.destroy()
     })
 
-    const onSocketClose = () => {
+    const onSocketClose = async () => {
       log.warn('Connection to Hub lost. Attempting to reconnect...')
       activeSocket = null
       process.stdin.unpipe(socket)
       socket.unpipe(output)
+      socket.removeAllListeners()
+      // Complete frames can still be buffered behind a slow consumer. Drain
+      // them before reconnecting so responses are neither lost nor reordered.
+      output.end()
+      try {
+        await finished(output, { cleanup: true })
+      } catch (error) {
+        outputError ??= error instanceof Error ? error : new Error(String(error))
+      }
       output.unpipe(process.stdout)
       output.destroy()
-      socket.removeAllListeners()
       if (outputError) reject(outputError)
       else resolve(receivedOutput)
     }
-    socket.once('close', onSocketClose)
+    socket.once('close', () => {
+      void onSocketClose().catch(reject)
+    })
     socket.on('error', (err) => log.warn({ err }, 'Socket error occurred.'))
 
     const binding = claudeBinding ?? runtimeIdentity(process.env).client

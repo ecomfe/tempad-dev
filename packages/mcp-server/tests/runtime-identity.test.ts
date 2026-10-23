@@ -25,8 +25,9 @@ import {
 } from '../src/runtime-identity'
 
 describe('runtime identity', () => {
-  it('publishes, reads, and owner-removes an atomic Hub identity', () => {
+  it('publishes, reads, and owner-removes an atomic Hub identity', ({ onTestFinished }) => {
     const directory = mkdtempSync(join(tmpdir(), 'tempad-runtime-identity-'))
+    onTestFinished(() => rmSync(directory, { recursive: true, force: true }))
     const entryPath = join(directory, 'hub.mjs')
     const identityPath = join(directory, 'hub-runtime.json')
     writeFileSync(entryPath, 'export const cohort = 1\n')
