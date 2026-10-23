@@ -167,6 +167,7 @@ async function renderNode(
     node.type === 'TEXT'
       ? await renderTextSegments(node, classAttr, ctx, {
           inheritedTextStyle,
+          nodeTextStyle: cleanedTextStyle,
           segments: preSegments
         })
       : undefined

@@ -118,6 +118,7 @@ export const REQUESTED_SEGMENT_FIELDS: SegmentFieldForRequest[] = [
 
 export type RenderTextSegmentsOptions = {
   inheritedTextStyle?: Record<string, string>
+  nodeTextStyle?: Record<string, string>
   segments?: StyledTextSegmentSubset[] | null
 }
 

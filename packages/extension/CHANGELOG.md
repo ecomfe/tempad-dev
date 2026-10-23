@@ -3,7 +3,7 @@
 ## 0.23.5 (unreleased)
 
 - Improved CSS exports for layered fills and gradients, image crops and tiles, stacking and blending,
-  mixed fonts, variable opacity, and SVG sizing and placement.
+  mixed fonts and text spacing, variable opacity, and SVG sizing and placement.
 - Fixed canvas updates involving components, grids, fonts, and variable modes. Invalid resource
   changes are rejected earlier, with clearer errors when failed edits cannot be fully restored.
 - Fixed updates to mixed text styles and partially bound paragraphs, avoiding unnecessary text changes.

@@ -1,6 +1,6 @@
 import type { DevComponent } from '@/types/plugin'
 
-import { pruneInheritedTextStyles, stripDefaultTextStyles } from '@/utils/css'
+import { canonicalizeValue, pruneInheritedTextStyles, stripDefaultTextStyles } from '@/utils/css'
 import { resolveTextNodeVariableId, resolveTextSegmentVariable } from '@/utils/figma-variables'
 import { joinClassNames } from '@/utils/tailwind'
 
@@ -31,7 +31,7 @@ export async function renderTextSegments(
   segmentCount: number
   fontStyleVariableIds: Set<string>
 }> {
-  const { inheritedTextStyle, segments: providedSegments } = options
+  const { inheritedTextStyle, nodeTextStyle, segments: providedSegments } = options
 
   const rawSegments = providedSegments === undefined ? getStyledSegments(node) : providedSegments
   const fontStyleVariableIds = new Set<string>()
@@ -57,29 +57,43 @@ export async function renderTextSegments(
 
   const segmentCount = rawSegments.length
   const allRunStyles: Array<{ style: Record<string, string>; weight: number }> = []
+  const runs = blocks.flatMap((block) => block.lines.flatMap((line) => line.runs))
 
-  for (const block of blocks) {
-    for (const line of block.lines) {
-      for (const run of line.runs) {
-        const cleaned = stripDefaultTextStyles({ ...run.attrs })
-        pruneInheritedTextStyles(cleaned, inheritedTextStyle)
-        const resolved = ctx.resolveStyleVars ? ctx.resolveStyleVars(cleaned, node) : cleaned
+  for (const run of runs) {
+    const cleaned = stripDefaultTextStyles({ ...run.attrs })
+    pruneInheritedTextStyles(cleaned, inheritedTextStyle)
+    const resolved = ctx.resolveStyleVars ? ctx.resolveStyleVars(cleaned, node) : cleaned
 
-        const hoistableCandidate: Record<string, string> = {}
-        for (const [key, value] of Object.entries(resolved)) {
-          if (HOIST_ALLOWLIST.has(key)) {
-            hoistableCandidate[key] = value
-          }
-        }
-
-        if (Object.keys(hoistableCandidate).length > 0) {
-          allRunStyles.push({ style: hoistableCandidate, weight: run.text.length })
-        }
+    const hoistableCandidate: Record<string, string> = {}
+    for (const [key, value] of Object.entries(resolved)) {
+      if (HOIST_ALLOWLIST.has(key)) {
+        hoistableCandidate[key] = value
       }
+    }
+
+    if (Object.keys(hoistableCandidate).length > 0) {
+      allRunStyles.push({ style: hoistableCandidate, weight: run.text.length })
     }
   }
 
   const commonStyle = computeDominantStyle(allRunStyles)
+  const inheritedBaseStyle = { ...inheritedTextStyle, ...nodeTextStyle }
+  const sharedDefaults: Record<string, string> = {}
+  for (const [key, value] of [
+    ['line-height', 'normal'],
+    ['letter-spacing', '0']
+  ] as const) {
+    if (
+      runs.length &&
+      runs.every((run) => canonicalizeValue(key, run.attrs[key] ?? '') === value)
+    ) {
+      sharedDefaults[key] = value
+    }
+  }
+  // A uniform reset belongs on the text wrapper. Its single child can be
+  // flattened later, so emitting conflicting wrapper/run utilities is unsafe.
+  restoreDefaultTextMetrics(commonStyle, sharedDefaults, inheritedBaseStyle)
+  const inheritedRunStyle = { ...inheritedBaseStyle, ...commonStyle }
 
   const outputSegments: Array<DevComponent | string> = []
 
@@ -90,7 +104,8 @@ export async function renderTextSegments(
       classProp,
       ctx,
       node,
-      index < blocks.length - 1
+      index < blocks.length - 1,
+      inheritedRunStyle
     )
     optimizeComponentTree(renderedBlock, classProp)
     outputSegments.push(renderedBlock)
@@ -105,7 +120,8 @@ function renderBlock(
   classProp: 'class' | 'className',
   ctx: RenderContext,
   node: TextNode,
-  hasFollowingBlock: boolean
+  hasFollowingBlock: boolean,
+  inheritedRunStyle: Record<string, string>
 ): DevComponent {
   const { type, lines, attrs } = block
   const { paragraphIndent, paragraphSpacing } = attrs
@@ -139,7 +155,14 @@ function renderBlock(
         // Native forced lines repeat the indent, but automatic wraps do not.
         // Separate line boxes inherit text-indent without adding paragraph gaps.
         for (const runs of splitSoftLines(line.runs)) {
-          const children = buildInlineTree(runs, commonStyle, classProp, ctx, node)
+          const children = buildInlineTree(
+            runs,
+            commonStyle,
+            classProp,
+            ctx,
+            node,
+            inheritedRunStyle
+          )
           if (isCollapsibleLine(runs)) {
             children.push({ name: 'br', props: {}, children: [] })
           }
@@ -150,7 +173,9 @@ function renderBlock(
           })
         }
       } else {
-        container.children.push(...buildInlineTree(line.runs, commonStyle, classProp, ctx, node))
+        container.children.push(
+          ...buildInlineTree(line.runs, commonStyle, classProp, ctx, node, inheritedRunStyle)
+        )
         if (
           idx === lines.length - 1 &&
           (isCollapsibleLine(line.runs) || endsWithEmptySoftLine(line.runs))
@@ -233,7 +258,14 @@ function renderBlock(
       stack.push(parentStackItem)
     }
 
-    const lineChildren = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
+    const lineChildren = buildInlineTree(
+      line.runs,
+      commonStyle,
+      classProp,
+      ctx,
+      node,
+      inheritedRunStyle
+    )
     if (isCollapsibleLine(line.runs) || endsWithEmptySoftLine(line.runs)) {
       lineChildren.push({ name: 'br', props: {}, children: [] })
     }
@@ -332,7 +364,8 @@ function buildInlineTree(
   commonStyle: Record<string, string>,
   classProp: 'class' | 'className',
   ctx: RenderContext,
-  node: TextNode
+  node: TextNode,
+  inheritedRunStyle: Record<string, string>
 ): Array<DevComponent | string> {
   const root: { children: Array<DevComponent | string> } = { children: [] }
   const stack: StackNode[] = [{ container: root }]
@@ -381,6 +414,7 @@ function buildInlineTree(
     for (const key of ['font-weight', 'font-style']) {
       if (run.attrs[key] !== undefined) cleanedAttrs[key] = run.attrs[key]
     }
+    restoreDefaultTextMetrics(cleanedAttrs, run.attrs, inheritedRunStyle)
     const resolvedAttrs = ctx.resolveStyleVars
       ? ctx.resolveStyleVars(cleanedAttrs, node)
       : cleanedAttrs
@@ -408,6 +442,28 @@ function buildInlineTree(
   }
 
   return root.children
+}
+
+function restoreDefaultTextMetrics(
+  style: Record<string, string>,
+  attrs: Record<string, string>,
+  inheritedStyle: Record<string, string>
+): void {
+  // AUTO line height and zero tracking must reset a nondefault ancestor,
+  // node CSS, or hoisted run value rather than inheriting it.
+  for (const key of ['line-height', 'letter-spacing']) {
+    const value = attrs[key]
+    const inherited = inheritedStyle[key]
+    if (
+      style[key] === undefined &&
+      value !== undefined &&
+      inherited !== undefined &&
+      !(key === 'letter-spacing' && inherited === 'normal') &&
+      canonicalizeValue(key, value) !== canonicalizeValue(key, inherited)
+    ) {
+      style[key] = value
+    }
+  }
 }
 
 function createMarkComponent(mark: TextMark, run: TextRun): DevComponent {
