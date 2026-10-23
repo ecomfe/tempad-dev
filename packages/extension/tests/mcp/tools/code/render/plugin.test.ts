@@ -10,6 +10,7 @@ vi.mock('@/utils/codegen', () => ({
   generateCodeBlocksForNodes: mocked.generateCodeBlocksForNodes
 }))
 
+import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
 import {
   renderPluginComponent,
   resolvePluginComponent,
@@ -129,6 +130,85 @@ describe('mcp/code render plugin', () => {
       { component: undefined, code: '<Two />', lang: 'jsx' }
     ])
   })
+
+  it('selects each root language from the same cached raw plugin response', async () => {
+    const node = { id: 'one' } as InstanceNode
+    const cache = createGetCodeCacheContext()
+    mocked.generateCodeBlocksForNodes.mockResolvedValueOnce([
+      {
+        codeBlocks: [
+          createCodeBlock({ lang: 'jsx', code: '<Jsx />' }),
+          createCodeBlock({ lang: 'vue', code: '<Vue />' })
+        ]
+      }
+    ])
+
+    expect(await resolvePluginComponents([node], createConfig(), 'plugin', 'jsx', cache)).toEqual([
+      { code: '<Jsx />', component: undefined, lang: 'jsx' }
+    ])
+    expect(await resolvePluginComponents([node], createConfig(), 'plugin', 'vue', cache)).toEqual([
+      { code: '<Vue />', component: undefined, lang: 'vue' }
+    ])
+    expect(mocked.generateCodeBlocksForNodes).toHaveBeenCalledOnce()
+  })
+
+  it('generates only missing instances and retains the requested result order', async () => {
+    const first = { id: 'first' } as InstanceNode
+    const second = { id: 'second' } as InstanceNode
+    const cache = createGetCodeCacheContext()
+    mocked.generateCodeBlocksForNodes
+      .mockResolvedValueOnce([{ codeBlocks: [createCodeBlock({ code: '<First />' })] }])
+      .mockResolvedValueOnce([{ codeBlocks: [createCodeBlock({ code: '<Second />' })] }])
+    await resolvePluginComponents([first], createConfig(), 'plugin', 'jsx', cache)
+
+    const output = await resolvePluginComponents(
+      [second, first],
+      createConfig(),
+      'plugin',
+      'jsx',
+      cache
+    )
+
+    expect(output.map((result) => result?.code)).toEqual(['<Second />', '<First />'])
+    expect(mocked.generateCodeBlocksForNodes.mock.calls.map(([nodes]) => nodes)).toEqual([
+      [first],
+      [second]
+    ])
+  })
+
+  it.each(['abort', 'checkpoint'] as const)(
+    'does not overwrite a later result when %s cancels pending plugin work',
+    async (cancellation) => {
+      const node = { id: 'one' } as InstanceNode
+      const cache = createGetCodeCacheContext()
+      const controller = new AbortController()
+      const reason = new Error('cancelled attempt')
+      const pending =
+        Promise.withResolvers<Array<{ codeBlocks: ReturnType<typeof createCodeBlock>[] }>>()
+      let expired = false
+      mocked.generateCodeBlocksForNodes
+        .mockReturnValueOnce(pending.promise)
+        .mockResolvedValueOnce([{ codeBlocks: [createCodeBlock({ code: '<Current />' })] }])
+      const first = resolvePluginComponents([node], createConfig(), 'plugin', 'jsx', {
+        ...cache,
+        signal: controller.signal,
+        checkpoint: () => {
+          if (expired) throw reason
+        }
+      })
+      if (cancellation === 'abort') controller.abort(reason)
+      else expired = true
+
+      await resolvePluginComponents([node], createConfig(), 'plugin', 'jsx', cache)
+      const rejected = expect(first).rejects.toBe(reason)
+      pending.resolve([{ codeBlocks: [createCodeBlock({ code: '<Obsolete />' })] }])
+      await rejected
+      const reused = await resolvePluginComponents([node], createConfig(), 'plugin', 'jsx', cache)
+
+      expect(reused[0]?.code).toBe('<Current />')
+      expect(mocked.generateCodeBlocksForNodes).toHaveBeenCalledTimes(2)
+    }
+  )
 
   it('normalizes tsx and unknown language blocks to jsx', async () => {
     mocked.generateCodeBlocksForNode

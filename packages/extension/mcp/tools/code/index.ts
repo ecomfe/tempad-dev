@@ -295,7 +295,8 @@ async function generateCode({
     : preflightGetCodeBudget(tree, rootId, {
         maxResultBytes,
         pluginEnabled: !!pluginCode,
-        unbounded: !!runtimeOptions.unbounded
+        unbounded: !!runtimeOptions.unbounded,
+        checkpoint
       })
   const earlyShell = forceShell || budgetPreflight?.kind === 'shell'
   checkpoint?.()
@@ -317,10 +318,9 @@ async function generateCode({
   stamp('vars', t)
   checkpoint?.()
 
-  const { pluginComponents, pluginSkipped } =
-    pluginCode && !earlyShell
-      ? await collectPluginOutput(tree, config, pluginCode, preferredLang, cache.signal)
-      : { pluginComponents: undefined, pluginSkipped: new Set<string>() }
+  const { pluginComponents, pluginSkipped } = pluginCode
+    ? await collectPluginOutput(tree, config, pluginCode, preferredLang, cache, earlyShell)
+    : { pluginComponents: undefined, pluginSkipped: new Set<string>() }
   cache.signal?.throwIfAborted()
   checkpoint?.()
 
@@ -772,15 +772,16 @@ async function collectPluginOutput(
   tree: VisibleTree,
   config: CodegenConfig,
   pluginCode: string,
-  preferredLang?: CodeLanguage,
-  signal?: AbortSignal
+  preferredLang: CodeLanguage | undefined,
+  cache: GetCodeCacheContext,
+  rootOnly: boolean
 ): Promise<{
   pluginComponents: Map<string, PluginComponent | null>
   pluginSkipped: Set<string>
 }> {
   const pluginComponents = new Map<string, PluginComponent | null>()
   const instances: Array<{ id: string; node: InstanceNode }> = []
-  for (const id of tree.order) {
+  for (const id of rootOnly ? tree.rootIds : tree.order) {
     const snapshot = tree.nodes.get(id)
     if (snapshot?.node.type === 'INSTANCE') {
       instances.push({ id: snapshot.id, node: snapshot.node })
@@ -792,7 +793,7 @@ async function collectPluginOutput(
     config,
     pluginCode,
     preferredLang,
-    signal
+    cache
   )
   instances.forEach(({ id }, resultIndex) => {
     pluginComponents.set(id, components[resultIndex] ?? null)

@@ -214,6 +214,31 @@ describe('utils/codegen', () => {
     }
   })
 
+  it('keeps injected raw CSS unchanged while preparing plugin-specific styles', async () => {
+    const css = { width: '100px' }
+    const readCss = vi.fn(async () => css)
+    const node = { getCSSAsync: vi.fn() } as unknown as SceneNode
+    mocked.resolveStylesFromNode.mockImplementationOnce(async (style) => {
+      style.width = '50px'
+      return style
+    })
+    mocked.formatNodeStyleForUi.mockImplementation((style) => ({ style }))
+    mocked.formatNodeStyleForPluginVariables.mockImplementation((style) => style)
+    mocked.requestPluginSandbox.mockResolvedValueOnce({ results: [{ codeBlocks: [] }] })
+
+    await generateCodeBlocksForNodes(
+      [node],
+      { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+      'plugin',
+      { readCss }
+    )
+
+    expect(readCss).toHaveBeenCalledWith(node)
+    expect(node.getCSSAsync).not.toHaveBeenCalled()
+    expect(css).toEqual({ width: '100px' })
+    expect(mocked.requestPluginSandbox.mock.calls[0]?.[1].jobs[0].style).toEqual({ width: '50px' })
+  })
+
   it('splits timed-out batches so a slow aggregate does not break valid per-node work', async () => {
     const nodes = Array.from({ length: 2 }, (_, index) => ({
       getCSSAsync: vi.fn(async () => ({ color: `color-${index}` }))

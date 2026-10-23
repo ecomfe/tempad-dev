@@ -1,3 +1,4 @@
+import type { ResponsePayload } from '@/types/codegen'
 import type { FigmaLookupReaders } from '@/utils/figma-style/types'
 
 import type { TokenReadContext } from '../../token/context'
@@ -92,6 +93,7 @@ export type GetCodeCacheContext = {
   tokens?: TokenReadContext
   pluginName?: string
   rawCss: Map<string, Promise<Record<string, string>>>
+  pluginResponses: Map<string, ResponsePayload>
   imageBytes: Map<string, Promise<Uint8Array>>
   imageSizes: Map<string, Promise<{ width: number; height: number } | null>>
   signal?: AbortSignal

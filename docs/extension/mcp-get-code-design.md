@@ -25,7 +25,7 @@ still expire first. The fallback shares lookup and CSS-promise caches with the o
 and abort checks fence late results and prevent subsequent collection, export, and plugin batches.
 A completed full or shell result wins if synchronous work finishes before its overdue timer runs;
 the deadline wrapper does not recheck elapsed time after success or discard completed output.
-Synchronous checkpoints cover depth selection, tree traversal (including hidden siblings),
+Synchronous checkpoints cover depth selection, tree traversal (including hidden siblings), descendant-text budget preflight,
 candidate-variable scans, and collection between nodes and after text, CSS, style, and media reads.
 They also run within physical-child overflow scans, per-field text-variable reads, and nested
 binding/paint scans, including overflow work during semantic-cache population. Group flow and
@@ -292,6 +292,11 @@ rather than the `bg-[...]` image/color utilities.
 
 ### Cached data
 
+- `rawCss`: native CSS promises shared by plugin preparation and MCP collection, including failed
+  reads. Each formatting path works on a copy and retains its own variable-output policy.
+- `pluginResponses`: completed raw plugin responses keyed by instance ID, including empty
+  responses. Overlapping roots and timeout shells reuse them within the call; each root selects
+  its language independently. Aborted or expired attempts cannot publish late responses into the cache.
 - `variables`: request-scoped `Variable | null` lookup map.
 - `tokens`: request-scoped collection/name lookups and raw native values keyed by consumer node ID and variable ID. Code reads traverse exact IDs and aliases without indexing all local variables. The names-only `get_token_defs` request creates its own fresh context and lazy full index.
 - `styles`: request-scoped `BaseStyle | null` lookup map.

@@ -11,13 +11,38 @@ vi.mock('@/mcp/tools/token/raw-name', () => ({
 }))
 
 import { analyzeVectorColorModel } from '@/mcp/tools/code/assets/vector-semantics'
-import { createGetCodeCacheContext, getNodeSemanticsCached } from '@/mcp/tools/code/cache'
+import {
+  createGetCodeCacheContext,
+  getNodeSemanticsCached,
+  getRawCssCached
+} from '@/mcp/tools/code/cache'
 import { cleanFigmaSpecificStyles } from '@/mcp/tools/code/styles/background'
 import { collectCandidateVariableIds } from '@/mcp/tools/token/candidates'
 import { TEXT_VARIABLE_FIELDS } from '@/utils/figma-variables'
 import { formatNodeStyleForMcp } from '@/utils/variable-output'
 
 describe('code cache context', () => {
+  it.each(['throw', 'reject'] as const)(
+    'shares a failed native CSS %s only within the current request',
+    async (failure) => {
+      const reason = new Error('CSS unavailable')
+      const node = {
+        id: 'unavailable',
+        getCSSAsync: vi.fn(() => {
+          if (failure === 'throw') throw reason
+          return Promise.reject(reason)
+        })
+      } as unknown as SceneNode
+      const cache = createGetCodeCacheContext()
+
+      await expect(getRawCssCached(node, cache)).rejects.toBe(reason)
+      await expect(getRawCssCached(node, cache)).rejects.toBe(reason)
+      expect(node.getCSSAsync).toHaveBeenCalledOnce()
+      await expect(getRawCssCached(node, createGetCodeCacheContext())).rejects.toBe(reason)
+      expect(node.getCSSAsync).toHaveBeenCalledTimes(2)
+    }
+  )
+
   beforeEach(() => {
     vi.unstubAllGlobals()
   })

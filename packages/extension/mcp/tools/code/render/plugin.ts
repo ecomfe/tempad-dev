@@ -5,6 +5,8 @@ import { generateCodeBlocksForNode, generateCodeBlocksForNodes } from '@/utils/c
 
 import type { CodeLanguage, RenderContext } from './types'
 
+import { getRawCssCached, type GetCodeCacheContext } from '../cache'
+
 export type PluginComponent = { component?: DevComponent; code?: string; lang?: CodeLanguage }
 
 export async function renderPluginComponent(
@@ -32,13 +34,22 @@ export async function resolvePluginComponents(
   config: RenderContext['config'],
   pluginCode: string,
   preferredLang?: CodeLanguage,
-  signal?: AbortSignal
+  cache?: GetCodeCacheContext
 ): Promise<Array<PluginComponent | null>> {
-  const responses = await generateCodeBlocksForNodes(nodes, config, pluginCode, {
-    returnDevComponent: true,
-    ...(signal ? { signal } : {})
-  })
-  return responses.map((response) => resolvePluginComponentResponse(response, preferredLang))
+  cache?.signal?.throwIfAborted()
+  cache?.checkpoint?.()
+  const responses = cache?.pluginResponses ?? new Map<string, ResponsePayload>()
+  const missing = nodes.filter((node) => !responses.has(node.id))
+  if (missing.length) {
+    const generated = await generateCodeBlocksForNodes(missing, config, pluginCode, {
+      returnDevComponent: true,
+      ...(cache ? { readCss: (node) => getRawCssCached(node, cache), signal: cache.signal } : {})
+    })
+    cache?.signal?.throwIfAborted()
+    cache?.checkpoint?.()
+    missing.forEach((node, index) => responses.set(node.id, generated[index]!))
+  }
+  return nodes.map((node) => resolvePluginComponentResponse(responses.get(node.id)!, preferredLang))
 }
 
 function resolvePluginComponentResponse(

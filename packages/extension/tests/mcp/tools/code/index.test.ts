@@ -135,6 +135,40 @@ function mockAssetCollection(
 }
 
 describe('mcp/code handleGetCode', () => {
+  it('stops descendant text preflight at the deadline before reading the remaining text', async () => {
+    let elapsed = 0
+    let reads = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => elapsed)
+    const children = Array.from({ length: 100 }, (_, index) => {
+      const child = createSnapshot({ id: `text-${index}`, type: 'TEXT', parentId: 'root' })
+      Object.defineProperty(child.node, 'characters', {
+        get() {
+          elapsed = ++reads * 10_000
+          return 'text'
+        }
+      })
+      return child
+    })
+    const root = createSnapshot({ id: 'root', children: children.map(({ id }) => id) })
+    const tree = createTree([root, ...children])
+    mockAssetCollection(tree, [], new Set())
+    mocks.getOrderedChildIds.mockReturnValue(root.children)
+    mocks.renderShellTree.mockResolvedValue(raw('<div>shell</div>'))
+
+    const result = await handleGetCode([root.node])
+
+    expect(reads).toBe(2)
+    expect(result.warnings?.map(({ type }) => type)).toEqual(['shell'])
+    expect(mocks.collectCandidateVariableIds).toHaveBeenCalledOnce()
+    expect(mocks.collectCandidateVariableIds).toHaveBeenCalledWith(
+      [root.node],
+      expect.any(Map),
+      expect.any(Object),
+      expect.objectContaining({ traverseChildren: false })
+    )
+    expect(mocks.renderTree).not.toHaveBeenCalled()
+  })
+
   it('does not leak full-render font metadata into the shell retry', async () => {
     const root = createSnapshot({ id: 'root', children: ['child'] })
     const tree = createTree([root, createSnapshot({ id: 'child', parentId: 'root' })])
@@ -1157,7 +1191,7 @@ describe('mcp/code handleGetCode', () => {
       { cssUnit: 'px', rootFontSize: 16, scale: 1 },
       'plugin-code',
       'jsx',
-      undefined
+      expect.objectContaining({ rawCss: expect.any(Map), pluginResponses: expect.any(Map) })
     )
   })
 })

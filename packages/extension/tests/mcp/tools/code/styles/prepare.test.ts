@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { GetCodeCacheContext } from '@/mcp/tools/code/cache'
 import type { VisibleTree } from '@/mcp/tools/code/model'
 import type { VariableMappings } from '@/mcp/tools/token/mapping'
 
+import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
 import { sanitizeStyles } from '@/mcp/tools/code/sanitize'
 import { buildLayoutStyles } from '@/mcp/tools/code/styles/normalize'
 import { prepareStyles } from '@/mcp/tools/code/styles/prepare'
@@ -30,7 +30,7 @@ describe('mcp/code styles prepare', () => {
     const vectorRoots = new Set(['node-1'])
     const usedCandidateIds = new Set(['var-1'])
     const layout = new Map([['node-1', { display: 'flex' }]])
-    const cache = createCache()
+    const cache = createGetCodeCacheContext()
 
     vi.mocked(normalizeStyleVars).mockReturnValue(usedCandidateIds)
     vi.mocked(buildLayoutStyles).mockReturnValue(layout)
@@ -72,7 +72,7 @@ describe('mcp/code styles prepare', () => {
   it('works without trace hooks', () => {
     const usedCandidateIds = new Set<string>()
     const layout = new Map<string, Record<string, string>>()
-    const cache = createCache()
+    const cache = createGetCodeCacheContext()
     vi.mocked(normalizeStyleVars).mockReturnValue(usedCandidateIds)
     vi.mocked(buildLayoutStyles).mockReturnValue(layout)
 
@@ -89,21 +89,3 @@ describe('mcp/code styles prepare', () => {
     expect(result.layout).toBe(layout)
   })
 })
-
-function createCache(): GetCodeCacheContext {
-  return {
-    rawCss: new Map(),
-    imageBytes: new Map(),
-    imageSizes: new Map(),
-    readers: {
-      getStyleById: () => null,
-      getVariableById: () => null
-    },
-    variables: new Map(),
-    styles: new Map(),
-    paintStyles: new Map(),
-    nodeSemantics: new Map(),
-    childOverflow: new WeakMap(),
-    vectorAnalysis: new Map()
-  }
-}

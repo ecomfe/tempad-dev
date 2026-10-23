@@ -12,7 +12,7 @@ import type { GetCodeCacheContext } from './cache'
 import type { CollectedData, NodeSnapshot, VisibleTree } from './model'
 
 import { hasMediaFills, replaceMediaUrlsWithAssets } from './assets'
-import { getNodeSemanticsCached, getPaintsFromState } from './cache'
+import { getNodeSemanticsCached, getPaintsFromState, getRawCssCached } from './cache'
 import {
   getInferredAutoLayout,
   getLayoutParent,
@@ -55,13 +55,8 @@ export async function collectNodeData(
     }
 
     try {
-      let rawCss = cache.rawCss.get(id)
-      if (!rawCss) {
-        rawCss = node.getCSSAsync()
-        cache.rawCss.set(id, rawCss)
-      }
       // Root-specific preprocessing must never mutate the shared raw read.
-      let css = { ...(await rawCss) }
+      let css = { ...(await getRawCssCached(node, cache)) }
       assertActive()
       css = await resolveStylesFromNodeData(
         css,
