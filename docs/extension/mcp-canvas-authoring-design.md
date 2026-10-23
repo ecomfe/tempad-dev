@@ -419,11 +419,11 @@ supported utility table. Other native fields and explicit unlinks retain inline/
 
 One markup tree is bounded to 160 elements and 12 levels. The element ceiling covers currently
 observed complete screen sections up to 129 elements with bounded headroom; it is not a target for
-packing unrelated work. The independent 200 KiB markup, 32-asset, and 4 MiB transport limits remain
-in force. These limits are part of the public tool description and Canvas HTML reference so an
-agent can split a larger composition before calling the tool. The syntax parser rejects an
-oversized tree before utility, layout, or native-state compilation, so the global split requirement
-is reported before repairable node-local errors and before any mutation.
+packing unrelated work. The independent markup limit of 200,000 Unicode code points, 32-asset limit,
+and 4 MiB transport limit remain in force. These limits are part of the public tool description and
+Canvas HTML reference so an agent can split a larger composition before calling the tool. The syntax
+parser rejects an oversized tree before utility, layout, or native-state compilation, so the global
+split requirement is reported before repairable node-local errors and before any mutation.
 
 Local collection, variable, and style authoring keys persist as file-wide identities. They must be
 rooted in one collision-resistant prefix for the independent system rather than a generic product
