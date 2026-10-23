@@ -58,10 +58,12 @@ were prepared before their source changes were committed.
 
 ## Bridge protocol and release order
 
-Every setup resolves `npx -y @tempad-dev/mcp@latest` on each launch, so moving the npm `latest`
-tag upgrades the MCP server of every existing installation, while the extension waits for Chrome
-Web Store review and staged rollout. Store publication does not establish that existing users
-have installed the update or reloaded their running extension and Figma tab.
+Release setup launches `npx -y @tempad-dev/mcp@latest`. Moving the npm `latest` tag affects
+subsequent launches; running CLI and Hub processes do not update themselves. A newly launched
+CLI also reuses an existing Hub, and an older CLI can restart its own packaged Hub. Replacing
+that runtime requires disconnecting all TemPad MCP clients before restarting their MCP servers.
+The extension separately waits for Chrome Web Store review and staged rollout. Neither npm nor
+store publication establishes that users are running the update or have reloaded Figma.
 
 | Hub change                                          | Release requirement                                                                                           |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |

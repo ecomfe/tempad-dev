@@ -89,9 +89,9 @@ MCP 0.10.0 and later use `manage_design_task` in place of the older lifecycle to
 2. Update the installed plugin through the client or installer used originally. With standalone
    setup, update both `figma-design-to-code` and `design-in-figma`.
 3. Keep the release MCP configuration on `@tempad-dev/mcp@latest`; replace any previous
-   `@alpha` or fixed alpha version. Reconnect the MCP client and start a new task so it loads the
-   updated tools and skills. If a stale Hub is reported, close tasks using the old MCP server
-   before reconnecting.
+   `@alpha` or fixed alpha version. Running CLI and Hub processes do not update themselves.
+   Disconnect all TemPad MCP clients before restarting their MCP servers, then start a new task
+   to load updated tools and skills. Ending a task or reloading Figma does not replace the Hub.
 4. Open TemPad Dev, enable **MCP access**, and click the MCP badge in the intended Figma tab when
    a session choice is needed. The badge selects the default file; agents can also discover
    connected sessions and target independent reads by exact session ID.

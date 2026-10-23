@@ -125,8 +125,8 @@ MCP 0.10.0 及之后版本使用 `manage_design_task` 代替旧的生命周期�
 2. 通过原先使用的客户端或安装器更新 plugin。独立配置时，请同时更新
    `figma-design-to-code` 和 `design-in-figma`。
 3. 正式版 MCP 配置使用 `@tempad-dev/mcp@latest`；请替换旧的 `@alpha` 或固定 alpha 版本。
-   重新连接 MCP client 并新建任务，以加载更新后的工具和 skill。若提示 Hub 过期，请先关闭
-   使用旧 MCP server 的任务，再重新连接。
+   已运行的 CLI 和 Hub 不会自动更新。先断开所有 TemPad MCP client，再重启其 MCP server，
+   然后新建任务以加载更新后的工具和 skill。结束任务或刷新 Figma 不会替换 Hub。
 4. 打开 TemPad Dev 并启用 **MCP access**；需要选择会话时，点击目标 Figma 标签页内的 MCP
    badge。该 badge 选择默认文件；agent 也可以发现已连接会话，并通过精确 session ID
    指定独立读取的目标。
