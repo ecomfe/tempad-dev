@@ -44,13 +44,13 @@ export function resolveStylePaintChannel(
   const styleId = ctx ? getStyleIdFromSemantics(node, kind, ctx) : getPaintStyleId(node, kind)
   if (!styleId) return null
 
-  if (ctx) {
-    const summary = getPaintStyleCached(styleId, ctx)
-    if (!summary?.singleVisibleSolidPaint) return null
-    return resolveSolidPaintChannel(summary.singleVisibleSolidPaint, ctx)
-  }
-
   try {
+    if (ctx) {
+      const summary = getPaintStyleCached(styleId, ctx)
+      if (!summary?.singleVisibleSolidPaint) return null
+      return resolveSolidPaintChannel(summary.singleVisibleSolidPaint, ctx)
+    }
+
     const style = figma.getStyleById(styleId)
     if (!style || !('paints' in style) || !Array.isArray(style.paints)) return null
 

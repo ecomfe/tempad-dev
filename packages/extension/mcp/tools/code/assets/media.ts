@@ -291,7 +291,14 @@ function collectMediaHashes(
 }
 
 function registerAsset(registry: Map<string, AssetDescriptor>, asset: AssetDescriptor): void {
-  registry.set(asset.hash, { ...registry.get(asset.hash), ...asset })
+  const existing = registry.get(asset.hash)
+  const merged = { ...existing, ...asset }
+  for (const key of ['figmaImageHashes', 'figmaVideoHashes'] as const) {
+    if (existing?.[key] && asset[key]) {
+      merged[key] = [...new Set([...existing[key], ...asset[key]])]
+    }
+  }
+  registry.set(asset.hash, merged)
 }
 
 function loadImageBytes(

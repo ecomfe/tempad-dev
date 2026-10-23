@@ -8,6 +8,7 @@ vi.mock('@/mcp/tools/token/raw-name', () => ({
 }))
 
 import { ensureAssetUploaded } from '@/mcp/assets'
+import { exportVectorAssets } from '@/mcp/tools/code/assets/export'
 import { normalizeThemeableSvg } from '@/mcp/tools/code/assets/svg'
 import {
   exportSvgEntry,
@@ -15,6 +16,7 @@ import {
   transformSvgAttributes
 } from '@/mcp/tools/code/assets/vector'
 import { analyzeVectorColorModel } from '@/mcp/tools/code/assets/vector-semantics'
+import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
 import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
@@ -49,6 +51,61 @@ afterEach(() => {
 })
 
 describe('assets/vector', () => {
+  it.each(['fixed-first', 'fixed-last', 'all-themeable'] as const)(
+    'only advertises shared SVG bytes as themeable when every instance is safe (%s)',
+    async (order) => {
+      const bytes = new TextEncoder().encode(
+        '<svg width="16" height="16"><path fill="#f00" d="M0 0H16V16Z"/><path fill="#f00" d="M0 0H16V16Z"/></svg>'
+      )
+      vi.stubGlobal('figma', {
+        variables: { getVariableById: (id: string) => ({ id, name: id }) }
+      })
+      vi.mocked(ensureAssetUploaded).mockImplementation(async (uploaded, mimeType, metadata) => ({
+        hash: 'shared-svg',
+        url: 'https://assets.test/shared.svg',
+        mimeType,
+        size: uploaded.length,
+        ...metadata
+      }))
+      const snapshots = ['themeable', 'second'].map((id) => {
+        const snapshot = createSnapshot({ id, type: 'VECTOR' })
+        snapshot.bounds = { x: 0, y: 0, width: 16, height: 16 }
+        Object.assign(snapshot.node, {
+          width: 16,
+          height: 16,
+          fills: ['a', id === 'second' && order !== 'all-themeable' ? 'b' : 'a'].map(
+            (variable) => ({
+              type: 'SOLID',
+              color: { r: 1, g: 0, b: 0 },
+              boundVariables: { color: { type: 'VARIABLE_ALIAS', id: variable } }
+            })
+          ),
+          exportAsync: async () => bytes
+        })
+        return snapshot
+      })
+      if (order === 'fixed-first') snapshots.reverse()
+      const registry = new Map()
+      const entries = await exportVectorAssets(
+        createTree(snapshots),
+        { vectorRoots: new Set(snapshots.map(({ id }) => id)), skippedIds: new Set() },
+        pxConfig,
+        registry,
+        'smart',
+        createGetCodeCacheContext()
+      )
+
+      expect(registry.size).toBe(1)
+      expect(registry.get('shared-svg').themeable).toBe(
+        order === 'all-themeable' ? true : undefined
+      )
+      expect(entries.get('themeable')?.presentationStyle?.color).toBe('var(--a)')
+      expect(entries.get('second')?.presentationStyle?.color).toBe(
+        order === 'all-themeable' ? 'var(--a)' : undefined
+      )
+    }
+  )
+
   it.each(
     ['SVG export', 'asset upload'].flatMap((stage) =>
       ['resolve', 'reject'].map((outcome) => ({ stage, outcome }))
@@ -742,6 +799,29 @@ describe('assets/vector', () => {
     })
     expect(getStyleById).not.toHaveBeenCalled()
   })
+
+  it.each([false, true])(
+    'retains native paint colors when a style is unavailable (cache=%s)',
+    (cached) => {
+      vi.stubGlobal('figma', {
+        getStyleById: () => {
+          throw new Error('Style is unavailable')
+        }
+      })
+      const snapshot = createSnapshot({ id: 'vector', type: 'VECTOR' })
+      Object.assign(snapshot.node, {
+        fillStyleId: 'unavailable',
+        fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }]
+      })
+      expect(
+        analyzeVectorColorModel(
+          createTree([snapshot]),
+          snapshot.id,
+          cached ? createGetCodeCacheContext() : undefined
+        )
+      ).toEqual({ kind: 'single-channel', color: '#F00' })
+    }
+  )
 
   it('normalizes themeable svg content and stabilizes ids', () => {
     const themeable = normalizeThemeableSvg(

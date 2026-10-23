@@ -928,6 +928,41 @@ describe('assets/media', () => {
     ])
   })
 
+  it.each(['image', 'video'] as const)(
+    'retains every native %s identity when different nodes share preview bytes',
+    async (kind) => {
+      setFigmaImages({})
+      vi.mocked(ensureAssetUploaded).mockResolvedValue({
+        hash: 'shared-preview',
+        url: 'https://assets.test/shared-preview.png',
+        mimeType: 'image/png',
+        size: png.length
+      })
+      const registry = new Map()
+      const paint = kind === 'image' ? imagePaint : videoPaint
+      for (const hashes of [
+        ['a', 'b'],
+        ['b', 'c']
+      ]) {
+        await replaceMediaUrlsWithAssets(
+          { background: 'url(front), url(back)' },
+          {
+            fills: hashes.map((hash) => paint(hash)),
+            exportAsync: async () => png
+          } as unknown as SceneNode,
+          config,
+          registry
+        )
+      }
+      expect([...registry.values()]).toEqual([
+        expect.objectContaining({
+          [kind === 'image' ? 'figmaImageHashes' : 'figmaVideoHashes']: ['a', 'b', 'c']
+        })
+      ])
+      expect(registry.get('shared-preview')).not.toHaveProperty('figmaImageHash')
+    }
+  )
+
   it('keeps video previews out of positional image URL replacement', async () => {
     setFigmaImages({
       'hash-image': { getBytesAsync: async () => jpeg }

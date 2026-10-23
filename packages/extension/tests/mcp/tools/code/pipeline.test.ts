@@ -57,6 +57,38 @@ function node(
 afterEach(() => vi.unstubAllGlobals())
 
 describe('get_code bounded tree recovery', () => {
+  it('retains a nested component hint instead of absorbing the instance into ancestor SVG', async () => {
+    vi.stubGlobal('__DEV__', false)
+    vi.stubGlobal('figma', {
+      mixed: Symbol('mixed'),
+      variables: { getVariableById: () => null, getVariableCollectionById: () => null },
+      getStyleById: () => null
+    })
+    const glyph = node('glyph', 'VECTOR', 0, 0)
+    const instance = node('status-icon', 'INSTANCE', 0, 0, [glyph])
+    Object.assign(instance, { componentProperties: {} })
+    const shell = node('shell', 'FRAME', 0, 0, [instance])
+    const root = node('root', 'GROUP', 0, 0, [shell])
+    for (const current of [root, shell, instance, glyph]) {
+      Object.assign(current, {
+        exportAsync: vi.fn(async () => {
+          throw new Error('Native export unavailable')
+        })
+      })
+      if ('children' in current) {
+        for (const child of current.children) Object.assign(child, { parent: current })
+      }
+    }
+
+    const result = await handleGetCode([root])
+
+    expect(result.code).toContain('data-hint-design-component="StatusIcon"')
+    expect(result.code).toContain('<svg')
+    expect(glyph.exportAsync).toHaveBeenCalledOnce()
+    expect(root.exportAsync).not.toHaveBeenCalled()
+    expect(shell.exportAsync).not.toHaveBeenCalled()
+  })
+
   it.each(['layered', 'wide'] as const)(
     'returns bounded root context for a %s tree',
     async (shape) => {

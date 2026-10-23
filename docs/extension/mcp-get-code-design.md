@@ -387,9 +387,12 @@ The request context is threaded through:
 - Native video fills share one composited PNG preview per node and record their ordered unique
   current-file identities as `figmaVideoHashes`. Figma exposes the hash on each `VideoPaint` but no
   API for reading the original video bytes, so the descriptor does not present the preview as the
-  source video.
+  source video. When different nodes produce identical preview bytes, deduplication merges their
+  native image/video identities in first-seen order.
 - Vector-like nodes may be exported to SVG.
 - Vector containers can be converted to a single SVG when their subtree is vector-like and the container itself does not carry wrapper semantics such as its own fill/stroke/effects/clipping or design-component hints.
+  Component boundaries and hints inside that subtree also prevent ancestor promotion, keeping
+  the component structure available in the output.
 - Themeable vectors are single-color vectors that can safely use one contextual color channel.
   Full-bounds SVG exports are mapped from Figma's baked absolute coordinates into local coordinates
   using the inverse linear transform. Node geometry replaces integer-rounded export dimensions,
@@ -405,6 +408,8 @@ The request context is threaded through:
 - Placeholder SVG nodes receive external layout styles plus presentation color on the root markup when the vector is single-channel.
 - Themeable-vector eligibility and single-channel color detection reuse shared paint/effect semantics instead of maintaining separate vector-only interpretations.
 - Token paint channels compare variable IDs. A descendant token is promoted to the SVG root only when their effective mode maps match; otherwise preserve the native fixed-color asset, since cross-collection aliases can depend on any differing mode.
+  If fixed and themeable instances share identical SVG bytes, their shared descriptor omits
+  `themeable`; eligible instances still retain their own root presentation color.
 - The tool emits `<svg data-src="...">` placeholders by default for the current response. If asset upload fails after export, it falls back to inline SVG so the response still carries vector structure. Host apps may refactor to their own SVG policy, such as repo icon primitives, bundler/dev-server SVG transforms, inline SVG, or asset-backed SVG usage, as long as themeable vectors remain single-channel and fixed-color vectors keep their palette.
 - Placeholder SVG is emitted when export fails or is unavailable, using node width/height.
 - Vector-root descendants are not rendered; their CSS is not collected.

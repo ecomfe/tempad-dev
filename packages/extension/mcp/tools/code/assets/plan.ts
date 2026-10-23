@@ -53,16 +53,9 @@ export function planAssets(
       info.allNonMaskVectorLike &&
       info.nonMaskLeafCount >= 1 &&
       !hasOwnBoxSemantics(node, ctx) &&
-      !hasDesignComponentHint(node) &&
-      (hasSingleArtworkChild(children) || info.hasMask || info.nonMaskLeafCount > 1)
+      (children.length === 1 || info.hasMask || info.nonMaskLeafCount > 1)
 
-    if (isVectorGroup) {
-      vectorRoots.add(id)
-      children.forEach((child) => addSubtreeIds(child.id, tree, skipped))
-      continue
-    }
-
-    if (node.assetKind === 'vector') {
+    if (isVectorGroup || node.assetKind === 'vector') {
       vectorRoots.add(id)
       children.forEach((child) => addSubtreeIds(child.id, tree, skipped))
     }
@@ -102,7 +95,10 @@ function computeVectorInfo(
       continue
     }
 
-    let allNonMaskVectorLike = true
+    // A component or another structural container must survive even when all of
+    // its leaves are artwork. Carry that boundary through every ancestor summary.
+    let allNonMaskVectorLike =
+      (isEligibleContainer(node) || node.assetKind === 'vector') && !hasDesignComponentHint(node)
     let nonMaskLeafCount = 0
     let hasMask = isMaskNode(node, ctx)
     for (const childId of node.children) {
@@ -127,10 +123,6 @@ function computeVectorInfo(
 
 function isEligibleContainer(node: NodeSnapshot): boolean {
   return node.type === 'GROUP' || node.type === 'FRAME'
-}
-
-function hasSingleArtworkChild(children: NodeSnapshot[]): boolean {
-  return children.length === 1
 }
 
 function hasDesignComponentHint(node: NodeSnapshot): boolean {
