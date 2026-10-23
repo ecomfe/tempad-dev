@@ -8,6 +8,7 @@ import {
   EXTENSION_CORE_COVERAGE_FILES,
   EXTENSION_SOURCE_FILES
 } from '../../vitest.coverage.ts'
+import { workspaceSources } from './build/workspace-sources.ts'
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url))
 
@@ -15,6 +16,7 @@ export default defineConfig({
   resolve: {
     conditions: ['source', 'module', 'node', 'development|production'],
     alias: [
+      ...Object.entries(workspaceSources).map(([find, replacement]) => ({ find, replacement })),
       // Keep node tests independent of build output, including SSR resolution.
       {
         find: /^@tempad-dev\/shared$/,

@@ -4,6 +4,8 @@ import { build } from 'esbuild'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { workspaceSources } from './workspace-sources'
+
 const EXTENSION_ROOT = fileURLToPath(new URL('../', import.meta.url))
 const SANDBOX_WORKER_QUERY = '?sandbox-worker'
 const VIRTUAL_WORKER_PREFIX = '\0tempad-plugin-sandbox-worker:'
@@ -13,6 +15,7 @@ export async function bundleSandboxWorker(
 ): Promise<{ code: string; inputs: string[] }> {
   const result = await build({
     absWorkingDir: EXTENSION_ROOT,
+    alias: workspaceSources,
     bundle: true,
     define: { __DEV__: 'true' },
     entryPoints: [entry],

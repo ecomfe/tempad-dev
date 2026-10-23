@@ -27,7 +27,7 @@ const CHECKS: WorkerCheck[] = [
       /^codegen\/worker\.ts$/,
       /^worker\//,
       /^utils\//,
-      /^\.\.\/plugins\/dist\//,
+      /^\.\.\/plugins\/src\/index\.ts$/,
       ...CODEGEN_WORKER_DEPENDENCIES.map(createPnpmDependencyPattern)
     ]
   },

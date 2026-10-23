@@ -5,6 +5,7 @@ import { defineConfig } from 'wxt'
 
 import { computeExtensionRuntimeFingerprint } from '../../scripts/extension-runtime-fingerprint.mjs'
 import { pluginSandboxWorkers } from './build/plugin-sandbox-workers'
+import { workspaceSources } from './build/workspace-sources'
 import { MCP_LOCAL_HOST_ORIGIN } from './mcp/permissions'
 import packageJson from './package.json' with { type: 'json' }
 
@@ -29,6 +30,7 @@ export function getPluginSandboxCsp(development: boolean): string {
 }
 
 export default defineConfig({
+  alias: workspaceSources,
   modules: ['@wxt-dev/module-vue'],
   vue: {
     vite: {
