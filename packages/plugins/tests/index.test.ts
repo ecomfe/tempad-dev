@@ -155,6 +155,47 @@ describe('plugins sdk helpers', () => {
     expect(findAll(root, (node) => node.type === 'VECTOR').map((n) => n.name)).toEqual(['Arrow'])
   })
 
+  it('collects all matches from a broad nested subtree', () => {
+    const children = Array.from({ length: 150_000 }, (_, index) => text(`Label ${index}`, 'x'))
+    const root = frame('Root', [group('Labels', children)])
+    const result = findAll(root, { type: 'TEXT' })
+
+    expect(result).toHaveLength(children.length)
+    expect(result[0]).toBe(children[0])
+    expect(result.at(-1)).toBe(children.at(-1))
+  })
+
+  it('visits descendants in order without pruning unmatched containers or deduplicating', () => {
+    const first = text('First', 'a')
+    const duplicate = text('Repeated', 'b')
+    const skipped = group('Skipped', [duplicate], false)
+    const nested = vector('Nested')
+    const inner = frame('Inner', [nested, duplicate])
+    const last = text('Last', 'c')
+    const root = frame('Root', [first, skipped, inner, last])
+    const visited: DesignNode[] = []
+
+    expect(
+      findAll(root, (node) => {
+        visited.push(node)
+        return node !== skipped
+      })
+    ).toEqual([first, duplicate, inner, nested, duplicate, last])
+    expect(visited).toEqual([first, skipped, duplicate, inner, nested, duplicate, last])
+    expect(findAll(root, { type: 'TEXT' })).toEqual([first, duplicate, duplicate, last])
+
+    const failure = new Error('Query failed')
+    visited.length = 0
+    expect(() =>
+      findAll(root, (node) => {
+        visited.push(node)
+        if (node === duplicate) throw failure
+        return true
+      })
+    ).toThrow(failure)
+    expect(visited).toEqual([first, skipped, duplicate])
+  })
+
   it.each(['g', 'y', 'gy'])('matches every node independently with a /%s query', (flags) => {
     const titles = [text('Title', 'A'), text('Title', 'B'), text('Title', 'C')]
     const direct = frame('Root', [...titles, text('Subtitle Title', 'D')])

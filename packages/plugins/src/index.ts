@@ -565,14 +565,19 @@ export function findAll<T extends DesignNode = DesignNode>(
   query: NodeQuery
 ): T[] {
   const result: DesignNode[] = []
-  for (const child of node.children) {
-    if (matchNode(child, query)) {
-      result.push(child)
-    }
-    if ('children' in child) {
-      result.push(...findAll(child, query))
+
+  function visit(container: ContainerNode): void {
+    for (const child of container.children) {
+      if (matchNode(child, query)) {
+        result.push(child)
+      }
+      if ('children' in child) {
+        visit(child)
+      }
     }
   }
+
+  visit(node)
   return result as T[]
 }
 

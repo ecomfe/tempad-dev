@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed `findAll()` failing on large subtrees.
 - Fixed `h()` treating props with a `name` field as a child component. Missing or null props
   now become an empty object.
 - Fixed `h()` discarding explicit children when props resemble a component.
