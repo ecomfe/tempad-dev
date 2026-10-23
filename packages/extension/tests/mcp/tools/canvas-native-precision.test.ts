@@ -116,6 +116,35 @@ it.each(['guides', 'dashPattern', 'page guides'] as const)(
   }
 )
 
+it.each(
+  (['gridColumnSizes', 'gridRowSizes'] as const).flatMap((field) =>
+    (['px', 'fr'] as const).map((unit) => ({ field, unit }))
+  )
+)('converges float32 $field $unit tracks while retaining small edits', async ({ field, unit }) => {
+  const fixture = createFixture()
+  vi.mocked(figma.createFrame).mockImplementationOnce(() => {
+    const node = fixture.createNode('FRAME') as unknown as FrameNode
+    roundProperty(node[field][0]!, 'value')
+    return node
+  })
+  const request = (value: number): CanvasResolvedApplyParameters => ({
+    mode: 'create',
+    markup: `<div data-key="grid" class="grid grid-cols-[${field === 'gridColumnSizes' ? `${value}${unit}` : '1fr'}] grid-rows-[${field === 'gridRowSizes' ? `${value}${unit}` : '1fr'}] w-40 h-40"/>`
+  })
+  const created = await applyResolvedCanvas(request(0.3))
+  const node = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
+  const update = (value: number) =>
+    applyResolvedCanvas({ ...request(value), mode: 'update', targetNodeId: node.id })
+
+  await expect(update(0.3)).resolves.toMatchObject({ mutationCount: 0 })
+  await expect(update(0.301)).resolves.toMatchObject({ mutationCount: 1 })
+  expect(node[field][0]).toEqual({
+    type: unit === 'px' ? 'FIXED' : 'FLEX',
+    value: Math.fround(0.301)
+  })
+  await expect(update(0.301)).resolves.toMatchObject({ mutationCount: 0 })
+})
+
 it.each([
   { axis: 'Y', offset: Math.fround(0.3) },
   { axis: 'X', offset: Math.fround(0.301) }

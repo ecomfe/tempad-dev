@@ -1,6 +1,7 @@
 import type { CanvasGridTrack, CanvasNodeSpec, CanvasGridLayout } from '../model'
 
-import { specError } from '../errors'
+import { applyError, specError } from '../errors'
+import { scalarValuesEqual } from './comparison'
 import { applySizingModes } from './layout'
 import { isSupportedSceneNode, walkSpecs, isFrameContainer } from './nodes'
 import {
@@ -10,6 +11,14 @@ import {
   type SupportedCanvasNode,
   setValue
 } from './state'
+
+function gridTrackMatches(current: GridTrackSize | undefined, desired: CanvasGridTrack): boolean {
+  return (
+    current?.type === desired.type &&
+    (desired.type === 'HUG' ||
+      scalarValuesEqual(current.value ?? (current.type === 'FLEX' ? 1 : undefined), desired.value))
+  )
+}
 
 function applyGridTracks(
   node: CanvasFrameContainerNode,
@@ -24,13 +33,15 @@ function applyGridTracks(
   }
   for (const [index, track] of desired.entries()) {
     const target = current[index]!
-    const valueMatches =
-      track.type === 'HUG' ||
-      (target.value ?? (target.type === 'FLEX' ? 1 : undefined)) === track.value
-    if (target.type === track.type && valueMatches) continue
+    if (gridTrackMatches(target, track)) continue
     target.type = track.type
     if (track.type !== 'HUG') target.value = track.value
     markMutation(state, node)
+  }
+  const applied = node[field]
+  const mismatch = desired.findIndex((track, index) => !gridTrackMatches(applied[index], track))
+  if (mismatch !== -1) {
+    applyError(`Verification failed for "${node.id}": ${field} track ${mismatch} does not match.`)
   }
 }
 
