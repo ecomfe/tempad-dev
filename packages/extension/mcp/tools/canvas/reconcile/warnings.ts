@@ -323,7 +323,7 @@ export function authoredVariableFallbackWarnings(
     return (authoredValues.get(key) ?? []).flatMap((value) => {
       if (!isRecord(value) || !isRecord(value.variable)) return [value]
       const alias = value.variable.variableKey
-      return typeof alias === 'string' ? directValues(alias, new Set(seen)) : []
+      return typeof alias === 'string' ? directValues(alias, seen) : []
     })
   }
 
@@ -516,7 +516,9 @@ function instanceDescendantOverflow(node: InstanceNode): ContentOverflow | null 
         overflow.top = Math.max(overflow.top, current.top)
       }
     }
-    if ('children' in descendant) stack.push(...descendant.children)
+    if ('children' in descendant) {
+      for (const child of descendant.children) stack.push(child)
+    }
   }
   return Math.max(overflow.top, overflow.right, overflow.bottom, overflow.left) >
     CONTENT_OVERFLOW_TOLERANCE
@@ -727,10 +729,10 @@ function managedAutoLayoutInsetWarnings(
     const childBounds = children.map((child) => finiteRect(child.absoluteBoundingBox))
     if (!bounds || childBounds.some((child) => !child)) continue
     const horizontal = node.layoutMode === 'HORIZONTAL'
-    const childEnd = Math.max(
-      ...childBounds.map((child) =>
-        horizontal ? child!.x + child!.width : child!.y + child!.height
-      )
+    const childEnd = childBounds.reduce(
+      (end, child) =>
+        Math.max(end, horizontal ? child!.x + child!.width : child!.y + child!.height),
+      Number.NEGATIVE_INFINITY
     )
     const actual = (horizontal ? bounds.x + bounds.width : bounds.y + bounds.height) - childEnd
     const padding = horizontal ? node.paddingRight : node.paddingBottom

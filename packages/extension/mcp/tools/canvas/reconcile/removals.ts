@@ -31,7 +31,9 @@ export function* walkRemovalOwnershipNodes(
     const wrapperKey = svgWrapper && readOwnedNodeKey(svgWrapper)
     if (wrapperKey && state.keyedNodes.get(wrapperKey)?.id === svgWrapper.id) continue
     yield node
-    if ('children' in node && node.type !== 'INSTANCE') stack.push(...node.children)
+    if ('children' in node && node.type !== 'INSTANCE') {
+      for (const child of node.children) stack.push(child)
+    }
   }
 }
 
