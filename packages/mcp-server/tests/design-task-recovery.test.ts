@@ -465,6 +465,25 @@ describe('durable design reviews', () => {
     expect(f2.restart().find(stopped.task.taskId)?.task.status).toBe('cancelled')
   })
 
+  it('persists an offline Stop even if completion reached the Hub first', () => {
+    const f = fixture()
+    const record = f.begin()
+    const offlineStop = { ...structuredClone(record.task), status: 'cancelled' as const }
+    f.tasks.stop(record.task.taskId, 'completed')
+    f.tasks.disconnectExtension('original-extension')
+    f.tasks.restoreReview(offlineStop, extension(), session)
+
+    const restarted = f.restart()
+    const restored = restarted.find(record.task.taskId)!
+    expect(restored.task.status).toBe('cancelled')
+    expect(() =>
+      restarted.resume(restored.task.taskId, restored.ownerId, restored.task.epoch!, session)
+    ).toThrow('cannot resume')
+    expect(() => restarted.checkOperation('new-owner', session, undefined, true)).toThrow(
+      'stopped task'
+    )
+  })
+
   it('persists a legacy offline Done before the first Hub restart', () => {
     const f = fixture()
     const closed: DesignTask = {

@@ -400,6 +400,29 @@ describe('hook-free task lifecycle', () => {
     expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b')
   })
 
+  it('permanently cancels a completed review without interrupting the next native turn', async () => {
+    const f = await taskFixture()
+    f.tasks.stop('task-a', 'completed')
+    f.update([
+      { turnId: 'turn-a', status: 'completed' },
+      { turnId: 'turn-b', status: 'inProgress' }
+    ])
+    const cancelFeedback = vi.spyOn(f.clients, 'cancelFeedback')
+    const accepted = vi.fn()
+    const action = { requestId: 'stop', taskId: 'task-a', epoch: 0, action: 'stop' as const }
+
+    const pending = f.clients.action(action, accepted)
+    expect(f.record.task.status).toBe('cancelled')
+    expect(accepted).toHaveBeenCalledOnce()
+    expect(cancelFeedback).toHaveBeenCalledExactlyOnceWith('task-a')
+    expect((await pending).status).toBe('delivered')
+    expect(() => f.tasks.resume('task-a', f.owner, 0, f.session)).toThrow('cannot resume')
+    await f.clients.action({ ...action, requestId: 'repeat-stop' }, accepted)
+    expect(cancelFeedback).toHaveBeenCalledOnce()
+    expect(accepted).toHaveBeenCalledOnce()
+    expect(f.native.interrupt).not.toHaveBeenCalled()
+  })
+
   it('retains the native turn identity when a later MCP request only identifies the conversation', async () => {
     const f = await taskFixture()
     f.update([

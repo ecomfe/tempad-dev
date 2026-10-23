@@ -605,7 +605,8 @@ export class DesignTasks {
 
   stop(taskId: string, outcome: TerminalStatus): DesignTask | undefined {
     const record = this.records.get(taskId)
-    if (!record || ENDED_STATUSES.includes(record.task.status)) return record?.task
+    if (!record || record.task.status === 'cancelled' || record.task.status === outcome)
+      return record?.task
     if (!RUNNING_STATUSES.includes(record.task.status)) {
       if (outcome === 'completed' || outcome === 'cancelled') this.finish(record, outcome)
       return record.task

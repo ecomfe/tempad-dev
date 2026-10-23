@@ -622,6 +622,24 @@ describe('design task leases', () => {
     expect(() => f.call('late-write', task.taskId)).toThrow('cancelled')
   })
 
+  it('honors an offline Stop that arrives after the Hub completed the design pass', () => {
+    const f = fixture()
+    const task = f.begin('caller-a', originalDocument)
+    const offlineStop = { ...structuredClone(task), status: 'cancelled' as const }
+    f.tasks.stop(task.taskId, 'completed')
+    f.tasks.disconnectExtension('extension-a')
+
+    f.tasks.restoreReview(offlineStop, refreshedExtension(originalDocument), originalDocument)
+
+    expect(task.status).toBe('cancelled')
+    expect(() => f.tasks.resume(task.taskId, 'caller-a', 0, originalDocument)).toThrow(
+      'cannot resume'
+    )
+    expect(() => f.call('untagged-write', undefined, true, originalDocument)).toThrow(
+      'stopped task'
+    )
+  })
+
   it('lets explicit Stop end a lifecycle pause that is already draining', () => {
     const f = fixture()
     const task = f.begin()

@@ -411,10 +411,12 @@ export class AgentClients {
       if (action.action === 'stop') {
         if (this.tasks.current(record.task.target.fileKey) !== record)
           throw new Error('This task has been replaced. Stop the current task instead.')
-        if (['completed', 'cancelled'].includes(record.task.status))
+        if (record.task.status === 'cancelled')
           return result('delivered', 'This design task has already ended.')
+        const completed = record.task.status === 'completed'
         // Capture the target before cancellation callbacks can advance native state.
-        const target = this.interruptionTarget(binding)
+        // A completed review can still be cancelled, but no longer owns host work.
+        const target = completed ? undefined : this.interruptionTarget(binding)
         const diagnostic = {
           taskId: action.taskId,
           requestId: action.requestId,
@@ -422,11 +424,12 @@ export class AgentClients {
           boundTurnId: binding?.turnId,
           expectedTurnId: target?.turnId
         }
-        if (binding?.client.kind === 'claude') this.hooks.stop(binding, action.taskId)
+        if (!completed && binding?.client.kind === 'claude') this.hooks.stop(binding, action.taskId)
         // Stop's local fence and host interruption must not wait for a pending queue write.
         void this.cancelFeedback(action.taskId).catch(() => {})
         this.tasks.stop(action.taskId, 'cancelled')
         onAccepted?.()
+        if (completed) return result('delivered', 'Design task stopped.')
         if (this.lifecycle && target) {
           log.info(diagnostic, 'Requesting native Codex Stop interruption.')
           try {

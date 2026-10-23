@@ -659,6 +659,49 @@ describe('bound client actions', () => {
     )
   })
 
+  it('cancels a completed Claude review without sending a Stop notice to its next turn', async () => {
+    const tasks = new DesignTasks({ createId: () => 'task', now: () => 1000 })
+    const clients = new AgentClients(tasks)
+    let invocation = 0
+    const hook = (event: ClientHook['event'], turnId: string) =>
+      clients.clientHook({
+        version: 1,
+        kind: 'claude',
+        sessionId: 'claude-session',
+        turnId,
+        event,
+        invocationId: `00000000-0000-4000-8000-${String(++invocation).padStart(12, '0')}`
+      })
+    clients.event('connection', {
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'claude', sessionId: 'claude-session' }
+    })
+    hook('UserPromptSubmit', 'turn-a')
+    const owner = await clients.owner('connection', undefined)
+    const record = tasks.begin(
+      owner,
+      'extension',
+      session,
+      'Review',
+      'begin',
+      (await clients.describe(owner)).client
+    )
+    tasks.stop(record.task.taskId, 'completed')
+    hook('UserPromptSubmit', 'turn-b')
+
+    const result = await clients.action({
+      requestId: 'stop',
+      taskId: record.task.taskId,
+      epoch: 0,
+      action: 'stop'
+    })
+    expect(result.status).toBe('delivered')
+    expect(record.task.status).toBe('cancelled')
+    expect(hook('PreToolUse', 'turn-b')).toEqual({})
+    expect(() => tasks.resume(record.task.taskId, owner, 0, session)).toThrow('cannot resume')
+    clients.close()
+  })
+
   it('does not stop a new task for a delayed Stop from the old task', async () => {
     const f = await fixture()
     f.tasks.stop(f.record.task.taskId, 'cancelled')
