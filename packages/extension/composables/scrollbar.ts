@@ -24,8 +24,6 @@ export function useScrollbar(
   container: MaybeRefOrGetter<HTMLElement | null>,
   scrollOptions: Parameters<typeof OverlayScrollbars>[1]
 ) {
-  let os: OverlayScrollbars | null = null
-
   watchEffect(
     (onCleanup) => {
       const el = toValue(container)
@@ -33,10 +31,10 @@ export function useScrollbar(
         return
       }
 
-      os = OverlayScrollbars(el, scrollOptions)
+      const os = OverlayScrollbars(el, scrollOptions)
 
       onCleanup(() => {
-        os?.destroy()
+        os.destroy()
       })
     },
     { flush: 'post' }
