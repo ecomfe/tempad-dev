@@ -1,12 +1,12 @@
-import { DesignTaskSchema } from '@tempad-dev/shared'
+import { DesignTaskSchema, stringRecord } from '@tempad-dev/shared'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 
 const SnapshotSchema = z.object({
   revision: z.number().int().nonnegative(),
-  current: z.record(z.string(), z.string()),
-  fileFences: z.record(z.string(), z.boolean()).optional(),
+  current: stringRecord(z.string(), z.string()),
+  fileFences: stringRecord(z.string(), z.boolean()).optional(),
   records: z.array(
     z.object({
       task: DesignTaskSchema.strip(),

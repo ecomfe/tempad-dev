@@ -17,10 +17,71 @@ vi.mock('node:fs', () => ({
 
 import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
+import { HISTORY_RETENTION_MS } from '../src/history-retention'
 
 beforeEach(() => files.clear())
 
 describe('task snapshot recovery', () => {
+  it.each(['__proto__', 'constructor', 'toString', 'ordinary'])(
+    'preserves the current review and compacted Stop fence for file %s',
+    (fileKey) => {
+      const path = '/state/tasks.json'
+      let time = 1000
+      const target = {
+        fileKey,
+        fileName: 'Design',
+        sessionId: 'session',
+        pageId: 'page',
+        busy: false
+      }
+      const tasks = new DesignTasks({
+        store: new DesignTaskStore(path),
+        createId: () => 'task',
+        now: () => time
+      })
+      const record = tasks.begin('owner', 'extension', target, 'Design', 'request')
+      const restart = () => {
+        const restored = new DesignTasks({
+          store: new DesignTaskStore(path),
+          createId: () => 'unused',
+          now: () => time
+        })
+        restored.restore()
+        return restored
+      }
+      expect.soft(restart().current(fileKey)?.task.status).toBe('paused')
+      tasks.stop(record.task.taskId, 'cancelled')
+      expect.soft(restart().current(fileKey)?.task.status).toBe('cancelled')
+      time += HISTORY_RETENTION_MS
+      tasks.sweep()
+      const snapshot = new DesignTaskStore(path).load()!
+      expect(snapshot.records).toEqual([])
+      expect.soft(Object.hasOwn(snapshot.fileFences!, fileKey)).toBe(true)
+      expect(Object.getPrototypeOf(snapshot.fileFences)).toBe(Object.prototype)
+      expect(() => restart().checkOperation('owner', target, undefined, true)).toThrow(
+        'stopped task'
+      )
+    }
+  )
+
+  it.each(['current', 'fileFences'])(
+    'fences an invalid __proto__ value in %s instead of silently dropping it',
+    (field) => {
+      files.set(
+        '/state/tasks.json',
+        JSON.stringify({
+          revision: 1,
+          current: {},
+          records: [],
+          [field]: { ['__proto__']: 42 }
+        })
+      )
+      const store = new DesignTaskStore('/state/tasks.json')
+      expect(store.load()).toBeUndefined()
+      expect(store.recoveryError).toContain('Stop fences')
+    }
+  )
+
   it('retains only matching incompatible current pointers through task restore and save', () => {
     const future = {
       task: {
