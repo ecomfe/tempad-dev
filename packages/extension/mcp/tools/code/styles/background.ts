@@ -11,7 +11,8 @@ import {
 import {
   getBackgroundColorPaint,
   getCssPaintLayers,
-  getPaintResolutionSize
+  getPaintResolutionSize,
+  isRenderablePaint
 } from '@/utils/figma-paint'
 import {
   formatGradientStopColor as formatPaintGradientStopColor,
@@ -218,15 +219,13 @@ function resolveGradientWithOpacity(
   if (!value || !/gradient\(/i.test(value)) return null
   if (!fills) return null
 
-  const paints = getCssPaintLayers(fills)
   const layers = matchBackgroundPaintLayers(value, fills)
   // Match complete CSS layers, including synthetic solid gradients and images.
   // A partial native CSS stack cannot safely be paired by paint index.
   if (!layers) return null
   let changed = false
-  const rewritten = layers.flatMap((group, index) => {
-    const fill = paints[index]!.paint
-    if (!isGradientPaint(fill)) return group
+  const rewritten = layers.flatMap(({ paint: fill, sources: group }) => {
+    if (!isRenderablePaint(fill) || !isGradientPaint(fill)) return group
 
     const fillOpacity = typeof fill.opacity === 'number' ? fill.opacity : 1
     const hasStopAlpha = fill.gradientStops.some((stop) => (stop.color?.a ?? 1) < 1)

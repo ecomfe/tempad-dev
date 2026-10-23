@@ -110,7 +110,11 @@ it('matches all four diamond quadrants without consuming adjacent images or grad
       image,
       diamond
     ])
-  ).toEqual([quadrants, ['url(image)'], [other]])
+  ).toEqual([
+    { paint: diamond, index: 2, sources: quadrants },
+    { paint: image, index: 1, sources: ['url(image)'] },
+    { paint: linear, index: 0, sources: [other] }
+  ])
   expect(
     preserveGradientGeometry(
       quadrants[0]!,
@@ -144,4 +148,69 @@ it('matches authored angular positions with native degree rounding', () => {
       'conic-gradient(#F008 12.345%, #00F8 75%)'
     )
   ).toBe('conic-gradient(black 0deg, #F008 44deg, #00F8 270deg, black 360deg)')
+})
+
+const transparentCss = 'linear-gradient(90deg, rgba(255, 255, 255, 0.00), #FFF0)'
+const radialCss = 'radial-gradient(50% 50% at 50% 50%, red 25%, blue 75%)'
+const linearCss = 'linear-gradient(90deg, green 0%, yellow 100%)'
+const radial = { ...diamond, type: 'GRADIENT_RADIAL', opacity: 0.5 } as GradientPaint
+const linear = { ...diamond, type: 'GRADIENT_LINEAR', opacity: 0.25 } as GradientPaint
+const transparent = { ...linear, opacity: 0 }
+const transparentSolid: SolidPaint = {
+  type: 'SOLID',
+  opacity: 0,
+  color: { r: 1, g: 1, b: 1 }
+}
+
+it.each([
+  { paints: [radial, transparent], css: [transparentCss, radialCss], indices: [1, 0] },
+  { paints: [radial, transparentSolid], css: [transparentCss, radialCss], indices: [1, 0] },
+  { paints: [transparent, radial], css: [radialCss, transparentCss], indices: [1, 0] },
+  {
+    paints: [radial, transparent, linear],
+    css: [linearCss, transparentCss, radialCss],
+    indices: [2, 1, 0]
+  },
+  { paints: [radial, transparent, linear], css: [linearCss, radialCss], indices: [2, 0] },
+  { paints: [transparent, radial, transparent], css: [transparentCss, radialCss], indices: [2, 1] },
+  { paints: [radial, { ...transparent, visible: false }], css: [radialCss], indices: [0] }
+])(
+  'keeps emitted and omitted transparent paint ownership: $indices',
+  ({ paints, css, indices }) => {
+    const result = matchBackgroundPaintLayers(css.join(', '), paints)
+    expect(result?.map(({ index }) => index)).toEqual(indices)
+    expect(result?.flatMap(({ sources }) => sources)).toEqual(css)
+  }
+)
+
+it.each(['transparent', '#FFF0', '#FFFFFF00', 'rgba(255, 255, 255, 0.00)'])(
+  'preserves a transparent bottom color %s',
+  (color) => {
+    const result = matchBackgroundPaintLayers(`${radialCss}, ${color}`, [transparentSolid, radial])
+    expect(result?.map(({ index }) => index)).toEqual([1, 0])
+    expect(result?.flatMap(({ sources }) => sources)).toEqual([radialCss, color])
+  }
+)
+
+it.each([
+  'linear-gradient(white, white)',
+  'linear-gradient(rgba(255, 255, 255, 0.0001), #FFF0)',
+  'linear-gradient(var(--Color, transparent), #FFF0)',
+  'url(image)',
+  'rgba(255, 255, 255, invalid)'
+])('does not consume unproven transparent output %s', (extra) => {
+  const background = `${radialCss}, ${extra}`
+  expect(matchBackgroundPaintLayers(background, [transparent, radial])).toBeNull()
+  expect(
+    resolveBackgroundFillFromPaints([transparent, radial], undefined, undefined, { background })
+  ).toEqual({ kind: 'native' })
+})
+
+it('rejects a shifted stack rather than assigning a visible paint to transparent CSS', () => {
+  // The first invisible paint is omitted, while a later one emits transparent CSS.
+  // A transparent source for the visible radial paint makes that ownership uncertain.
+  const background = `${transparentCss}, ${transparentCss}, ${linearCss}`
+  expect(
+    matchBackgroundPaintLayers(background, [linear, transparent, radial, transparent])
+  ).toBeNull()
 })

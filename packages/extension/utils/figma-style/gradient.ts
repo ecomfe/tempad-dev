@@ -2,7 +2,7 @@
  * Gradient and color utilities for Figma styles
  */
 
-import { getCssPaintLayers } from '@/utils/figma-paint'
+import { getCssPaintLayers, isRenderablePaint, isVisiblePaint } from '@/utils/figma-paint'
 import { getVariableCssName } from '@/utils/figma-variables'
 
 import type { FigmaLookupReaders, PaintList, PaintResolutionSize } from './types'
@@ -27,6 +27,8 @@ type BackgroundFillResolverOptions = {
     index: number
   ) => string | null
 }
+
+type BackgroundPaintLayers = { paint: Paint; index: number; sources: string[] }
 
 function isGradientPaint(paint: Paint): paint is GradientPaint {
   return 'gradientStops' in paint && Array.isArray(paint.gradientStops)
@@ -164,7 +166,7 @@ export function resolveBackgroundFillFromPaints(
   const background = options.background ?? ''
   const sourceLayers = matchBackgroundPaintLayers(background, paints)
 
-  if (visible.length === 1) {
+  if (visible.length === 1 && (!sourceLayers || sourceLayers.length === 1)) {
     const { paint, index } = visible[0]!
     if (isSolidPaint(paint)) {
       const color = resolveSolid(paint, readers, index)
@@ -177,7 +179,12 @@ export function resolveBackgroundFillFromPaints(
   }
 
   const layers: string[] = []
-  for (const [layerIndex, { paint, index }] of visible.entries()) {
+  for (const { paint, index, sources } of sourceLayers ??
+    visible.map((entry) => ({ ...entry, sources: undefined }))) {
+    if (!isRenderablePaint(paint)) {
+      layers.push(...(sources ?? []))
+      continue
+    }
     if (isSolidPaint(paint)) {
       const color = resolveSolid(paint, readers, index)
       if (!color) return null
@@ -188,7 +195,6 @@ export function resolveBackgroundFillFromPaints(
 
     const resolved = resolveGradient(paint, size, readers)
     if (!resolved) return null
-    const sources = sourceLayers?.[layerIndex]
     const gradient = sources?.every((source) =>
       /^(?:linear|radial|conic)-gradient\s*\(/i.test(source)
     )
@@ -206,34 +212,71 @@ export function resolveBackgroundFillFromPaints(
 export function matchBackgroundPaintLayers(
   background: string,
   paints: ReadonlyArray<Paint>
-): string[][] | null {
+): BackgroundPaintLayers[] | null {
   const layers = splitByTopLevelComma(background)
-  const groups: string[][] = []
+  const groups: BackgroundPaintLayers[] = []
   let offset = 0
-  for (const { paint } of getCssPaintLayers(paints)) {
-    const diamond =
-      paint.type === 'GRADIENT_DIAMOND' && /^linear-gradient\s*\(/i.test(layers[offset] ?? '')
-    const count = diamond ? 4 : 1
-    const group = layers.slice(offset, offset + count)
-    if (group.length !== count) return null
-    if (diamond) {
-      const corners = new Set<string>()
-      for (const layer of group) {
-        const gradient = parseGradient(layer)
-        const corner = /^\s+(top|bottom)\s+(left|right)\s*\/\s*50%\s+50%\s+no-repeat\s*$/i.exec(
-          gradient?.suffix ?? ''
-        )
-        if (gradient?.fn !== 'linear-gradient' || !corner) return null
-        const position = `${corner[1]!.toLowerCase()} ${corner[2]!.toLowerCase()}`
-        if (gradient.geometry?.toLowerCase() !== `to ${position}`) return null
-        corners.add(position)
-      }
-      if (corners.size !== 4) return null
+  for (let index = paints.length - 1; index >= 0; index--) {
+    const paint = paints[index]!
+    if (!isVisiblePaint(paint)) continue
+    const sources = paintSourceLayers(paint, layers, offset)
+    const transparent = sources?.every(isTransparentLayer) ?? false
+    if (!isRenderablePaint(paint)) {
+      // Native CSS can omit an invisible paint or retain its transparent layer.
+      // Consume only proven transparent output; never shift a visible neighbor.
+      if ((!isSolidPaint(paint) && !isGradientPaint(paint)) || !transparent) continue
+    } else if (transparent) {
+      // A renderable paint cannot establish ownership of an all-transparent
+      // source. Keep native CSS if the stack cannot be matched unambiguously.
+      return null
     }
-    groups.push(group)
-    offset += count
+    if (!sources) return null
+    groups.push({ paint, index, sources })
+    offset += sources.length
   }
   return offset === layers.length ? groups : null
+}
+
+function paintSourceLayers(paint: Paint, layers: string[], offset: number): string[] | null {
+  const diamond =
+    paint.type === 'GRADIENT_DIAMOND' && /^linear-gradient\s*\(/i.test(layers[offset] ?? '')
+  const count = diamond ? 4 : 1
+  const group = layers.slice(offset, offset + count)
+  if (group.length !== count) return null
+  if (!diamond) return group
+  const corners = new Set<string>()
+  for (const layer of group) {
+    const gradient = parseGradient(layer)
+    const corner = /^\s+(top|bottom)\s+(left|right)\s*\/\s*50%\s+50%\s+no-repeat\s*$/i.exec(
+      gradient?.suffix ?? ''
+    )
+    if (gradient?.fn !== 'linear-gradient' || !corner) return null
+    const position = `${corner[1]!.toLowerCase()} ${corner[2]!.toLowerCase()}`
+    if (gradient.geometry?.toLowerCase() !== `to ${position}`) return null
+    corners.add(position)
+  }
+  return corners.size === 4 ? group : null
+}
+
+function isTransparentLayer(value: string): boolean {
+  const gradient = parseGradient(value)
+  return gradient
+    ? gradient.stops.every((stop) => isTransparentColor(stop.color))
+    : isTransparentColor(value)
+}
+
+function isTransparentColor(value: string): boolean {
+  value = value.trim().toLowerCase()
+  if (value === 'transparent' || /^#(?:[\da-f]{3}0|[\da-f]{6}00)$/.test(value)) return true
+  const match = /^rgba\(([^()]*)\)$/.exec(value)
+  if (!match) return false
+  const parts = match[1]!.split(',').map((part) => part.trim())
+  return (
+    parts.length === 4 &&
+    parts.every((part) => /^[+-]?(?:\d*\.)?\d+$/.test(part)) &&
+    parts.slice(0, 3).every((part) => Number(part) >= 0 && Number(part) <= 255) &&
+    Number(parts[3]) === 0
+  )
 }
 
 export function preserveGradientGeometry(

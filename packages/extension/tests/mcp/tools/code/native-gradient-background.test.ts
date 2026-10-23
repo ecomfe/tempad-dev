@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 import { handleGetCode } from '@/mcp/tools/code'
 import { cleanFigmaSpecificStyles } from '@/mcp/tools/code/styles/background'
+import { resolveStylesFromNode } from '@/utils/figma-style/style-resolver'
 
 vi.mock('@/ui/state', () => ({
   activePlugin: { value: undefined },
@@ -165,3 +166,63 @@ it('keeps paint ownership when diamond and angular gradients share a variable wi
   expect(style.background).toContain('url(image)')
   expect(style.background).toContain('rgba(128, 128, 255, 0.38) 0deg')
 })
+
+it.each(['SOLID', 'GRADIENT_LINEAR'] as const)(
+  'preserves variable opacity beside an emitted transparent %s background',
+  async (type) => {
+    setup()
+    const transparent = 'rgba(255, 255, 255, 0.00)'
+    const empty =
+      type === 'SOLID'
+        ? transparent
+        : `linear-gradient(90deg, ${transparent} 0%, ${transparent} 100%)`
+    const paint =
+      type === 'SOLID'
+        ? { type, opacity: 0, color: { r: 1, g: 1, b: 1 } }
+        : {
+            ...gradient(type, 0),
+            gradientStops: [
+              { position: 0, color: { r: 1, g: 1, b: 1, a: 1 } },
+              { position: 1, color: { r: 1, g: 1, b: 1, a: 1 } }
+            ]
+          }
+    // R8 native acceptance retained the transparent bottom paint in getCSSAsync.
+    const background = `radial-gradient(50% 50% at 50% 50%, var(--Blue) 25%, rgba(255, 255, 255, 0.50) 75%), ${empty}`
+    const node = {
+      id: 'root',
+      type: 'FRAME',
+      name: 'transparent background',
+      visible: true,
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 160,
+      relativeTransform: [
+        [1, 0, 0],
+        [0, 1, 0]
+      ],
+      absoluteBoundingBox: { x: 0, y: 0, width: 240, height: 160 },
+      children: [],
+      strokes: [],
+      effects: [],
+      fills: [paint, gradient('GRADIENT_RADIAL')],
+      getCSSAsync: async () => ({ background })
+    } as unknown as SceneNode
+    const ui = await resolveStylesFromNode({ background }, node)
+    expect(ui.background).toContain(
+      'color-mix(in srgb, var(--Blue, #0000FF80) 50%, transparent) 25%'
+    )
+    expect(ui.background).toContain(empty)
+    for (const resolveTokens of [false, true]) {
+      const result = await handleGetCode([node], 'jsx', resolveTokens)
+      const code = result.code.replaceAll('_', ' ')
+      expect(code).toContain(
+        resolveTokens
+          ? 'rgba(0, 0, 255, 0.25) 25%'
+          : 'color-mix(in srgb, var(--Blue) 50%, transparent) 25%'
+      )
+      expect(code).toContain(empty)
+      expect(result.tokens?.['--Blue']).toEqual({ kind: 'color', value: '#0000FF80' })
+    }
+  }
+)
