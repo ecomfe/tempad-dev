@@ -258,10 +258,9 @@ export function createAssetHttpServer(
       'X-Content-Type-Options': 'nosniff'
     })
 
+    // Expiry cleanup can run before the asynchronous file open completes.
+    store.touch(hash)
     const stream = createReadStream(record.filePath)
-    stream.on('open', () => {
-      store.touch(hash)
-    })
     pipeline(stream, res, (error) => {
       if (error && (error as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
         log.warn({ error, hash }, 'Failed to stream asset file.')
@@ -295,6 +294,14 @@ export function createAssetHttpServer(
     if (themeable) metadata.themeable = true
     const assetMetadata = Object.keys(metadata).length ? metadata : undefined
 
+    const reuseExisting = (record: AssetRecord) => {
+      if (assetMetadata) record.metadata = { ...record.metadata, ...assetMetadata }
+      if (record.mimeType !== mimeType) record.mimeType = mimeType
+      record.lastAccess = Date.now()
+      store.upsert(record)
+      sendJson(res, 200, { message: 'Asset Already Exists' })
+    }
+
     const existing = store.get(hash)
     // A short hash is not sufficient evidence of identical contents. Always read
     // and verify legacy uploads, including retries and concurrent collisions.
@@ -309,17 +316,7 @@ export function createAssetHttpServer(
         // Previously returned localPath values stay valid across MIME metadata updates.
         // Drain request to ensure connection is clean
         req.resume()
-
-        if (assetMetadata) {
-          existing.metadata = {
-            ...existing.metadata,
-            ...assetMetadata
-          }
-        }
-        if (existing.mimeType !== mimeType) existing.mimeType = mimeType
-        existing.lastAccess = Date.now()
-        store.upsert(existing)
-        sendJson(res, 200, { message: 'Asset Already Exists' })
+        reuseExisting(existing)
         return
       }
     }
@@ -403,25 +400,29 @@ export function createAssetHttpServer(
       }
 
       try {
-        if (hash.length !== MCP_HASH_HEX_LENGTH) {
-          const previous = store.get(hash)
-          if (previous && existsSync(previous.filePath)) {
-            const previousHash = createHash('sha256')
-              .update(readFileSync(previous.filePath))
-              .digest('hex')
+        const previous = store.get(hash)
+        if (previous && existsSync(previous.filePath)) {
+          // Another upload may have committed this hash while this body streamed.
+          if (hash.length === MCP_HASH_HEX_LENGTH) {
             cleanup()
-            if (previousHash !== computedHash) {
-              sendError(res, 409, 'Legacy Asset Hash Collision; update the TemPad Dev extension')
-              return
-            }
-            store.upsert({
-              ...previous,
-              metadata: { ...previous.metadata, ...assetMetadata },
-              lastAccess: Date.now()
-            })
-            sendJson(res, 200, { message: 'Asset Already Exists' })
+            reuseExisting(previous)
             return
           }
+          const previousHash = createHash('sha256')
+            .update(readFileSync(previous.filePath))
+            .digest('hex')
+          cleanup()
+          if (previousHash !== computedHash) {
+            sendError(res, 409, 'Legacy Asset Hash Collision; update the TemPad Dev extension')
+            return
+          }
+          store.upsert({
+            ...previous,
+            metadata: { ...previous.metadata, ...assetMetadata },
+            lastAccess: Date.now()
+          })
+          sendJson(res, 200, { message: 'Asset Already Exists' })
+          return
         }
         renameSync(tmpPath, filePath)
       } catch (error) {

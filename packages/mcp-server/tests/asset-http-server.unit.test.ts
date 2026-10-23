@@ -500,6 +500,39 @@ describe('asset-http-server unit branches', () => {
     expect(recoveredResponse.statusCode).toBe(200)
   })
 
+  it('protects an accepted download from expiry before its file stream opens', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    try {
+      const store = createStoreMock()
+      const record = {
+        hash: ASSET_HASH,
+        filePath: ASSET_FILE_PATH,
+        mimeType: 'image/png',
+        size: 10,
+        uploadedAt: 100,
+        lastAccess: 100
+      }
+      store.get.mockReturnValue(record)
+      store.touch.mockImplementation(() => {
+        record.lastAccess = Date.now()
+        return record
+      })
+      // Delay opening the source until after a cleanup tick could run.
+      mocks.pipeline.mockImplementationOnce(() => {})
+      await createAssetHttpServer(store).start()
+      const response = createResponse()
+      state.requestHandler?.(createRequest({}), response)
+      if (Date.now() - record.lastAccess > 500) store.remove(record.hash)
+      expect(store.remove).not.toHaveBeenCalled()
+      expect(response.statusCode).toBe(200)
+      const source = mocks.createReadStream.mock.results[0]!.value as EventEmitter
+      source.emit('open')
+      expect(store.touch).toHaveBeenCalledExactlyOnceWith(ASSET_HASH)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
   it('preserves existing upload paths and handles headers-sent responses', async () => {
     const store = createStoreMock()
     const existing = {
