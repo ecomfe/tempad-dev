@@ -1,6 +1,6 @@
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
-import { defineConfig, type Plugin } from 'vite'
+import { defaultClientConditions, defineConfig, type Plugin } from 'vite'
 
 import { loadSkillPreview } from './scripts/skill-preview.ts'
 
@@ -20,6 +20,7 @@ export function skillPreviewPlugin(): Plugin {
 export default defineConfig({
   plugins: [vue(), skillPreviewPlugin()],
   resolve: {
+    conditions: ['source', ...defaultClientConditions],
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
     }
