@@ -460,19 +460,6 @@ function setParagraphValue(
   }
 }
 
-function setTextMeasure<T extends LineHeight | LetterSpacing>(
-  node: TextNode,
-  field: 'lineHeight' | 'letterSpacing',
-  current: T | typeof figma.mixed,
-  desired: T | undefined,
-  apply: (value: T) => void,
-  state: ApplyState
-): void {
-  if (desired === undefined || textMeasuresEqual(field, current, desired)) return
-  apply(desired)
-  markMutation(state, node)
-}
-
 export function applyTextHyperlink(
   node: TextNode,
   hyperlink: CanvasHyperlink | undefined,
@@ -741,13 +728,13 @@ export async function applyTextRanges(
         undefined,
         typography.letterSpacing
       )
-    setTextMeasure(
+    applyTextRangeValue(
       node,
-      'letterSpacing',
       node.getRangeLetterSpacing(range.start, range.end),
       typography.letterSpacing,
       (value) => node.setRangeLetterSpacing(range.start, range.end, value),
-      state
+      state,
+      (current, desired) => current !== null && textMeasuresEqual('letterSpacing', current, desired)
     )
     if (
       typography.lineHeight !== undefined &&
@@ -766,13 +753,13 @@ export async function applyTextRanges(
         undefined,
         typography.lineHeight
       )
-    setTextMeasure(
+    applyTextRangeValue(
       node,
-      'lineHeight',
       node.getRangeLineHeight(range.start, range.end),
       typography.lineHeight,
       (value) => node.setRangeLineHeight(range.start, range.end, value),
-      state
+      state,
+      (current, desired) => current !== null && textMeasuresEqual('lineHeight', current, desired)
     )
     applyTextRangeValue(
       node,
