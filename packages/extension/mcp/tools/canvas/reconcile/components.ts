@@ -19,6 +19,7 @@ import { type ApplyState, markMutation, type SupportedCanvasNode, setValue } fro
 import { protectNode } from './undo'
 
 const CANVAS_COMPONENT_PROPERTY_KEYS_NAME = 'component-property-keys'
+const CANVAS_SLOT_PROPERTY_NAME = 'slot-property-name'
 
 type ComponentPropertyOwner = ComponentNode | ComponentSetNode
 
@@ -73,7 +74,7 @@ export function componentPropertyKeys(
   return keys
 }
 
-export function setComponentPropertyKey(
+function setComponentPropertyKey(
   owner: ComponentPropertyOwner,
   key: string,
   propertyName: string,
@@ -96,8 +97,17 @@ export function componentPropertyName(
   state: ApplyState
 ): string | undefined {
   const mapped = componentPropertyKeys(owner, state)[key]
-  if (mapped) return mapped
+  // Older slot identities shared this map with authored component-property keys.
+  if (mapped && owner.componentPropertyDefinitions[mapped]?.type !== 'SLOT') return mapped
   return Object.hasOwn(owner.componentPropertyDefinitions, key) ? key : undefined
+}
+
+function setSlotPropertyName(node: SlotNode, propertyName: string, state: ApplyState): void {
+  state.slotPropertyNames.set(node.id, propertyName)
+  if (node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_SLOT_PROPERTY_NAME) === propertyName)
+    return
+  node.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_SLOT_PROPERTY_NAME, propertyName)
+  markMutation(state, node)
 }
 
 export async function resolveComponent(reference: CanvasDesignReference, state: ApplyState) {
@@ -219,7 +229,10 @@ async function preflightAuthoredComponentProperties(
   const owner = context.existing
   const keys = owner ? componentPropertyKeys(owner, state) : undefined
   for (const [key, desired] of Object.entries(properties)) {
-    const propertyName = owner ? (keys?.[key] ?? key) : undefined
+    const propertyName =
+      owner && desired !== null
+        ? (componentPropertyName(owner, key, state) ?? key)
+        : (keys?.[key] ?? key)
     const current =
       owner && propertyName && Object.hasOwn(owner.componentPropertyDefinitions, propertyName)
         ? owner.componentPropertyDefinitions[propertyName]
@@ -299,11 +312,16 @@ function preflightComponentPropertyReferences(
 
 function slotPropertyName(
   owner: ComponentPropertyOwner,
+  node: SlotNode,
   spec: CanvasNodeSpec,
   state: ApplyState
 ): string | undefined {
-  const direct = componentPropertyName(owner, spec.key, state)
-  if (direct && owner.componentPropertyDefinitions[direct]?.type === 'SLOT') return direct
+  const stored =
+    state.slotPropertyNames.get(node.id) ??
+    node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_SLOT_PROPERTY_NAME)
+  if (stored && owner.componentPropertyDefinitions[stored]?.type === 'SLOT') return stored
+  const legacy = componentPropertyKeys(owner, state)[spec.key] ?? spec.key
+  if (owner.componentPropertyDefinitions[legacy]?.type === 'SLOT') return legacy
   const desiredName = spec.figma?.slot?.property?.name
   if (!desiredName) return undefined
   const matches = Object.entries(owner.componentPropertyDefinitions)
@@ -332,14 +350,19 @@ function preflightSlot(
     if (!context) {
       specError(`New slot "${spec.key}" must be nested inside an authored component.`)
     }
+    if (context.existing) protectNode(state, context.existing)
     return
   }
   if (existing.type !== 'SLOT' || !spec.figma?.slot?.property) return
   const owner = componentPropertyOwner(existing)
-  const propertyName = owner ? slotPropertyName(owner, spec, state) : undefined
+  const propertyName = owner ? slotPropertyName(owner, existing, spec, state) : undefined
   if (!owner || !propertyName) {
     specError(`Slot property for "${spec.key}" could not be resolved.`)
   }
+  // Slot metadata writes the definition owner, which can be outside the update root.
+  protectNode(state, owner)
+  // Keep legacy resolution stable if a normal property takes the same key during apply.
+  state.slotPropertyNames.set(existing.id, propertyName)
   const current = owner.componentPropertyDefinitions[propertyName]
   const settings = spec.figma.slot.property.settings
   if (settings) {
@@ -598,7 +621,8 @@ export function applyAuthoredComponentProperties(
   if (!properties) return
   const keys = componentPropertyKeys(owner, state)
   for (const [key, desired] of Object.entries(properties)) {
-    const propertyName = keys[key] ?? key
+    const propertyName =
+      desired === null ? (keys[key] ?? key) : (componentPropertyName(owner, key, state) ?? key)
     const current = Object.hasOwn(owner.componentPropertyDefinitions, propertyName)
       ? owner.componentPropertyDefinitions[propertyName]
       : undefined
@@ -662,7 +686,7 @@ export function applySlotProperty(node: SlotNode, spec: CanvasNodeSpec, state: A
   if (!desired) return
   const owner = componentPropertyOwner(node)
   if (!owner) specError(`Slot "${spec.key}" has no authored component owner.`)
-  const propertyName = slotPropertyName(owner, spec, state)
+  const propertyName = slotPropertyName(owner, node, spec, state)
   if (!propertyName) specError(`Slot property for "${spec.key}" could not be resolved.`)
   const current = owner.componentPropertyDefinitions[propertyName]
   if (!current || current.type !== 'SLOT') {
@@ -689,10 +713,12 @@ export function applySlotProperty(node: SlotNode, spec: CanvasNodeSpec, state: A
   if (desired.settings && slotSettingsChanged(current.slotSettings, desired.settings)) {
     edit.slotSettings = { ...current.slotSettings, ...desired.settings }
   }
-  if (!Object.keys(edit).length) return
-  const editedName = owner.editComponentProperty(propertyName, edit)
-  markMutation(state, owner)
-  setComponentPropertyKey(owner, spec.key, editedName, state)
+  let editedName = propertyName
+  if (Object.keys(edit).length) {
+    editedName = owner.editComponentProperty(propertyName, edit)
+    markMutation(state, owner)
+  }
+  setSlotPropertyName(node, editedName, state)
 }
 
 export function applyComponentPropertyReferences(

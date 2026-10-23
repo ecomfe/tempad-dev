@@ -64,6 +64,7 @@ export type ApplyState = {
   referencedNodeIds: Set<string>
   scope: SupportedCanvasNode | null
   shaderCache: Map<string, Shader>
+  slotPropertyNames: Map<string, string>
   stabilizedCrossAxisFillNodeIds: Set<string>
   styles: CanvasStyleState
   textRangeSemanticOverrides: Map<string, boolean>
@@ -158,6 +159,7 @@ export function createApplyState(
     referencedNodeIds: new Set(),
     scope: target,
     shaderCache: new Map(),
+    slotPropertyNames: new Map(),
     stabilizedCrossAxisFillNodeIds: new Set(),
     styles: createStyleState(),
     textRangeSemanticOverrides: new Map(),

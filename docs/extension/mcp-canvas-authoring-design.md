@@ -796,6 +796,12 @@ belongs to the same set and the requested variant property values or bindings re
 Omitted instance sizing axes preserve their native modes, including modes produced by variant
 selection. Explicit size or grow utilities override only the axes they describe.
 
+Slot property identities are stored on their slot nodes, separately from authored component-property
+keys. Adopting a slot records that identity even when its metadata already matches. Older owner-map
+identities remain readable; preflight retains the resolved slot name for the current apply so a normal
+property using the same stable key cannot redirect the slot update. Slot creation and metadata edits
+protect their definition owner before mutation, including a component set outside the update root.
+
 Figma may normalize Text auto-resize while truncation and maximum-line state changes. Reconciliation
 therefore applies truncation state before the declared auto-resize mode, so fixed text boxes remain
 fixed while still supporting native ending truncation.

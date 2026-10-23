@@ -15,7 +15,6 @@ import { unlinkStyles, clearVariables, applyStyles, applyVariables } from './bin
 import {
   componentDefinitionOwner,
   componentPropertyKeys,
-  setComponentPropertyKey,
   resolveComponent,
   applyComponent,
   applyComponentMetadata,
@@ -85,13 +84,15 @@ function createSlotNode(
   const previousNames = new Set(Object.keys(owner.componentPropertyDefinitions))
   const slot = component.createSlot()
   recordCreatedNode(slot, state)
+  // createSlot also adds a definition to the component or its variant set.
+  markMutation(state, owner)
   const propertyNames = Object.entries(owner.componentPropertyDefinitions)
     .filter(([name, definition]) => !previousNames.has(name) && definition.type === 'SLOT')
     .map(([name]) => name)
   if (propertyNames.length !== 1) {
     specError(`Figma did not create exactly one slot property for "${spec.key}".`)
   }
-  setComponentPropertyKey(owner, spec.key, propertyNames[0]!, state)
+  state.slotPropertyNames.set(slot.id, propertyNames[0]!)
   return slot
 }
 
