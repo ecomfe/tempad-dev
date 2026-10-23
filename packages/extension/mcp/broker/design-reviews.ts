@@ -36,6 +36,14 @@ export class DesignReviews {
     return this.tasks.get(fileKey)
   }
 
+  preserveFences(task: DesignTask): DesignTask {
+    const previous = this.tasks.get(task.target.fileKey)
+    if (previous?.taskId !== task.taskId) return task
+    if (previous.reviewClosed) task = { ...task, reviewClosed: true }
+    if (previous.status === 'cancelled') task = { ...task, status: 'cancelled', operation: null }
+    return task
+  }
+
   ready(): Promise<void> {
     return this.serial(() => this.load())
   }
@@ -61,12 +69,13 @@ export class DesignReviews {
     return this.serial(async () => {
       await this.load(task)
       const previous = this.tasks.get(task.target.fileKey)
-      if (previous?.taskId === task.taskId) {
-        if (previous.reviewClosed) task = { ...task, reviewClosed: true }
-        if (previous.status === 'cancelled')
-          task = { ...task, status: 'cancelled', operation: null }
-        if (!this.pendingStop && JSON.stringify(previous) === JSON.stringify(task)) return previous
-      }
+      task = this.preserveFences(task)
+      if (
+        previous?.taskId === task.taskId &&
+        !this.pendingStop &&
+        JSON.stringify(previous) === JSON.stringify(task)
+      )
+        return previous
       return this.commit(task)
     })
   }

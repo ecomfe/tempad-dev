@@ -1,4 +1,4 @@
-import type { ToolCallMessage } from '@tempad-dev/shared'
+import type { PageToBridgeMessage, ToolCallMessage } from '@tempad-dev/shared'
 
 import {
   MCP_MAX_ASSET_BYTES,
@@ -52,6 +52,14 @@ beforeEach(() => {
 
 type Listener<T> = (payload: T) => void
 type BrokerInternals = {
+  uploadAsset: (
+    port: McpBrokerPort,
+    message: Extract<PageToBridgeMessage, { type: 'mcp.uploadAsset' }>
+  ) => Promise<void>
+  downloadAsset: (
+    port: McpBrokerPort,
+    message: Extract<PageToBridgeMessage, { type: 'mcp.downloadAsset' }>
+  ) => Promise<void>
   handleToolCompletionAck: (message: import('@tempad-dev/shared').ToolCompletionAckMessage) => void
   flushToolCompletions: () => void
   handleDesignActionResult: (
@@ -152,6 +160,61 @@ function designBroker() {
 }
 
 describe('design task broker routing', () => {
+  it('retains the live Stop fence through failed stale-state saves and allows Done to retry cleanup', async () => {
+    const f = designBroker()
+    const task = {
+      taskId: 'task-a',
+      title: 'Design',
+      status: 'active' as const,
+      operation: null,
+      target: { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' },
+      expiresAt: 1000,
+      revision: 1
+    }
+    await f.internals.routeDesignTask({ type: 'designTaskState', task })
+    const save = vi.spyOn(browser.storage.local, 'set').mockRejectedValue(new Error('Storage full'))
+    f.a.message({
+      ...pageMessage('mcp.enable', 'tab-a'),
+      type: 'mcp.designAction',
+      action: {
+        requestId: '00000000-0000-4000-8000-000000000001',
+        taskId: task.taskId,
+        epoch: 0,
+        action: 'stop'
+      }
+    })
+    await vi.waitFor(() => expect(f.client.sendDesignAction).toHaveBeenCalledOnce())
+    await f.internals.routeDesignTask({ type: 'designTaskState', task: { ...task, revision: 2 } })
+    expect(f.a.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: 'mcp.designTaskState',
+        task: expect.objectContaining({ status: 'cancelled', revision: 2 })
+      })
+    )
+    save.mockRestore()
+    f.a.message({
+      ...pageMessage('mcp.enable', 'tab-a'),
+      type: 'mcp.designAction',
+      action: {
+        requestId: '00000000-0000-4000-8000-000000000002',
+        taskId: task.taskId,
+        epoch: 0,
+        action: 'done'
+      }
+    })
+    await vi.waitFor(() =>
+      expect(f.a.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mcp.designActionResult',
+          result: expect.objectContaining({
+            requestId: '00000000-0000-4000-8000-000000000002',
+            status: 'delivered'
+          })
+        })
+      )
+    )
+  })
+
   it('forwards task state and Stop even when review persistence is unavailable', async () => {
     vi.stubGlobal('browser', {
       storage: {
@@ -809,7 +872,9 @@ function toolResult(callId: string, sessionId = 'session-1') {
   }
 }
 
-function assetUpload(sessionId = 'session-1') {
+function assetUpload(
+  sessionId = 'session-1'
+): Extract<PageToBridgeMessage, { type: 'mcp.uploadAsset' }> {
   return {
     payload: {
       base64: 'AQID',
@@ -825,7 +890,9 @@ function assetUpload(sessionId = 'session-1') {
   }
 }
 
-function assetDownload(sessionId = 'session-1') {
+function assetDownload(
+  sessionId = 'session-1'
+): Extract<PageToBridgeMessage, { type: 'mcp.downloadAsset' }> {
   return {
     payload: { hash: ASSET_HASH },
     requestId: 'download-1',
@@ -1941,6 +2008,46 @@ describe('mcp/broker/service-worker', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(hubClient.stop).toHaveBeenCalledTimes(1)
   })
+
+  it.each(['uploadAsset', 'downloadAsset'] as const)(
+    'does not unregister a replacement port when an earlier %s settles',
+    async (operation) => {
+      let finish!: (response: Response) => void
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              finish = resolve
+            })
+        )
+      )
+      const client = createHubClient({ assetServerUrl: 'http://127.0.0.1:9000' })
+      const broker = new McpServiceWorkerBroker(client)
+      const first = createPort('https://www.figma.com/design/abc/File')
+      const replacement = createPort('https://www.figma.com/design/abc/File')
+      broker.handlePort(first.port)
+      first.message(pageMessage('mcp.enable'))
+      const internals = broker as unknown as BrokerInternals
+      const pending =
+        operation === 'uploadAsset'
+          ? internals.uploadAsset(first.port, assetUpload())
+          : internals.downloadAsset(first.port, assetDownload())
+      broker.handlePort(replacement.port)
+      replacement.message(pageMessage('mcp.enable'))
+      first.postMessage.mockImplementation(() => {
+        throw new Error('Port closed')
+      })
+      finish(new Response(null, { status: 503 }))
+      await pending
+      expect(client.stop).not.toHaveBeenCalled()
+      replacement.postMessage.mockClear()
+      routeToolCall(broker)
+      expect(replacement.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'mcp.toolCall', callId: 'call-1' })
+      )
+    }
+  )
 
   it('returns a coded error when no active session can receive a tool call', () => {
     const hubClient = createHubClient()

@@ -758,6 +758,7 @@ export class McpServiceWorkerBroker {
     request: AssetUploadMessage,
     error?: { code?: TempadMcpErrorCode; message: string }
   ): void {
+    if (this.portSessions.get(port) !== request.sessionId) return
     const message: BridgeToPageMessage = {
       ...(error ? { error } : {}),
       requestId: request.requestId,
@@ -784,6 +785,7 @@ export class McpServiceWorkerBroker {
     payload?: AssetDownloadResultPayload,
     error?: { code?: TempadMcpErrorCode; message: string }
   ): void {
+    if (this.portSessions.get(port) !== request.sessionId) return
     const message: BridgeToPageMessage = {
       ...(error ? { error } : { payload: payload! }),
       requestId: request.requestId,
@@ -1049,7 +1051,7 @@ export class McpServiceWorkerBroker {
     if (previous && message.task.revision < previous.revision) return
     const task = await this.reviews()
       .save(message.task)
-      .catch(() => message.task)
+      .catch(() => this.reviews().preserveFences(message.task))
     if (gatewayId !== this.connectedHubId) return
     this.designTasks.set(fileKey, task)
     for (const session of this.sessions.list()) {
