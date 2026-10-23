@@ -44,12 +44,6 @@ p {
   line-height: var(--text-body-medium-line-height);
 }
 
-.tp-error-alert {
-  color: var(--color-text-warning);
-  font-weight: var(--font-weight-strong);
-  cursor: help;
-}
-
 a {
   display: flex;
   place-items: center;
