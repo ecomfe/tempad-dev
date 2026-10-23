@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -54,7 +55,7 @@ async function verifyRules(context: BrowserContext) {
     'The persisted rewrite update alarm must be removed.'
   )
   assert.deepEqual(await worker.evaluate(() => Reflect.get(globalThis, 'workerFetches')), [])
-  await verifyCspScope(context, true)
+  await verifyRuleScope(context, { csp: true, scripts: true })
 }
 
 async function verifyScripts(context: BrowserContext) {
@@ -253,7 +254,55 @@ async function verifyLegacyRules(
   )
 }
 
-async function verifyCspScope(context: BrowserContext, scoped: boolean) {
+async function verifyLoopbackScript(context: BrowserContext) {
+  let scriptRequests = 0
+  const server = createServer((request, response) => {
+    if (request.url === '/webpack-artifacts/assets/probe.min.js') {
+      scriptRequests++
+      response.setHeader('Content-Type', 'application/javascript')
+      response.end('window.originalScriptExecuted = true;')
+    } else {
+      response.setHeader('Content-Type', 'text/html')
+      response.end(
+        `<script src="/webpack-artifacts/assets/probe.min.js" onload="window.scriptResult='load'" onerror="window.scriptResult='error'"></script>`
+      )
+    }
+  })
+  let page: Awaited<ReturnType<BrowserContext['newPage']>> | undefined
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
+    const address = server.address()
+    assert.ok(address && typeof address !== 'string')
+    page = await context.newPage()
+    page.setDefaultTimeout(10000)
+    await page.goto(`http://127.0.0.1:${address.port}`)
+    await page.waitForFunction(() => Reflect.get(window, 'scriptResult'))
+    assert.deepEqual(
+      await page.evaluate(() => ({
+        result: Reflect.get(window, 'scriptResult'),
+        executed: Reflect.get(window, 'originalScriptExecuted') === true
+      })),
+      { result: 'load', executed: true },
+      'Loopback permission must not redirect a local application script.'
+    )
+    assert.equal(scriptRequests, 1)
+  } finally {
+    try {
+      await page?.close()
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }
+}
+
+async function verifyRuleScope(
+  context: BrowserContext,
+  scoped: { csp: boolean; scripts: boolean }
+) {
   const worker = await getWorker(context)
   // Chrome's unpacked-extension matcher checks real installed DNR rules. A routed
   // Playwright response bypasses header rewriting, so it cannot verify this boundary.
@@ -292,7 +341,7 @@ async function verifyCspScope(context: BrowserContext, scoped: boolean) {
       }
     }, url)
     assert.equal(result.permitted, true, `The fixture needs host access to test ${url}.`)
-    assert.deepEqual(result.ruleIds, !scoped || matches ? [1] : [], url)
+    assert.deepEqual(result.ruleIds, !scoped.csp || matches ? [1] : [], url)
   }
   const scriptMatches = await worker.evaluate(async () => {
     const result = await Reflect.get(globalThis, 'chrome').declarativeNetRequest.testMatchOutcome({
@@ -303,6 +352,28 @@ async function verifyCspScope(context: BrowserContext, scoped: boolean) {
     return result.matchedRules.map(({ ruleId }: { ruleId: number }) => ruleId)
   })
   assert.deepEqual(scriptMatches, [2], 'The old script redirect must still match.')
+  const scriptCases = [
+    ...extraTestOrigins.map((origin) => ({
+      url: `${origin}/webpack-artifacts/assets/entry.min.js`,
+      initiator: origin
+    })),
+    {
+      url: 'https://www.figma.com/webpack-artifacts/assets/entry.min.js',
+      initiator: 'http://127.0.0.1'
+    }
+  ]
+  for (const request of scriptCases) {
+    const ruleIds = await worker.evaluate(async (request) => {
+      const result = await Reflect.get(globalThis, 'chrome').declarativeNetRequest.testMatchOutcome(
+        {
+          ...request,
+          type: 'script'
+        }
+      )
+      return result.matchedRules.map(({ ruleId }: { ruleId: number }) => ruleId)
+    }, request)
+    assert.deepEqual(ruleIds, scoped.scripts ? [] : [2], JSON.stringify(request))
+  }
 }
 
 export async function runCheck() {
@@ -367,6 +438,7 @@ export async function runCheck() {
     await writeFile(manifestPath, JSON.stringify(manifest))
     context = await launch('clean-profile')
     await verifyRules(context)
+    await verifyLoopbackScript(context)
     await verifyScripts(context)
     await context.close()
     context = undefined
@@ -411,7 +483,7 @@ export async function runCheck() {
     )
     context = await launch('upgrade-profile')
     await verifyLegacyRules(context, legacyRules)
-    await verifyCspScope(context, false)
+    await verifyRuleScope(context, { csp: false, scripts: false })
     const oldWorker = await getWorker(context)
     // The download changes, not the installed extension. Exercise the same refresh
     // function used by its ten-minute alarm without delaying the test ten minutes.
@@ -420,7 +492,7 @@ export async function runCheck() {
       await Reflect.get(globalThis, 'syncRules')()
     }, narrowedRules)
     await verifyLegacyRules(context, narrowedRules)
-    await verifyCspScope(context, true)
+    await verifyRuleScope(context, { csp: true, scripts: false })
     await oldWorker.evaluate(async () => {
       Reflect.set(globalThis, 'fetch', async () => {
         throw new Error('Offline fixture')

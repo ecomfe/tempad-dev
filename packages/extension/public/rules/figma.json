@@ -27,7 +27,9 @@
       }
     },
     "condition": {
-      "regexFilter": "/webpack-artifacts/assets/(?:figma_app[^.]+|[0-9a-zA-Z-]+)\\.min\\.js(?:\\.br)?$",
+      "requestDomains": ["www.figma.com"],
+      "initiatorDomains": ["www.figma.com"],
+      "regexFilter": "^https://www\\.figma\\.com/webpack-artifacts/assets/(?:figma_app[^.]+|[0-9a-zA-Z-]+)\\.min\\.js(?:\\.br)?$",
       "resourceTypes": ["script"]
     }
   }

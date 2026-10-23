@@ -20,4 +20,15 @@ describe('packaged script matching', () => {
       REWRITE_TARGET_REGEX.test('https://www.figma.com/WEBPACK-ARTIFACTS/ASSETS/ABC.MIN.JS')
     ).toBe(true)
   })
+
+  it.each([
+    'http://127.0.0.1:6220',
+    'http://www.figma.com',
+    'https://figma.com',
+    'https://sub.www.figma.com',
+    'https://www.figma.com.example.com',
+    'https://example.com'
+  ])('leaves matching script paths on %s unchanged', (origin) => {
+    expect(REWRITE_TARGET_REGEX.test(`${origin}/webpack-artifacts/assets/entry.min.js`)).toBe(false)
+  })
 })
