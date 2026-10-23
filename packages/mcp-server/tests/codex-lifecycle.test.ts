@@ -243,6 +243,29 @@ describe('Codex native lifecycle', () => {
     }
   )
 
+  it.each(['disconnect', 'owner loss', 'version'] as const)(
+    'ignores trailing frames in the same batch after %s invalidates the subscription',
+    async (reason) => {
+      const f = await fixture()
+      f.snapshot()
+      f.changed.mockClear()
+      if (reason === 'disconnect') for (const listener of f.disconnects) listener()
+      else if (reason === 'owner loss')
+        f.emit(undefined, {
+          method: 'client-status-changed',
+          params: { clientId: 'owner', status: 'disconnected' }
+        })
+      else f.emit({}, { version: 999 })
+      f.snapshot(2, 'completed')
+
+      expect(f.lifecycle.state('thread-a')).toBeUndefined()
+      expect(f.changed.mock.calls).toEqual([['thread-a', undefined]])
+      await vi.waitFor(() => expect(f.open.mock.calls.length).toBeGreaterThan(1))
+      f.snapshot()
+      expect(f.lifecycle.state('thread-a')?.turns[0]?.status).toBe('inProgress')
+    }
+  )
+
   it('interrupts only the expected turn through its current owner and validates acknowledgement', async () => {
     const f = await fixture()
     f.snapshot()

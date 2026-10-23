@@ -105,19 +105,23 @@ export class CodexAppLifecycle {
         signal.throwIfAborted()
         const ipc = connection
         const ownerId = owner
-        await new Promise<void>((resolve, reject) => {
+        await new Promise<void>((resolve) => {
           let revision: number | undefined
           let turns: CodexTurnState | undefined
           let awaitingSnapshot = false
+          let ended = false
+          const end = () => {
+            if (ended) return
+            ended = true
+            publish()
+            resolve()
+          }
           const requestSnapshot = () => {
             if (awaitingSnapshot) return
             awaitingSnapshot = true
             turns = undefined
             publish()
-            timer = setTimeout(
-              () => reject(new Error('Codex snapshot timed out.')),
-              this.snapshotTimeoutMs
-            )
+            timer = setTimeout(end, this.snapshotTimeoutMs)
             ipc.broadcast(
               'thread-stream-following-changed',
               1,
@@ -125,12 +129,13 @@ export class CodexAppLifecycle {
               [ownerId]
             )
           }
-          cleanups.push(ipc.onDisconnect(resolve))
-          const abort = () => resolve()
-          signal.addEventListener('abort', abort, { once: true })
-          cleanups.push(() => signal.removeEventListener('abort', abort))
+          cleanups.push(ipc.onDisconnect(end))
+          signal.addEventListener('abort', end, { once: true })
+          cleanups.push(() => signal.removeEventListener('abort', end))
           cleanups.push(
             ipc.onBroadcast((message) => {
+              // One IPC read may contain trailing frames after this owner was lost.
+              if (ended) return
               try {
                 const params = object(message.params)
                 if (
@@ -139,7 +144,7 @@ export class CodexAppLifecycle {
                     params.clientId === ownerId &&
                     params.status === 'disconnected')
                 ) {
-                  resolve()
+                  end()
                   return
                 }
                 if (
@@ -186,8 +191,8 @@ export class CodexAppLifecycle {
                     requestSnapshot()
                   }
                 } else throw new Error('Unsupported Codex stream change.')
-              } catch (error) {
-                reject(error)
+              } catch {
+                end()
               }
             })
           )
