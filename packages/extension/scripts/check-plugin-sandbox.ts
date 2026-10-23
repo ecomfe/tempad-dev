@@ -238,6 +238,54 @@ export async function runCheck(): Promise<void> {
         }
         const statefulBatch = await request(12, statefulBatchPayload)
         const isolatedBatch = await request(13, statefulBatchPayload)
+        const oversizedArrayProperty = await request(
+          14,
+          {
+            options: validJob.options,
+            references: [{ name: 'color', code: 'var(--color)' }],
+            pluginCode: `
+              export default {
+                name: 'array-property-output',
+                code: {
+                  css: {
+                    transformVariable() {
+                      return Object.assign([], { extra: 'x'.repeat(${maxPayloadBytes + 1}) })
+                    }
+                  }
+                }
+              }
+            `
+          },
+          workers.transformVariable
+        )
+        const oversizedSharedTree = await request(15, {
+          ...validJob,
+          component: { name: 'Example', type: 'INSTANCE', properties: {}, children: [] },
+          returnDevComponent: true,
+          pluginCode: `
+            JSON.stringify = (value) => value
+            JSON.parse = (value) => value
+            let tree = { name: 'span', props: {}, children: [] }
+            for (let depth = 0; depth < 17; depth++)
+              tree = { name: 'span', props: {}, children: [tree, tree] }
+            export default {
+              name: 'shared-tree-output',
+              code: {
+                component: {
+                  transformComponent() {
+                    return {
+                      name: '__tempad_raw__',
+                      props: { content: '<span />' },
+                      children: [tree]
+                    }
+                  }
+                },
+                css: false,
+                js: false
+              }
+            }
+          `
+        })
 
         channel.port1.close()
         return {
@@ -246,7 +294,9 @@ export async function runCheck(): Promise<void> {
           isolatedBatch,
           invalidWorker,
           oversized,
+          oversizedArrayProperty,
           oversizedOutput,
+          oversizedSharedTree,
           polluted,
           pollutionProbe,
           recovered,
@@ -529,7 +579,9 @@ function verifyProtocolResult(result: {
   isolatedBatch: PluginSandboxResponse
   invalidWorker: PluginSandboxResponse
   oversized: PluginSandboxResponse
+  oversizedArrayProperty: PluginSandboxResponse
   oversizedOutput: PluginSandboxResponse
+  oversizedSharedTree: PluginSandboxResponse
   polluted: PluginSandboxResponse
   pollutionProbe: PluginSandboxResponse
   recovered: PluginSandboxResponse
@@ -544,6 +596,13 @@ function verifyProtocolResult(result: {
     'sandbox-protocol-probe'
   )
   assert.equal(result.oversized.error?.code, 'payload-too-large')
+  assert.deepEqual(
+    {
+      arrayProperty: result.oversizedArrayProperty.error?.code,
+      sharedTree: result.oversizedSharedTree.error?.code
+    },
+    { arrayProperty: 'payload-too-large', sharedTree: 'payload-too-large' }
+  )
   assert.equal(result.invalidWorker.error?.code, 'protocol-error')
   assert.equal(result.timedOut.error?.code, 'timeout')
   assert.equal(result.hiddenImport.error?.code, 'worker-error')

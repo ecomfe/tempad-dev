@@ -16,7 +16,6 @@ const encoder = new TextEncoder()
 export function inspectSandboxValue(value: unknown): SandboxValueInspection {
   const stack: Array<{ depth: number; exit?: boolean; value: unknown }> = [{ depth: 0, value }]
   const active = new WeakSet<object>()
-  const seen = new WeakSet<object>()
   let bytes = 0
   let entries = 0
 
@@ -41,31 +40,40 @@ export function inspectSandboxValue(value: unknown): SandboxValueInspection {
       bytes += encoder.encode(current).byteLength
     } else if (typeof current === 'object') {
       if (active.has(current)) return invalid()
-      if (seen.has(current)) continue
-      seen.add(current)
       active.add(current)
       stack.push({ depth: item.depth, exit: true, value: current })
 
+      let keys: string[]
       if (Array.isArray(current)) {
         entries += current.length
         if (entries > PLUGIN_SANDBOX_LIMITS.maxPayloadEntries) return tooLarge()
+        // Structured clone retains named array properties as well as indexed slots.
+        keys = Object.keys(current).filter((key) => {
+          const index = Number(key)
+          return (
+            !Number.isInteger(index) ||
+            index < 0 ||
+            index >= current.length ||
+            String(index) !== key
+          )
+        })
         for (let index = current.length - 1; index >= 0; index -= 1) {
           stack.push({ depth: item.depth + 1, value: current[index] })
         }
       } else {
         const prototype = Object.getPrototypeOf(current)
         if (prototype !== Object.prototype && prototype !== null) return invalid()
-        const keys = Object.keys(current)
-        entries += keys.length
-        if (entries > PLUGIN_SANDBOX_LIMITS.maxPayloadEntries) return tooLarge()
-        for (const key of keys) {
-          if (key.length > PLUGIN_SANDBOX_LIMITS.maxPayloadBytes - bytes) return tooLarge()
-          bytes += encoder.encode(key).byteLength
-          stack.push({
-            depth: item.depth + 1,
-            value: (current as Record<string, unknown>)[key]
-          })
-        }
+        keys = Object.keys(current)
+      }
+      entries += keys.length
+      if (entries > PLUGIN_SANDBOX_LIMITS.maxPayloadEntries) return tooLarge()
+      for (const key of keys) {
+        if (key.length > PLUGIN_SANDBOX_LIMITS.maxPayloadBytes - bytes) return tooLarge()
+        bytes += encoder.encode(key).byteLength
+        stack.push({
+          depth: item.depth + 1,
+          value: (current as Record<string, unknown>)[key]
+        })
       }
     } else {
       return invalid()
