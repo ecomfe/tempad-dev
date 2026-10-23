@@ -265,14 +265,33 @@ export async function repairTextRangeBindings(
     if (!keep) {
       ensureTextRangeUnbound(node, scope, field, state)
     } else {
-      const actual = node.getRangeBoundVariable(scope.start, scope.end, field)
-      if (actual === figma.mixed || actual?.id !== variable.id) {
-        applyError(
-          `Verification failed for TEXT node "${node.id}": range variable link "${field}" does not match.`
-        )
-      }
+      verifyTextRangeBinding(node, scope, field, variable.id)
     }
   }
+}
+
+export function verifyTextRangeBinding(
+  node: TextNode,
+  range: TextRange,
+  field: VariableBindableTextField,
+  expected: string,
+  key?: string
+): void {
+  const actual = node.getRangeBoundVariable(range.start, range.end, field)
+  if (actual !== figma.mixed && actual?.id === expected) return
+  let boundary = ''
+  if (
+    (field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing') &&
+    node.characters[range.start] === '\n'
+  ) {
+    const newline = node.getRangeBoundVariable(range.start, range.start + 1, field)
+    if (newline === figma.mixed || newline?.id !== expected) {
+      boundary = ` The leading newline at ${range.start}:${range.start + 1} did not retain the requested binding. Start this range at its text content only if preserving that newline's current formatting is intended; otherwise preserve or explicitly replace the affected paragraph. Do not repeat this unchanged request.`
+    }
+  }
+  applyError(
+    `Verification failed${key ? ` for "${key}"` : ''}: range variable link "${field}" does not match in range ${range.start}:${range.end}.${boundary}`
+  )
 }
 
 export async function protectFollowingTextStyle(

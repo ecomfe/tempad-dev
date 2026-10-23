@@ -18,7 +18,7 @@ import {
   textVariableLinkRanges,
   variableLinkMatches
 } from './binding-values'
-import { clearedVariableMatches } from './bindings'
+import { clearedVariableMatches, verifyTextRangeBinding } from './bindings'
 import { GEOMETRY_TOLERANCE, nativeValueEqual } from './comparison'
 import {
   componentDefinitionOwner,
@@ -51,6 +51,7 @@ import {
   rangeTextStyleMatches,
   resolvedRangeTextStyle
 } from './text-range-style'
+import { textMetricRange } from './text-ranges'
 
 function textVariableMismatchHint(
   node: SupportedCanvasNode,
@@ -359,6 +360,18 @@ export async function verifyAppliedNode(
     const ranges = spec.figma?.text?.ranges ?? []
     const paragraphs = textParagraphs(node.characters, ranges)
     for (const [index, range] of ranges.entries()) {
+      for (const field of ['fontSize', 'lineHeight', 'letterSpacing'] as const) {
+        const reference = range.variables?.[field]
+        if (!reference) continue
+        references += 1
+        verifyTextRangeBinding(
+          node,
+          textMetricRange(node.characters, range, field, ranges[index + 1]),
+          field,
+          resolvedVariable(reference, state.variables).id,
+          spec.key
+        )
+      }
       for (const field of ['textStyle', 'fillStyle'] as const) {
         const reference = range[field]
         if (reference === undefined) continue

@@ -156,6 +156,124 @@ describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)('%s node bin
     })
   })
 
+  it.each(['literal', 'variable'] as const)(
+    'rejects an unretained leading-newline %s binding and preserves the supported content range',
+    async (kind) => {
+      const probe = await createBindingProbe(field, 'Hello\nworld')
+      const base = { id: 'variable:spacing' }
+      await probe.update({ [field]: base })
+      const bind = vi.mocked(probe.node.setRangeBoundVariable).getMockImplementation()!
+      vi.mocked(probe.node.setRangeBoundVariable).mockImplementation(
+        (start, end, property, variable) => {
+          // Native fontSize evidence leaves the leading LF unchanged. Exercise
+          // the same defensive check for all three metrics, without claiming
+          // native evidence for the other fields or other line breaks.
+          if (property === field && variable && probe.node.characters[start] === '\n') start++
+          bind(start, end, property, variable)
+        }
+      )
+      const segments = vi.mocked(probe.node.getStyledTextSegments).getMockImplementation()!
+      vi.mocked(probe.node.getStyledTextSegments).mockImplementation((fields) =>
+        probe.aliases.map((alias, start) => ({
+          ...segments(fields)[0]!,
+          start,
+          end: start + 1,
+          characters: probe.node.characters[start]!,
+          [field]: literal(probe.values[start]!),
+          boundVariables: alias ? { [field]: alias } : {}
+        }))
+      )
+      probe.fixture.triggerUndo.mockImplementationOnce(() => {
+        probe.node.setRangeBoundVariable(
+          0,
+          probe.node.characters.length,
+          field,
+          probe.fixture.variables.get(base.id)!
+        )
+      })
+      const later = kind === 'literal' ? { [field]: literal(8) } : { variables: { [field]: base } }
+      const ranges = [
+        { start: 0, end: 5, [field]: literal(20) },
+        { start: 5, end: 11, ...later }
+      ]
+      await expect(probe.update({ [field]: base }, ranges)).rejects.toMatchObject({
+        code: 'CANVAS_APPLY_FAILED',
+        message: expect.stringContaining('The leading newline at 5:6 did not retain')
+      })
+      expect(probe.fixture.triggerUndo).toHaveBeenCalledOnce()
+      expect(probe.values).toEqual(Array(11).fill(8))
+      expect(probe.aliases.every((alias) => alias?.id === base.id)).toBe(true)
+
+      ranges[1]!.start = 6
+      await probe.update({ [field]: base }, ranges)
+      expect(probe.values).toEqual([...Array(6).fill(20), ...Array(5).fill(8)])
+      expect(probe.aliases.map((alias) => alias?.id)).toEqual([
+        ...Array(6).fill(undefined),
+        ...Array(5).fill(base.id)
+      ])
+      await expect(probe.update({ [field]: base }, ranges)).resolves.toMatchObject({
+        mutationCount: 0
+      })
+
+      ranges[1]!.start = 5
+      await expect(probe.update({ [field]: base }, ranges)).rejects.toMatchObject({
+        code: 'CANVAS_APPLY_FAILED',
+        message: expect.stringContaining('Undo was skipped')
+      })
+      expect(probe.fixture.triggerUndo).toHaveBeenCalledOnce()
+      expect(probe.values).toEqual([...Array(6).fill(20), ...Array(5).fill(8)])
+      expect(probe.aliases.map((alias) => alias?.id)).toEqual([
+        ...Array(6).fill(undefined),
+        ...Array(5).fill(base.id)
+      ])
+    }
+  )
+
+  it('rejects a newly created node whose explicit metric binding omits the leading newline', async () => {
+    const fixture = createFixture()
+    const createText = vi.mocked(figma.createText).getMockImplementation()!
+    vi.mocked(figma.createText).mockImplementation(() => {
+      const node = createText()
+      const bind = vi.mocked(node.setRangeBoundVariable).getMockImplementation()!
+      vi.mocked(node.setRangeBoundVariable).mockImplementation((start, end, property, variable) => {
+        if (property === field && variable && node.characters[start] === '\n') start++
+        bind(start, end, property, variable)
+      })
+      return node
+    })
+    const existing = new Set(figma.currentPage.children)
+    fixture.triggerUndo.mockImplementationOnce(() => {
+      for (const child of [...figma.currentPage.children]) {
+        if (!existing.has(child)) child.remove()
+      }
+    })
+    const error = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-20 whitespace-pre-wrap">Hello\nworld</span></div>',
+      bindings: {
+        label: {
+          variables: { [field]: { id: 'variable:spacing' } },
+          figma: {
+            text: {
+              ranges: [
+                { start: 0, end: 5, [field]: literal(20) },
+                { start: 5, end: 11, variables: { [field]: { id: 'variable:spacing' } } }
+              ]
+            }
+          }
+        }
+      }
+    }).catch((error: unknown) => error)
+    expect(error).toMatchObject({
+      code: 'CANVAS_APPLY_FAILED',
+      message: expect.stringContaining('The leading newline at 5:6 did not retain')
+    })
+    expect((error as Error).message).toContain('Verification failed for "label":')
+    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    expect(new Set(figma.currentPage.children)).toEqual(existing)
+  })
+
   it('accepts an equal bound literal alongside a differing unbound literal', async () => {
     const probe = await createBindingProbe(field)
     const ranges = [

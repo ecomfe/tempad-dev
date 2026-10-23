@@ -720,6 +720,11 @@ following `\n` in Figma's native setter. Reconciliation distinguishes that physi
 from the range's final ownership when a later declared range starts at the newline. An unchanged
 range does not repair a later owner's newline. A necessary write that would damage a retained
 TextStyle without a proven safe restoration is rejected with the conflicting range and style.
+Explicit numeric range bindings are checked after all ranges have been applied. A range starting
+on `\n` can leave that separator's alias unchanged even when the visible text acquires the
+requested binding; this was observed with font size. Such a mismatch fails rather than reporting
+success or repeatedly rebinding. Preserve the separator's existing formatting, or start the
+range at the following content only when that matches the intended design.
 U+2028 and CRLF setter extension is not inferred from the observed `\n` behavior.
 
 Paragraph indent, paragraph spacing, and list spacing use paragraph-wide comparison scopes but

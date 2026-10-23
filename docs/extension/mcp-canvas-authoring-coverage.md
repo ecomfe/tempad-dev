@@ -256,6 +256,9 @@ intentionally does not place inline binary payloads in model-visible MCP JSON.
 | Text and fill styles  | whole-node or range `textStyleId` and `fillStyleId`                                                       | **Supported** by local ID, published key, or stable local `styleKey`, including same-result authored styles and explicit `null` unlinking at whole-node or range scope                                                                                                                       |
 | OpenType features     | `openTypeFeatures`                                                                                        | Plugin API 1.130 exposes this state read-only; `apply_canvas` cannot author it without a Figma API addition                                                                                                                                                                                  |
 
+Text ranges remain subject to the native binding and TextStyle
+[reconciliation limits](./mcp-canvas-authoring-design.md#reconciliation).
+
 ## Components and instances
 
 | Capability                     | Figma Design state                                                         | Current `apply_canvas` status                                                                                                                                                                                                                                                                                                                                                                                                                                                             |

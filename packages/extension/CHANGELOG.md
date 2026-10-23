@@ -7,7 +7,7 @@
 - Fixed canvas updates involving components, grids, fonts, and variable modes. Invalid resource
   changes are rejected earlier, with clearer errors when failed edits cannot be fully restored.
 - Fixed updates to mixed text styles and partially bound paragraphs, avoiding unnecessary text changes.
-- Improved rollback of failed canvas edits and clarified when text variables cannot be safely removed.
+- Improved rollback of failed canvas edits and clarified when text variables cannot be safely bound or removed.
 - Improved responsiveness when reading large designs and exporting screenshots.
 - Preserved completed code exports at the time limit and reduced unnecessary code-panel refreshes.
 - Fixed blank images with the extension enabled and improved Figma script loading and recovery.
