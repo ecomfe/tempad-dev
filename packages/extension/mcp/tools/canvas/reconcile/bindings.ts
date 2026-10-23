@@ -17,7 +17,6 @@ import {
   STYLE_FIELDS,
   DIRECT_VARIABLE_FIELDS,
   isTextVariableField,
-  rangeHasVariableLiteral,
   variableLinkMatches
 } from './binding-values'
 import { scalarValuesEqual, textMeasuresEqual } from './comparison'
@@ -198,16 +197,14 @@ export async function applyVariables(
 
 function literalKeepsVariable(
   range: CanvasFigmaTextRange,
-  field: VariableBindableTextField,
+  field: TextMetricField | 'paragraphIndent' | 'paragraphSpacing',
   value: number
-): boolean | undefined {
+): boolean {
   const nativeValue = Math.fround(value)
   if (field === 'lineHeight' || field === 'letterSpacing') {
     return textMeasuresEqual(field, { unit: 'PIXELS', value: nativeValue }, range[field]!)
   }
-  if (field === 'fontSize' || field === 'paragraphIndent' || field === 'paragraphSpacing') {
-    return scalarValuesEqual(nativeValue, range[field])
-  }
+  return scalarValuesEqual(nativeValue, range[field])
 }
 
 export async function repairTextRangeBindings(
@@ -230,12 +227,11 @@ export async function repairTextRangeBindings(
   ] as const) {
     const reference = bindings?.[field]
     if (!reference || range.variables?.[field] !== undefined) continue
-    if (!rangeHasVariableLiteral(range, field)) continue
+    if (range[field] === undefined) continue
     const variable = await resolveVariable(reference, state.variables)
     const value = variable.resolveForConsumer(node).value
     if (typeof value !== 'number') continue
     const keep = literalKeepsVariable(range, field, value)
-    if (keep === undefined) continue
     const scope =
       field === 'paragraphIndent' || field === 'paragraphSpacing'
         ? {
