@@ -1,5 +1,5 @@
 import { useStorage } from '@vueuse/core'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { effectScope, nextTick } from 'vue'
 
 import {
@@ -11,11 +11,14 @@ import { createPreferenceStorage } from '@/ui/preference-storage'
 
 const plugin = (name: string) => ({ name, source: name, code: `${name} code` })
 
-afterEach(() => {
+function resetFixture() {
   localStorage.removeItem(PLUGIN_STORAGE_KEY)
   localStorage.removeItem('tempad-dev')
   document.body.replaceChildren()
-})
+}
+
+beforeEach(resetFixture)
+afterEach(resetFixture)
 
 it('serializes concurrent changes across browser contexts without reviving deleted plugins', async () => {
   const frame = document.createElement('iframe')
