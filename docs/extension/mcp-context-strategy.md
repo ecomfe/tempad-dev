@@ -83,6 +83,9 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - Resource discovery returns a deterministic immutable catalog only when existing-resource reuse is permitted and relevant; direct or new local
      resource authoring does not require it.
    - Normal discovery targets 16 KiB and uses short catalog-scoped refs.
+     A single verbose entry may exceed that target but must fit the final 64 KiB response.
+     Component option/property summaries are reduced with omission counts before rejecting
+     an oversized entry; the immutable catalog retains the complete property definitions.
    - It reads definitions only and performs no canvas-usage, text, semantic, or relevance retrieval.
    - Components, variables, and styles are interleaved before advanced collections and shaders.
    - Component discovery uses optimized type-filtered queries on already-accessible pages and never

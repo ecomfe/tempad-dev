@@ -1106,6 +1106,82 @@ describe('mcp/tools/design-system', () => {
     expect(last.omitted).toBeUndefined()
   })
 
+  it('bounds verbose component summaries while retaining exact catalog identities and continuation', async () => {
+    const options = Array.from({ length: 40 }, (_, index) => `${index}-${'界'.repeat(80)}`)
+    const definitions = Object.fromEntries(
+      Array.from({ length: 32 }, (_, index) => [
+        `State${index}`,
+        { type: 'VARIANT' as const, defaultValue: options[0]!, variantOptions: options }
+      ])
+    )
+    stubFigma({
+      components: [
+        component('large', 'A large', { componentPropertyDefinitions: definitions }),
+        component('small', 'Z small')
+      ]
+    })
+
+    const first = await handleGetDesignSystem()
+    expect(measureCallToolResultBytes(buildGetDesignSystemToolResult(first))).toBeLessThanOrEqual(
+      64 * 1024
+    )
+    const summary = first.components[0]!
+    expect(summary.ref).toBe('c1')
+    expect(summary.tag).toBe('ALarge')
+    expect(Object.keys(summary.props)).toHaveLength(32)
+    for (const property of Object.values(summary.props)) {
+      expect(property.options?.length).toBeLessThan(32)
+      expect(property.options).toEqual(options.slice(0, property.options!.length))
+      expect(property.omittedOptions).toBe(options.length - property.options!.length)
+    }
+    expect(first.nextCursor).toBe(1)
+    expect(first.omitted).toEqual({ components: 1 })
+    const catalog = requireDesignSystemCatalog(first.catalogId)
+    const entry = catalog.entries.get('c1')!
+    expect(entry.kind === 'component' && entry.properties.state0?.options).toEqual(options)
+    const detail = await handleGetDesignSystem({ catalogId: first.catalogId, ref: 'c1' })
+    expect(detail.details).toMatchObject({ kind: 'component', definition: { id: 'large' } })
+    expect(measureCallToolResultBytes(buildGetDesignSystemToolResult(detail))).toBeLessThanOrEqual(
+      64 * 1024
+    )
+    const rest = await handleGetDesignSystem({ catalogId: first.catalogId, cursor: 1 })
+    expect(rest.components.map(({ ref }) => ref)).toEqual(['c2'])
+    expect(rest.nextCursor).toBeUndefined()
+  })
+
+  it('reports byte-omitted properties without shortening native property names in the catalog', async () => {
+    const names = Array.from({ length: 40 }, (_, index) => `${'属性'.repeat(500)}${index}`)
+    stubFigma({
+      components: [
+        component('large-labels', 'Labels', {
+          componentPropertyDefinitions: Object.fromEntries(
+            names.map((name) => [name, { type: 'BOOLEAN', defaultValue: true }])
+          )
+        })
+      ]
+    })
+    const result = await handleGetDesignSystem()
+    expect(measureCallToolResultBytes(buildGetDesignSystemToolResult(result))).toBeLessThanOrEqual(
+      64 * 1024
+    )
+    const summary = result.components[0]!
+    const properties = Object.values(summary.props)
+    expect(properties.length).toBeLessThan(32)
+    expect(summary.omittedProps).toBe(names.length - properties.length)
+    expect(properties.map(({ label }) => label)).toEqual(names.slice(0, properties.length))
+    const entry = requireDesignSystemCatalog(result.catalogId).entries.get(summary.ref)!
+    expect(
+      entry.kind === 'component' && Object.values(entry.properties).map(({ name }) => name)
+    ).toEqual(names)
+  })
+
+  it('rejects an unbounded catalog identity instead of returning an undeliverable response', async () => {
+    stubFigma({ components: [component('huge-name', 'A'.repeat(64 * 1024))] })
+    await expect(handleGetDesignSystem()).rejects.toThrow(
+      'Design-system catalog entry exceeds the 64 KiB inline result budget.'
+    )
+  })
+
   it('compacts each considered definition once without reading omitted definition names', async () => {
     stubFigma()
     const catalog = registerDesignSystemCatalog(
