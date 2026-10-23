@@ -194,7 +194,9 @@ export class CodexIpc {
           typeof message.error === 'string'
             ? message.error
             : 'Codex IPC returned an incompatible response.',
-          message.resultType === 'success'
+          message.resultType !== 'error' ||
+            typeof message.error !== 'string' ||
+            message.error === 'request-timeout'
         )
       )
   }

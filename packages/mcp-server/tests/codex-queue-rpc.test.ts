@@ -147,6 +147,23 @@ describe('queue-only native RPC', () => {
     await rejected
   })
 
+  it.each([
+    { error: 'Rejected' },
+    { error: { code: -32603 } },
+    { error: { code: -32603, message: {} } },
+    { error: { code: 'unknown', message: 'Rejected' } },
+    { error: { code: -32603, message: 'Rejected' }, result: {} }
+  ])('does not treat an incompatible rejection as definite: %j', async (response) => {
+    const f = peer(() => undefined)
+    const rejected = expect(
+      client().add('thread-a', 'feedback-a', 'Comment', new AbortController().signal)
+    ).rejects.toMatchObject({ uncertain: true })
+    await vi.waitFor(() => expect(f.requests.at(-1)?.method).toBe('thread/queue/add'))
+    f.reply({ id: f.requests.at(-1)!.id, ...response })
+    await rejected
+    expect(f.requests.filter(({ method }) => method === 'thread/queue/add')).toHaveLength(1)
+  })
+
   it('rejects an incompatible admission acknowledgement', async () => {
     peer(() => ({ queuedSubmission: { id: 'one', clientUserMessageId: 'other' } }))
     await expect(
@@ -157,6 +174,17 @@ describe('queue-only native RPC', () => {
   it('rejects malformed queue data instead of treating it as empty', async () => {
     peer(() => ({ data: [{ id: 5 }], nextCursor: null }))
     await expect(client().list('thread-a')).rejects.toThrow('incompatible server queue')
+  })
+
+  it('rejects a repeated pagination cursor before requesting the same page again', async () => {
+    let pages = 0
+    const f = peer(() => ({
+      data: [],
+      // A final null bounds the broken implementation without an endless test.
+      nextCursor: ['page-a', 'page-b', 'page-a', null][pages++]
+    }))
+    await expect(client().list('thread-a')).rejects.toThrow('incompatible queue cursor')
+    expect(f.requests.filter(({ method }) => method === 'thread/queue/list')).toHaveLength(3)
   })
 
   it('does not spawn after shutdown during executable discovery', async () => {

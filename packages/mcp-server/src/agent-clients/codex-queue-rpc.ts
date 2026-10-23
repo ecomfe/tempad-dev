@@ -57,6 +57,7 @@ export class CodexQueueRpc {
   async list(threadId: string, signal?: AbortSignal): Promise<ServerQueuedMessage[]> {
     await this.connect()
     const messages: ServerQueuedMessage[] = []
+    const cursors = new Set<string>()
     let cursor: string | null = null
     do {
       const page = (await this.request('thread/queue/list', { threadId, cursor }, signal)) as {
@@ -78,10 +79,11 @@ export class CodexQueueRpc {
       messages.push(...page.data)
       if (
         page.nextCursor != null &&
-        (typeof page.nextCursor !== 'string' || page.nextCursor === cursor)
+        (typeof page.nextCursor !== 'string' || cursors.has(page.nextCursor))
       )
         throw new Error('Codex returned an incompatible queue cursor.')
       cursor = page.nextCursor ?? null
+      if (cursor !== null) cursors.add(cursor)
     } while (cursor !== null)
     return messages
   }
@@ -149,7 +151,14 @@ export class CodexQueueRpc {
         if (!pending) return
         if (response.error)
           pending.reject(
-            new CodexIpcError(String(response.error.message ?? 'Codex queue request failed.'))
+            new CodexIpcError(
+              typeof response.error.message === 'string'
+                ? response.error.message
+                : 'Codex queue request failed.',
+              !Number.isInteger(response.error.code) ||
+                typeof response.error.message !== 'string' ||
+                'result' in response
+            )
           )
         else if ('result' in response) pending.resolve(response.result)
         else this.disconnect()
