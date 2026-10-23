@@ -1,7 +1,7 @@
 import { MCP_HASH_HEX_LENGTH, MCP_LEGACY_HASH_HEX_LENGTH } from '@tempad-dev/shared'
 
 const HASH_FILENAME_PATTERN = new RegExp(
-  `^([a-f0-9]{${MCP_HASH_HEX_LENGTH}}|[a-f0-9]{${MCP_LEGACY_HASH_HEX_LENGTH}})(?:\\.[a-z0-9]+)?$`
+  `^([a-f0-9]{${MCP_HASH_HEX_LENGTH}}|[a-f0-9]{${MCP_LEGACY_HASH_HEX_LENGTH}})(?:\\.[a-z0-9-]+)?$`
 )
 
 const SAFE_IMAGE_EXTENSION_PATTERN = /^[a-z0-9-]+$/
