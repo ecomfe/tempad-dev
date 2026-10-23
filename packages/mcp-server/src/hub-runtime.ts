@@ -92,7 +92,6 @@ import {
 import { TerminalReceipts } from './terminal-receipts'
 import {
   TOOL_DEFS,
-  coercePayloadToToolResponse,
   createDesignTaskToolResponse,
   createInlineBudgetExceededToolResponse,
   createToolErrorResponse,
@@ -454,26 +453,6 @@ export async function startHub(): Promise<void> {
     }
   }
 
-  function hasFormatter(tool: RegisteredToolDefinition): tool is ExtensionTool & {
-    format: (payload: unknown) => ToolResponse
-  } {
-    return tool.target === 'extension' && 'format' in tool
-  }
-
-  type ToolDefinitionByName = {
-    [T in RegisteredToolDefinition as T['name']]: T
-  }
-
-  const TOOL_BY_NAME: ToolDefinitionByName = Object.fromEntries(
-    TOOL_DEFINITIONS.map((tool) => [tool.name, tool] as const)
-  ) as ToolDefinitionByName
-
-  function getToolDefinition<Name extends RegisteredTool['name']>(
-    name: Name
-  ): ToolDefinitionByName[Name] {
-    return TOOL_BY_NAME[name]
-  }
-
   let assetStore: ReturnType<typeof createAssetStore>
   let assetHttpServer: ReturnType<typeof createAssetHttpServer>
   let assetCleanupTimer: ReturnType<typeof setInterval> | undefined
@@ -819,7 +798,7 @@ export async function startHub(): Promise<void> {
           } catch (error) {
             reject(requestId, legacy.id, coerceToolError(error))
           }
-          return createToolResponse(tool.name, await registration.promise)
+          return createToolResponse(tool, await registration.promise)
         }
         const { extension: activeExt, session } = resolveDesignRoute(
           ownerId,
@@ -935,7 +914,7 @@ export async function startHub(): Promise<void> {
           }
         }
         const readEvidence = hasCanvasReadEvidence(tool.name, payload)
-        const response = createToolResponse(tool.name, payload, {
+        const response = createToolResponse(tool, payload, {
           runtime,
           notice: versionedReadNotice(protocolVersion, tool.name)
         })
@@ -1086,9 +1065,9 @@ export async function startHub(): Promise<void> {
     })
   }
 
-  function createToolResponse<Name extends RegisteredTool['name']>(
-    toolName: Name,
-    payload: ToolResultMap[Name],
+  function createToolResponse<T extends ExtensionTool>(
+    tool: T,
+    payload: ToolResultMap[T['name']],
     {
       runtime,
       includeLocalAssetPaths = true,
@@ -1099,6 +1078,7 @@ export async function startHub(): Promise<void> {
       notice?: string
     } = {}
   ): ToolResponse {
+    const toolName = tool.name
     const enrichedPayload = (() => {
       if (includeLocalAssetPaths && (toolName === 'get_code' || toolName === 'get_screenshot')) {
         const read = payload as ToolResultMap['get_code' | 'get_screenshot']
@@ -1117,23 +1097,18 @@ export async function startHub(): Promise<void> {
         return { ...apply, runtime }
       }
       return payload
-    })() as ToolResultMap[Name]
+    })() as ToolResultMap[T['name']]
 
     let rawResult: ToolResponse
-    const definition = getToolDefinition(toolName)
-    if (definition && hasFormatter(definition)) {
-      try {
-        const formatter = definition.format as (input: ToolResultMap[Name]) => ToolResponse
-        rawResult = formatter(enrichedPayload)
-      } catch (error) {
-        log.warn({ tool: toolName, error }, 'Failed to format tool result; returning raw payload.')
-        rawResult = {
-          isError: true,
-          content: [{ type: 'text', text: JSON.stringify(enrichedPayload, null, 2) ?? 'undefined' }]
-        }
+    try {
+      const formatter = tool.format as (input: ToolResultMap[T['name']]) => ToolResponse
+      rawResult = formatter(enrichedPayload)
+    } catch (error) {
+      log.warn({ tool: toolName, error }, 'Failed to format tool result; returning raw payload.')
+      rawResult = {
+        isError: true,
+        content: [{ type: 'text', text: JSON.stringify(enrichedPayload, null, 2) ?? 'undefined' }]
       }
-    } else {
-      rawResult = coercePayloadToToolResponse(enrichedPayload)
     }
 
     if (notice) {
@@ -1145,7 +1120,7 @@ export async function startHub(): Promise<void> {
     const resultBytes = measureCallToolResultBytes(rawResult)
     if (resultBytes > MCP_TOOL_INLINE_BUDGET_BYTES) {
       if (includeLocalAssetPaths && (toolName === 'get_code' || toolName === 'get_screenshot')) {
-        return createToolResponse(toolName, payload, {
+        return createToolResponse(tool, payload, {
           runtime,
           notice,
           includeLocalAssetPaths: false

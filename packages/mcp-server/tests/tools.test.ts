@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   TOOL_DEFS,
-  coercePayloadToToolResponse,
   createApplyCanvasToolResponse,
   createCodeToolResponse,
   createDesignSystemToolResponse,
@@ -450,23 +449,6 @@ describe('tools response helpers', () => {
     expect(
       textContent(createInlineBudgetExceededToolResponse('get_design_system', 70000).content[0])
     ).toContain('catalog cursor')
-  })
-
-  it('coerces payloads to MCP CallToolResult', () => {
-    const passthrough = { content: [{ type: 'text' as const, text: 'ok' }] }
-    expect(coercePayloadToToolResponse(passthrough)).toBe(passthrough)
-
-    expect(coercePayloadToToolResponse('plain')).toEqual({
-      content: [{ type: 'text', text: 'plain' }]
-    })
-
-    expect(coercePayloadToToolResponse({ a: 1 })).toEqual({
-      content: [{ type: 'text', text: '{\n  "a": 1\n}' }]
-    })
-
-    expect(coercePayloadToToolResponse(undefined)).toEqual({
-      content: [{ type: 'text', text: undefined }]
-    })
   })
 
   it('formats tool errors with troubleshooting hints', () => {

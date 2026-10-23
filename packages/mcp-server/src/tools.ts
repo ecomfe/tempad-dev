@@ -68,7 +68,6 @@ export type {
 type BaseToolMetadata<Name extends ToolName, Schema extends ZodType> = ToolSchema<Name> & {
   annotations: ToolAnnotations
   parameters: Schema
-  format?: (payload: ToolResultMap[Name]) => CallToolResult
 }
 
 type ExtensionToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMetadata<
@@ -76,6 +75,7 @@ type ExtensionToolMetadata<Name extends ToolName, Schema extends ZodType> = Base
   Schema
 > & {
   target: 'extension'
+  format: (payload: ToolResultMap[Name]) => CallToolResult
 }
 
 type HubToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMetadata<
@@ -239,8 +239,7 @@ export const TOOL_DEFS = [
     annotations: ASSET_WRITE_ANNOTATIONS,
     parameters: UploadAssetParametersSchema,
     target: 'hub',
-    outputSchema: UploadAssetResultSchema,
-    format: createUploadAssetToolResponse
+    outputSchema: UploadAssetResultSchema
   })
 ] as const
 
@@ -443,21 +442,6 @@ function isNodeReadBatchResult<T>(
 
 function isStructureResult(payload: unknown): payload is ToolResultMap['get_structure'] {
   return isRecord(payload) && Array.isArray(payload.roots)
-}
-
-export function coercePayloadToToolResponse(payload: unknown): CallToolResult {
-  if (isRecord(payload) && Array.isArray(payload.content)) {
-    return payload as CallToolResult
-  }
-
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)
-      }
-    ]
-  }
 }
 
 export function createUploadAssetToolResponse(payload: UploadAssetResult): CallToolResult {
