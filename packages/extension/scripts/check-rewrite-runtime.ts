@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium, type BrowserContext } from 'playwright'
 
 import bundledRules from '../public/rules/figma.json'
@@ -305,7 +305,7 @@ async function verifyCspScope(context: BrowserContext, scoped: boolean) {
   assert.deepEqual(scriptMatches, [2], 'The old script redirect must still match.')
 }
 
-async function main() {
+export async function runCheck() {
   const temporary = await mkdtemp(path.join(tmpdir(), 'tempad-local-rewrite-'))
   const extension = path.join(temporary, 'extension')
   const output = path.join(root, '.output/chrome-mv3')
@@ -453,12 +453,17 @@ async function main() {
       'Local rewrite: packaged rules, offline startup, reconstructed 0.23.1 migration, CSP scope, static scripts, Rspack chunks and fallback passed.'
     )
   } finally {
-    await context?.close()
-    await rm(temporary, { recursive: true, force: true })
+    try {
+      await context?.close()
+    } finally {
+      await rm(temporary, { recursive: true, force: true })
+    }
   }
 }
 
-main().catch((error) => {
-  console.error(error)
-  process.exitCode = 1
-})
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runCheck().catch((error) => {
+    console.error(error)
+    process.exitCode = 1
+  })
+}
