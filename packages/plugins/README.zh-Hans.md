@@ -136,8 +136,9 @@ export default definePlugin({
       title: 'Component',
       lang: 'tsx',
       transformComponent({ component }) {
+        const title = component.properties.title
         return h('Card', { variant: component.properties.variant }, [
-          h('Heading', { level: 2 }, [component.properties.title]),
+          h('Heading', { level: 2 }, typeof title === 'string' ? title : ''),
           h('Button', { intent: 'primary' }, ['Submit'])
         ])
       }
@@ -147,6 +148,10 @@ export default definePlugin({
 ```
 
 TemPad Dev 会将返回的 `DevComponent` 序列化为 JSX/TSX 并展示出来。
+
+三个参数的形式始终将第二个参数作为 props。如果你的 props 也包含 `name`、`props` 和
+`children` 字段，请使用这一形式；两个参数的形式会将这种结构识别为子组件。没有子节点时，
+第三个参数传入 `[]` 即可。
 
 MCP 导出只对 `style`、`class`/`className` 和 SVG 表现属性收集、改写 token。
 文本子节点和其他 prop 保持字面值：例如自定义 `color: 'var(--brand, #fff)'` prop

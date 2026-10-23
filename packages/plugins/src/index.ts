@@ -403,7 +403,8 @@ export function h<T extends object = Record<string, unknown>>(
   propsOrChildren?: T | (DevComponent | string)[] | DevComponent | string | null,
   childrenOrSingle?: (DevComponent | string)[] | DevComponent | string
 ): DevComponent<T> {
-  const childrenOnly = propsOrChildren == null || isChildrenArgument(propsOrChildren)
+  const childrenOnly =
+    propsOrChildren == null || (arguments.length < 3 && isChildrenArgument(propsOrChildren))
   const props = childrenOnly ? ({} as T) : (propsOrChildren as T)
   const childSource = childrenOnly ? (propsOrChildren ?? childrenOrSingle) : childrenOrSingle
 

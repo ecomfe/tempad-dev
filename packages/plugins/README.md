@@ -142,8 +142,9 @@ export default definePlugin({
       title: 'Component',
       lang: 'tsx',
       transformComponent({ component }) {
+        const title = component.properties.title
         return h('Card', { variant: component.properties.variant }, [
-          h('Heading', { level: 2 }, [component.properties.title]),
+          h('Heading', { level: 2 }, typeof title === 'string' ? title : ''),
           h('Button', { intent: 'primary' }, ['Submit'])
         ])
       }
@@ -153,6 +154,10 @@ export default definePlugin({
 ```
 
 TemPad Dev will serialize the returned `DevComponent` into JSX/TSX for display.
+
+The three-argument form always treats the second argument as props. Use it when your props
+also contain `name`, `props`, and `children` fields; the two-argument form recognizes that
+shape as a child component. Pass `[]` as the third argument when there are no children.
 
 For MCP exports, token collection and rewriting apply to `style`, `class`/`className`, and
 SVG presentation attributes. Text children and other props remain literal: a custom

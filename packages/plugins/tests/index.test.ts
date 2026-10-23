@@ -117,6 +117,19 @@ describe('plugins sdk helpers', () => {
     expect(h('Box', null)).toEqual({ name: 'Box', props: {}, children: [] })
   })
 
+  it('treats the second argument as props when children are supplied explicitly', () => {
+    const componentProps = { name: 'nested', props: { role: 'presentation' }, children: [] }
+
+    for (const props of [componentProps, ['value']]) {
+      expect(h('Widget', props, 'body')).toEqual({ name: 'Widget', props, children: ['body'] })
+      expect(h('Widget', props, undefined)).toEqual({ name: 'Widget', props, children: [] })
+    }
+    for (const props of [null, undefined]) {
+      expect(h('Widget', props, 'body')).toEqual({ name: 'Widget', props: {}, children: ['body'] })
+    }
+    expect(h('Widget', componentProps).children).toEqual([componentProps])
+  })
+
   it('finds direct children with property and predicate queries', () => {
     const node = frame('Root', [text('Title', 'Hello'), vector('Icon', false), vector('Icon 2')])
 
