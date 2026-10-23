@@ -26,10 +26,7 @@ async function loadUi(): Promise<void> {
 
   script.textContent = `${bootstrap}${content}\n//# sourceURL=${location}\n`
   document.body.appendChild(script)
-
-  script.onload = () => {
-    script.remove()
-  }
+  script.remove()
 }
 
 export default defineUnlistedScript(() => {
