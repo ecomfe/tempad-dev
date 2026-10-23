@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useEventListener } from '@vueuse/core'
-import { computed, shallowRef, useTemplateRef } from 'vue'
+import { computed, shallowRef, toRef, useTemplateRef } from 'vue'
 
 import { useCopy, useScrollbar } from '@/composables'
 import { PRISM_LANGUAGES_READY_EVENT } from '@/entrypoints/ui/prism'
@@ -32,10 +32,9 @@ const prismAlias: Record<string, string> = {
   vue: 'html'
 }
 
-const STRIP_TRAILING_WS_RE = /\s+$/gm
 const prismRevision = shallowRef(0)
 
-const code = computed(() => props.code.replace(STRIP_TRAILING_WS_RE, ''))
+const code = toRef(props, 'code')
 
 const lang = computed(() => prismAlias[props.lang] || props.lang)
 

@@ -11,7 +11,7 @@ const rootDir = fileURLToPath(new URL('.', import.meta.url))
 export default defineConfig({
   plugins: [vue()],
   optimizeDeps: {
-    include: ['vue/compiler-sfc']
+    include: ['vue/compiler-sfc', 'prismjs']
   },
   resolve: {
     conditions: ['source', 'module', 'browser', 'development|production'],
