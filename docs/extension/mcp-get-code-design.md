@@ -215,6 +215,12 @@ remain explicit where configured. Expressions and arbitrary properties retain
 their bracket syntax. Internal style values remain CSS `var(...)` expressions;
 token collection, renaming, and resolution use the same variable identities.
 
+Use the same arbitrary-property fallback for ordinary styles and generated
+pseudo-elements. A missing named utility must not silently discard a retained
+declaration, including the transform and origin that position normalized SVG
+assets. Test that boundary through serialized markup and browser rendering, not
+only the intermediate style map.
+
 Keep unexpanded background shorthands and their longhand overrides in one inline
 style object, with the shorthand first. This preserves quoted image URLs and
 override order without depending on Tailwind's source scanner or utility order.

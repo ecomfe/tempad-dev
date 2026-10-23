@@ -13,7 +13,7 @@ import {
   parseBoxValues
 } from '@/utils/css'
 import { isRenderablePaint } from '@/utils/figma-paint'
-import { cssToClassNames, nestedCssToClassNames } from '@/utils/tailwind'
+import { nestedCssToClassNames } from '@/utils/tailwind'
 
 import type { GetCodeCacheContext } from '../cache'
 import type { StyleMap, StyleStep } from './types'
@@ -148,11 +148,7 @@ export function buildLayoutStyles(
 export function styleToClassNames(style: StyleMap, config: CodegenConfig): string[] {
   const normalizedStyle = canonicalizeUniformVisibleBorderColor(normalizeStyleValues(style, config))
   const resolved = resolveGradientBorderClasses(normalizedStyle)
-  if (!resolved) {
-    return cssToClassNames(normalizedStyle)
-  }
-
-  return nestedCssToClassNames(resolved.style)
+  return nestedCssToClassNames(resolved?.style ?? normalizedStyle)
 }
 
 function canonicalizeUniformVisibleBorderColor(style: StyleMap): StyleMap {

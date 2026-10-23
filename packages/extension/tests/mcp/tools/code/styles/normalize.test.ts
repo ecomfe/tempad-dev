@@ -13,6 +13,36 @@ import {
 } from '@/mcp/tools/code/styles/normalize'
 
 describe('mcp/styles/normalize', () => {
+  it.each([false, true])(
+    'preserves geometry without named utilities (gradient border: %s)',
+    (gradientBorder) => {
+      const classes = styleToClassNames(
+        {
+          position: 'absolute',
+          transform: 'matrix(0.965926, 0.258819, -0.258819, 0.965926, 0, 0)',
+          'transform-origin': '0 0',
+          'clip-path': 'inset(8px)',
+          'font-style': 'normal',
+          ...(gradientBorder
+            ? { 'border-image': 'linear-gradient(red, blue) 1', 'border-width': '1px' }
+            : {})
+        },
+        { cssUnit: 'rem', rootFontSize: 16, scale: 2 }
+      )
+
+      expect(classes).toEqual(
+        expect.arrayContaining([
+          'absolute',
+          '[transform:matrix(0.965926,_0.258819,_-0.258819,_0.965926,_0,_0)]',
+          '[transform-origin:0_0]',
+          '[clip-path:inset(1rem)]'
+        ])
+      )
+      expect(classes).not.toContain('[font-style:normal]')
+      expect(classes).not.toContain('not-italic')
+    }
+  )
+
   it('filters layout-only keys', () => {
     expect(
       layoutOnly({
@@ -240,7 +270,7 @@ describe('mcp/styles/normalize', () => {
       }
     )
     expect(noBorder.some((item) => item.startsWith('before:'))).toBe(false)
-    expect(noBorder).toEqual([])
+    expect(noBorder).toEqual(['[border-image:linear-gradient(red,_blue)_1]', '[border-width:0]'])
 
     const clipped = styleToClassNames(
       {
@@ -303,7 +333,7 @@ describe('mcp/styles/normalize', () => {
         scale: 1
       }
     )
-    expect(noGradient).toEqual([])
+    expect(noGradient).toEqual(['[border-image:url("ring.png")_1]', '[border-width:1px]'])
 
     const malformedGradient = styleToClassNames(
       {
@@ -316,7 +346,10 @@ describe('mcp/styles/normalize', () => {
         scale: 1
       }
     )
-    expect(malformedGradient).toEqual([])
+    expect(malformedGradient).toEqual([
+      '[border-image:linear-gradient(red,_blue]',
+      '[border-width:1px]'
+    ])
 
     const noWidth = styleToClassNames(
       {
@@ -329,7 +362,10 @@ describe('mcp/styles/normalize', () => {
         scale: 1
       }
     )
-    expect(noWidth).toEqual([])
+    expect(noWidth).toEqual([
+      '[border-image:linear-gradient(red,_blue)_1]',
+      '[border-top:2px_solid_red]'
+    ])
     expect(noWidth.some((item) => item.startsWith('before:'))).toBe(false)
 
     const variableWidth = styleToClassNames(
@@ -407,7 +443,10 @@ describe('mcp/styles/normalize', () => {
         scale: 1
       }
     )
-    expect(blankShorthands).toEqual([])
+    expect(blankShorthands).toEqual([
+      '[border-image:linear-gradient(red,_blue)_1]',
+      '[border-width:1px_2px]'
+    ])
 
     const commentOnlyShorthands = styleToClassNames(
       {
@@ -421,7 +460,7 @@ describe('mcp/styles/normalize', () => {
         scale: 1
       }
     )
-    expect(commentOnlyShorthands).toEqual([])
+    expect(commentOnlyShorthands).toEqual(['[border-image:linear-gradient(red,_blue)_1]'])
 
     const oneTokenSideBorders = styleToClassNames(
       {
