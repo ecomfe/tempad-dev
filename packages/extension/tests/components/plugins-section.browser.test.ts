@@ -112,6 +112,36 @@ it('identifies corruption discovered during installation without replacing the i
   expect(options.value.activePluginSource).toBeNull()
 })
 
+it('cancels an update when another tab removes its plugin before the download finishes', async () => {
+  plugins.value = { [source]: previous }
+  localStorage.setItem('tempad-dev-plugins', JSON.stringify(plugins.value))
+  options.value.activePluginSource = source
+  const response = Promise.withResolvers<Response>()
+  const fetchPlugin = vi.mocked(fetch).mockReturnValueOnce(response.promise)
+  vi.mocked(codegen).mockClear()
+  const host = mount(PluginsSection)
+  host.querySelector<HTMLButtonElement>('[aria-label="Update"]')!.click()
+  await expect.poll(() => fetchPlugin.mock.calls.length).toBe(1)
+  const signal = fetchPlugin.mock.calls[0]![1]!.signal!
+  try {
+    localStorage.setItem('tempad-dev-plugins', '{}')
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'tempad-dev-plugins', storageArea: localStorage })
+    )
+    await nextTick()
+    expect(host.querySelector('[aria-label="Update"]')).toBeNull()
+    expect(signal.aborted).toBe(true)
+    const obsolete = new Response('obsolete code')
+    const cancelBody = vi.spyOn(obsolete.body!, 'cancel')
+    response.resolve(obsolete)
+    await expect.poll(() => cancelBody.mock.calls.length).toBe(1)
+    expect(codegen).not.toHaveBeenCalled()
+    expect(localStorage.getItem('tempad-dev-plugins')).toBe('{}')
+  } finally {
+    response.resolve(new Response(null))
+  }
+})
+
 it.each(['install', 'update', 'remove'] as const)(
   'preserves plugin and active state when %s cannot be saved, then retries durably',
   async (action) => {
