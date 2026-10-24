@@ -109,7 +109,7 @@ export async function ensureAssetUploaded(
   const promise = uploadAsset({ bytes, hash, metadata, mimeType })
     .then(() => {
       if (generation === assetCacheGeneration) uploadedAssets.add(uploadKey)
-      logger.log(`Uploaded asset ${hash.slice(0, 8)} (${mimeType}, ${size} bytes) to ${url}`)
+      logger.log(`Uploaded asset ${hash.slice(0, 8)} (${mimeType}, ${size} bytes)`)
     })
     .finally(() => {
       if (inflightUploads.get(uploadKey) === promise) inflightUploads.delete(uploadKey)
@@ -131,7 +131,8 @@ async function uploadAsset(request: AssetUploadRequest): Promise<void> {
   try {
     await assetUploader(request)
   } catch (error) {
-    logger.error('Failed to upload asset via MCP bridge.', error)
+    // Transport errors can contain the asset capability URL.
+    logger.error('Failed to upload asset via MCP bridge.')
     throw error instanceof Error ? error : new Error('Failed to upload asset via MCP bridge.')
   }
 }

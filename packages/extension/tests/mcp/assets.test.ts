@@ -18,6 +18,7 @@ import {
   setAssetServerUrl,
   setAssetUploader
 } from '@/mcp/assets'
+import { logger } from '@/utils/log'
 
 const DIGEST_BYTES = new Uint8Array(Array.from({ length: 32 }, (_, index) => index))
 const DIGEST_HEX = Array.from(DIGEST_BYTES)
@@ -149,7 +150,8 @@ describe('mcp/assets', () => {
     mockCryptoDigest()
     const uploadMock = vi.fn().mockResolvedValue(undefined)
     setAssetUploader(uploadMock)
-    setAssetServerUrl('http://assets.local')
+    const assetServerUrl = 'http://127.0.0.1:6221/private-upload-capability'
+    setAssetServerUrl(assetServerUrl)
 
     const bytes = new Uint8Array([10, 20, 30, 40])
 
@@ -180,12 +182,15 @@ describe('mcp/assets', () => {
       hash: EXPECTED_HASH,
       mimeType: 'image/png',
       size: bytes.byteLength,
-      url: `http://assets.local/assets/${EXPECTED_HASH}`,
+      url: `${assetServerUrl}/assets/${EXPECTED_HASH}`,
       width: 300,
       height: 200,
       themeable: true
     })
     expect(second).toEqual(first)
+    expect(vi.mocked(logger.log).mock.calls.flat().join(' ')).not.toContain(
+      'private-upload-capability'
+    )
   })
 
   it('deduplicates in-flight uploads for identical server/hash pairs', async () => {
@@ -279,16 +284,18 @@ describe('mcp/assets', () => {
     await expect(joined).resolves.toMatchObject({ mimeType: 'image/png' })
   })
 
-  it('propagates uploader errors', async () => {
+  it('propagates uploader errors without logging their private details', async () => {
     mockCryptoDigest()
-    const uploadMock = vi
-      .fn()
-      .mockRejectedValue(new Error('Upload failed with status 413 Too Large'))
+    const error = new Error(
+      'Upload failed with status 413 Too Large at http://127.0.0.1:6221/private-error-capability'
+    )
+    const uploadMock = vi.fn().mockRejectedValue(error)
     setAssetUploader(uploadMock)
     setAssetServerUrl('http://assets.local')
 
-    await expect(ensureAssetUploaded(new Uint8Array([9, 9, 9]), 'image/png')).rejects.toThrow(
-      'Upload failed with status 413 Too Large'
+    await expect(ensureAssetUploaded(new Uint8Array([9, 9, 9]), 'image/png')).rejects.toBe(error)
+    expect(vi.mocked(logger.error).mock.calls.flat().join(' ')).not.toContain(
+      'private-error-capability'
     )
   })
 
