@@ -3232,9 +3232,9 @@ describe('mcp/tools/canvas', () => {
   it('updates an existing primary nested instance as the declarative root', async () => {
     const fixture = createFixture()
     const component = fixture.nodes.get('component:1') as ComponentNode
+    const container = fixture.createNode('COMPONENT')
     const primary = component.createInstance()
-    const mutablePrimary = primary as unknown as MutableNode
-    mutablePrimary.parent = component
+    container.appendChild(primary)
     const input: CanvasResolvedApplyParameters = {
       mode: 'update',
       targetNodeId: primary.id,
@@ -3250,6 +3250,10 @@ describe('mcp/tools/canvas', () => {
     const result = await applyCanvas(input)
     expect(result.rootNodeId!).toBe(primary.id)
     expect(primary.isExposedInstance).toBe(true)
+    expect(primary.parent).toBe(container)
+    expect(container.children).toEqual([primary])
+    expect(fixture.page.children).not.toContain(primary)
+    expect(await primary.getMainComponentAsync()).toBe(component)
     expect((await applyCanvas(input)).mutationCount).toBe(0)
 
     const pageInstance = component.createInstance()
