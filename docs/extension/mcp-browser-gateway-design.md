@@ -16,7 +16,8 @@ use a separate narrow runtime message validated by the background worker.
 
 Explicit design tasks add file leases, fixed session routing, page-side fencing,
 and DOM feedback. See [design tasks](mcp-design-tasks.md) for lifecycle, takeover,
-expiry, and recovery semantics. Taskless reads still use the active route.
+expiry, and recovery semantics. Taskless reads use the active route unless they specify an exact
+`sessionId` from `list_design_sessions`.
 
 ## Connection lifecycle
 

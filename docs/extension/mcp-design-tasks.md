@@ -161,10 +161,11 @@ environment edits, helper processes, and agent-driven connection setup do not es
 host support. Protocol tests verify mechanics; live claims require the installed plugin
 against the actual host.
 
-`pnpm agent-plugin:build` generates the portable, native, and local development packages from
-`agent-plugin/src/`. The native and development packages carry each host's marketplace layout
-and omit the portable manifests, so neither host can resolve a conflicting manifest. Codex
-registers no hooks. Claude retains its lifecycle hook definitions.
+`pnpm agent-plugin:build` derives each installation channel from `agent-plugin/src/`.
+Published targets carry only their own installer layout; the ignored local development
+package carries both native host layouts and launches this checkout's MCP runtime. Only
+Claude registers lifecycle hooks. The [agent plugin invariants](../../AGENTS.md#agent-plugin-invariants)
+own the channel-to-target mapping and generated-payload rules.
 
 ### Claude lifecycle hooks
 
