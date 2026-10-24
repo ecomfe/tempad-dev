@@ -672,14 +672,7 @@ describe('mcp/tools/canvas font loading', () => {
       const beforeStyles = [...fixture.styles.keys()]
       fixture.commitUndo.mockClear()
       fixture.triggerUndo.mockClear()
-      const started = Promise.withResolvers<void>()
-      const ready = Promise.withResolvers<void>()
-      fixture.loadFontAsync.mockImplementation(async (font: FontName) => {
-        if (font.family === 'Noto Serif' && font.style === 'SemiBold') {
-          started.resolve()
-          await ready.promise
-        }
-      })
+      const fonts = deferFont(fixture, { family: 'Noto Serif', style: 'SemiBold' })
       const pending = applyCanvasFromTool({
         mode: 'update',
         targetNodeId: created.rootNodeId!,
@@ -702,19 +695,14 @@ describe('mcp/tools/canvas font loading', () => {
       })
       void pending.catch(() => undefined)
       try {
-        await Promise.race([
-          started.promise,
-          pending.then(() => {
-            throw new Error('The desired font was not requested')
-          })
-        ])
+        await waitForDeferredFont(pending, fonts.requested)
         expect([...fixture.variableCollections.keys()]).toEqual(beforeCollections)
         expect([...fixture.styles.keys()]).toEqual(beforeStyles)
         expect(title.characters).toBe('Before')
         expect(title.fontName).toEqual({ family: 'Inter', style: 'Regular' })
         expect(fixture.commitUndo).not.toHaveBeenCalled()
       } finally {
-        ready.resolve()
+        fonts.release()
         await pending
       }
       expect(title.fontName).toEqual({ family: 'Noto Serif', style: 'SemiBold' })
@@ -860,18 +848,18 @@ describe('mcp/tools/canvas font loading', () => {
     })
     void update.catch(() => undefined)
     try {
-      await regularStarted.promise
+      await waitForDeferredFont(update, regularStarted.promise)
       expect(title.resize).not.toHaveBeenCalled()
       expect(setFontName).not.toHaveBeenCalled()
       regular.resolve()
-      await semiboldStarted.promise
+      await waitForDeferredFont(update, semiboldStarted.promise)
       expect(title.resize).not.toHaveBeenCalled()
       expect(setFontName).not.toHaveBeenCalled()
     } finally {
       regular.resolve()
       semibold.resolve()
+      await update
     }
-    await update
     expect(title.fontName).toEqual({ family: 'Poppins', style: 'SemiBold' })
     expect(title.width).toBe(160)
     expect(title.height).toBe(40)
