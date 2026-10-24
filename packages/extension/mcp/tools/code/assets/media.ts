@@ -189,9 +189,9 @@ async function collectMediaFillAssets(
         registerAsset(assetRegistry, asset)
         videoPreviewAssetHashes?.add(asset.hash)
         slot.asset = asset
-      } catch (error) {
+      } catch {
         assertActive?.()
-        logger.warn('Failed to export video fill preview:', error)
+        logger.warn('Failed to export video fill preview.')
       }
       continue
     }
@@ -215,9 +215,10 @@ async function collectMediaFillAssets(
       registerAsset(assetRegistry, asset)
       slot.asset = asset
       slot.tileSize = tileSize
-    } catch (error) {
+    } catch {
       assertActive?.()
-      logger.warn(`Image bytes unavailable for hash ${hash}, falling back to node export.`, error)
+      // Upload errors can include capability URLs; retain the stage, not their private details.
+      logger.warn(`Failed to export image fill ${hash}; falling back to node export.`)
       try {
         const asset = {
           ...(await getPreview()),
@@ -226,9 +227,9 @@ async function collectMediaFillAssets(
         assertActive?.()
         registerAsset(assetRegistry, asset)
         slot.asset = asset
-      } catch (fallbackError) {
+      } catch {
         assertActive?.()
-        logger.warn('Failed to export node for image fill fallback:', fallbackError)
+        logger.warn('Failed to export node for image fill fallback.')
       }
     }
   }

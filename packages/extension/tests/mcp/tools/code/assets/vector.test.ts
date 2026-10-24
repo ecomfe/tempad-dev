@@ -519,7 +519,8 @@ describe('assets/vector', () => {
       exportAsync: vi.fn(async () => bytes)
     } as unknown as SceneNode
 
-    vi.mocked(ensureAssetUploaded).mockRejectedValue(new Error('upload failed'))
+    const capability = 'http://127.0.0.1:1234/assets/private-upload-token/asset.svg'
+    vi.mocked(ensureAssetUploaded).mockRejectedValue(new Error(`Upload failed: ${capability}`))
     const result = await exportSvgEntry(node, pxConfig, new Map(), {
       vectorMode: 'smart',
       colorModel: { kind: 'fixed' }
@@ -534,8 +535,10 @@ describe('assets/vector', () => {
       raw: '<svg height="10px" viewBox="0 0 20 10" width="20px"><path d="M0 0h20v10z" fill="#f00"/><path d="M0 0h10v10z" fill="#0f0"/></svg>'
     })
     expect(logger.warn).toHaveBeenCalledWith(
-      'Failed to upload vector asset; inlining SVG fallback to preserve source of truth.',
-      expect.any(Error)
+      'Failed to upload vector asset; inlining SVG fallback to preserve source of truth.'
+    )
+    expect(vi.mocked(logger.warn).mock.calls.flat().map(String).join('\n')).not.toContain(
+      capability
     )
   })
 

@@ -1039,6 +1039,37 @@ describe('assets/media', () => {
     expect(exportAsync).toHaveBeenCalledTimes(1)
   })
 
+  it.each(['image', 'video'] as const)(
+    'keeps upload capabilities out of %s fallback diagnostics',
+    async (kind) => {
+      const capability = 'http://127.0.0.1:1234/assets/private-upload-token/asset.png'
+      vi.mocked(ensureAssetUploaded).mockRejectedValue(new Error(`Upload failed: ${capability}`))
+      setFigmaImages({ image: { getBytesAsync: async () => png } })
+      const exportAsync = vi.fn(async () => png)
+      const registry = new Map()
+      const result = await replaceMediaUrlsWithAssets(
+        { background: 'url(media)' },
+        {
+          fills: [kind === 'image' ? imagePaint('image') : videoPaint('video')],
+          width: 9,
+          height: 9,
+          exportAsync
+        } as unknown as SceneNode,
+        config,
+        registry
+      )
+
+      expect(result.background).toBe("url('https://placehold.co/9x9')")
+      expect(registry.size).toBe(0)
+      expect(exportAsync).toHaveBeenCalledOnce()
+      expect(ensureAssetUploaded).toHaveBeenCalledTimes(kind === 'image' ? 2 : 1)
+      expect(logger.warn).toHaveBeenCalledTimes(kind === 'image' ? 2 : 1)
+      expect(vi.mocked(logger.warn).mock.calls.flat().map(String).join('\n')).not.toContain(
+        capability
+      )
+    }
+  )
+
   it('falls back to placeholder when both image bytes and node export fail', async () => {
     const getBytesAsync = vi.fn(async () => {
       throw new Error('read failed')
@@ -1063,9 +1094,6 @@ describe('assets/media', () => {
     expect(first.background).toBe("url('https://placehold.co/9x9')")
     expect(second.background).toBe("url('https://placehold.co/9x9')")
     expect(getBytesAsync).toHaveBeenCalledTimes(2)
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Failed to export node for image fill fallback:',
-      expect.any(Error)
-    )
+    expect(logger.warn).toHaveBeenCalledWith('Failed to export node for image fill fallback.')
   })
 })

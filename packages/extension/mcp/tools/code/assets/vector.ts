@@ -117,11 +117,11 @@ export async function exportSvgEntry(
       assertActive?.()
       assetRegistry.set(asset.hash, asset)
       entry.props = { ...entry.props, 'data-src': asset.url }
-    } catch (uploadError) {
+    } catch {
       assertActive?.()
+      // The transport error may contain the upload capability URL.
       logger.warn(
-        'Failed to upload vector asset; inlining SVG fallback to preserve source of truth.',
-        uploadError
+        'Failed to upload vector asset; inlining SVG fallback to preserve source of truth.'
       )
       const themeableFallback =
         themeable && vectorMode !== 'snapshot'
