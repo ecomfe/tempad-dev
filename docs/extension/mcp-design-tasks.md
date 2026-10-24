@@ -260,7 +260,7 @@ Discovery failures occur before comment dispatch and must not be reported as unc
 After opening, short repeated discovery queries observe the owner as it loads; a query begun
 before loading can otherwise wait for the router's entire window without noticing the new owner.
 
-Queue uses `thread-follower-set-queued-follow-ups-state` v1. The message ID is the
+Legacy Queue uses `thread-follower-set-queued-follow-ups-state` v1. The message ID is the
 stable feedback ID; composer context holds the review prompt and empty attachment lists.
 The original conversation snapshot supplies its working directory. The task ID remains
 untrusted `writingBlockAdditionalContext`; the owner derives workspace roots, model, and
@@ -338,14 +338,13 @@ Ordinary transport disconnects do not remove admitted messages.
 Already consumed input cannot be recalled. Acknowledgement confirms admission, not
 execution or completion of design changes.
 
-The private protocol was inspected against Codex App 26.908.70816, and the busy-owner
-Steer path and paused native queue admission/removal were verified against that macOS host.
-Automatic queued execution and the refreshed plugin/Figma UI flow remain live verification
-items. Windows endpoint selection, handshake,
-URL loading, and rejection of unexpected pipe names have regression coverage; native
-Windows host verification is still required. Incompatible or unavailable hosts keep drafts
-until native delivery becomes available. Fixtures alone
-cannot establish support across host versions or platforms.
+The [IPC report](../engineering/codex-desktop-ipc.md) records the inspected host
+versions and subsequent native admission, ordered execution, coexistence, Steer and
+Stop checks. These dated macOS observations do not establish support across host
+versions or platforms. Windows endpoint selection, handshake, URL loading and
+rejection of unexpected pipe names have regression coverage, without native Windows
+host acceptance. Incompatible or unavailable hosts keep drafts until native delivery
+becomes available; fixtures alone cannot establish host support.
 
 ## Canvas controls and comments
 

@@ -299,9 +299,10 @@ Before every live dispatch:
    ```
 
    The script validates that the configured local marketplace points at this checkout,
-   selects one Codex App page, uninstalls the development plugin in its UI, waits for
-   this checkout's old MCP processes to stop, then installs the generated version in
-   the App. It checks both the visible installed state and the enabled version on disk.
+   selects one Codex App page, uninstalls the development plugin in its UI, stops
+   this checkout's CLI/Hub processes and waits for them to exit, then installs the
+   generated version in the App. It checks both the visible installed state and
+   the enabled version on disk.
    CLI `plugin add` alone changes installation on disk; it does **not** establish that
    the running App refreshed its plugin state, skills, tools, or MCP connections.
    The script uses the bundled CLI only for read-only source/version checks.
@@ -346,7 +347,7 @@ Before every live dispatch:
      --log /absolute/path/to/authoring-runs.jsonl
    ```
 
-The start command rejects stale or partial checkout processes, multiple Hubs,
+The start command rejects an absent or partial checkout runtime, multiple Hubs,
 an inactive or mismatched extension, and an installed development-plugin
 version different from the generated cachebuster. It stops before page creation
 on failure.
