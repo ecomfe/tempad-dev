@@ -135,7 +135,7 @@ describe('mcp/code text segments', () => {
     }
     const segment = createSegment()
 
-    buildTextBlocks(node, [segment], readers as never)
+    buildTextBlocks(node, [segment], readers)
 
     expect(mocks.resolveTokens).toHaveBeenCalledWith(node, segment, readers)
   })

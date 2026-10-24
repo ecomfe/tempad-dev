@@ -86,7 +86,7 @@ describe('mcp/code render shell', () => {
         textSegments: new Map(),
         config: { cssUnit: 'px', rootFontSize: 16, scale: 1 },
         preferredLang: 'jsx'
-      } as never,
+      },
       ['b', 'c', 'd']
     )
 
@@ -115,7 +115,7 @@ describe('mcp/code render shell', () => {
           { component: { name: 'Card', props: { style, className: 'card' }, children: [] } }
         ]
       ])
-    } as never)
+    })
 
     expect(rendered).toMatchObject({ props: { style, className: 'card flex' } })
     expect(mocked.styleToClassNames).toHaveBeenCalledWith(
@@ -141,7 +141,7 @@ describe('mcp/code render shell', () => {
         config: { cssUnit: 'px', rootFontSize: 16, scale: 1 },
         preferredLang: 'jsx',
         pluginComponents: new Map([['root', { code: '<Button />' }]])
-      } as never,
+      },
       ['b']
     )
 

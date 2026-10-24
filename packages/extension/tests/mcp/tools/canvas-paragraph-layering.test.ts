@@ -189,17 +189,19 @@ function mockRetainedParagraphNull(probe: Awaited<ReturnType<typeof createParagr
   probe.bind.mockImplementation((start, end, property, variable) => {
     if (variable) bind(start, end, property, variable)
   })
-  const write = probe.write.getMockImplementation()!
-  probe.write.mockImplementation((start, end, value) => {
-    // Native paragraph literal writes ending just after a newline also affect
-    // the next paragraph. Full-span reads do not have this setter behavior.
-    const nextParagraph =
-      probe.label.characters[end - 1] === '\n' && end < probe.label.characters.length
-    write(start, nextParagraph ? end + 1 : end, value)
-  })
 }
 
 describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (field) => {
+  it('models one newline extension even when null unbinding is ignored', async () => {
+    const probe = await createParagraphProbe(field, [8, 8, 18], 'A\n\nC')
+    mockRetainedParagraphNull(probe)
+
+    // Keep the scoped fixture's setter behavior independent of the null-binding
+    // simulation: including one newline must not extend twice across an empty paragraph.
+    probe.write(0, 2, 12)
+    expect(probe.values()).toEqual([12, 12, 18])
+  })
+
   it.each([false, true])(
     'does not cross the authored paragraph end: node binding=%s',
     async (nodeBinding) => {
