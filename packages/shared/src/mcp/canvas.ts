@@ -458,10 +458,8 @@ function noiseSizeMatches(effect: {
   noiseSize: number
   noiseSizeVector?: { x: number; y: number }
 }): boolean {
-  return (
-    effect.noiseSizeVector === undefined ||
-    (effect.noiseSizeVector.x === effect.noiseSize && effect.noiseSizeVector.y === effect.noiseSize)
-  )
+  // The scalar mirrors x; the native vector's y dimension is independent.
+  return effect.noiseSizeVector === undefined || effect.noiseSizeVector.x === effect.noiseSize
 }
 
 const CanvasFigmaNoiseEffectSchema = z
@@ -488,7 +486,7 @@ const CanvasFigmaNoiseEffectSchema = z
       .strict()
   ])
   .refine(noiseSizeMatches, {
-    message: 'noiseSizeVector.x and noiseSizeVector.y must equal noiseSize.',
+    message: 'noiseSizeVector.x must equal noiseSize.',
     path: ['noiseSizeVector']
   })
 
@@ -535,7 +533,7 @@ export const CanvasFigmaEffectSchema = z.union([
     })
     .strict()
     .refine(noiseSizeMatches, {
-      message: 'noiseSizeVector.x and noiseSizeVector.y must equal noiseSize.',
+      message: 'noiseSizeVector.x must equal noiseSize.',
       path: ['noiseSizeVector']
     }),
   z

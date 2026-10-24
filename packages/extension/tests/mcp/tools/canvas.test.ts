@@ -5386,11 +5386,11 @@ describe('mcp/tools/canvas', () => {
 
   it('reconciles the complete ordered native effect stack with variables and shader properties', async () => {
     const fixture = createFixture()
-    const input: CanvasResolvedApplyParameters = {
+    const input: ApplyCanvasParametersInput = {
       mode: 'create',
       markup:
         '<div data-key="root" class="w-[320px] h-[200px] bg-[#FFFFFF] overflow-hidden"></div>',
-      bindings: {
+      native: {
         root: {
           figma: {
             effects: [
@@ -5496,7 +5496,7 @@ describe('mcp/tools/canvas', () => {
       }
     }
 
-    const created = await applyCanvas(input)
+    const created = await applyCanvasFromTool(input)
     const root = fixture.getNode(created.rootNodeId!)
     expect(root.effects.map((effect) => effect.type)).toEqual([
       'DROP_SHADOW',
@@ -5525,6 +5525,8 @@ describe('mcp/tools/canvas', () => {
       visible: true,
       boundVariables: { radius: { id: 'variable:spacing' } }
     })
+    expect(root.effects[5]).toMatchObject({ noiseSize: 2, noiseSizeVector: { x: 2, y: 3 } })
+    expect(root.effects[7]).toMatchObject({ noiseSize: 1, noiseSizeVector: { x: 1, y: 2 } })
     expect(root.effects[9]).toMatchObject({
       id: 'shader:effect',
       visible: true,
@@ -5549,7 +5551,7 @@ describe('mcp/tools/canvas', () => {
     })
     expect(fixture.importShaderById).toHaveBeenCalledWith('shader:effect')
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
+      applyCanvasFromTool({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
 

@@ -163,12 +163,34 @@ describe('tools response helpers', () => {
     expect(getStructure?.description).toContain('exact page id/key')
     expect(getStructure?.description).toContain('page-query roots are page-relative')
     expect(designSystem?.parameters.parse({})).toEqual({})
-    expect(
-      applyCanvas?.parameters.parse({
-        mode: 'create',
-        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>'
-      })
-    ).not.toHaveProperty('catalogId')
+    const input = {
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+      native: {
+        root: {
+          figma: {
+            effects: [
+              {
+                type: 'NOISE',
+                noiseType: 'MONOTONE',
+                color: { r: 0, g: 0, b: 0, a: 1 },
+                noiseSize: 2,
+                noiseSizeVector: { x: 2, y: 3 },
+                density: 0.5
+              },
+              {
+                type: 'TEXTURE',
+                noiseSize: 1,
+                noiseSizeVector: { x: 1, y: 2 },
+                radius: 4,
+                clipToShape: true
+              }
+            ]
+          }
+        }
+      }
+    }
+    expect(applyCanvas?.parameters.parse(input)).toEqual(input)
   })
 
   it('declares read and write behavior for every tool', () => {
