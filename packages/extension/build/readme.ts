@@ -76,7 +76,7 @@ ${plugins
         : `<img alt="${vendor.name}" src="https://simpleicons.org/icons/${vendor.icon}.svg" width="12" height="12"> [${vendor.name}](${repo})`
       : ''
 
-    return `| \`@${name}\` | ${description} | [${author}](https://github.com/${author}) | ${link} |`
+    return `| \`@${name}\` | ${description} | [${author}](https://github.com/${author.replace(/^@/, '')}) | ${link} |`
   })
   .join('\n')}`
 }
