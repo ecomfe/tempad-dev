@@ -67,19 +67,9 @@ pnpm -C packages/mcp-server test:coverage
 
 ## Code style and output examples
 
-Tools must be registered via `TOOL_DEFS` and mapped to targets.
-
-Good:
-
-```ts
-export const TOOL_DEFS = {
-  get_code: defineTool({
-    target: 'extension',
-    inputSchema: GetCodeParametersSchema,
-    formatter: formatGetCode
-  })
-}
-```
+Register tools in [`TOOL_DEFS`](src/tools.ts), following its existing `extTool`
+or `hubTool` definitions. Extension tools provide a response formatter; Hub tools
+may declare an output schema.
 
 Avoid embedding binary data directly:
 
@@ -102,14 +92,8 @@ return { image: largeBase64 }
 ## Testing notes
 
 - Follow repo-wide testing workflow in `TESTING.md`.
-- Coverage architecture and strict pure inventory are documented in `docs/testing/architecture.md`.
+- Coverage architecture is documented in [`docs/testing/architecture.md`](../../docs/testing/architecture.md).
 - Keep pure-function tests under `tests/**/*.test.ts` with deterministic inputs.
-- Strict pure coverage in this package targets:
-  - `src/asset-utils.ts`
-  - `src/tools.ts`
-  - `src/config.ts`
-  - `src/request.ts`
-  - `src/asset-store.ts`
-  - `src/asset-http-server.ts`
-  - `src/shared.ts`
+- Coverage scope and thresholds come from [`vitest.coverage.ts`](../../vitest.coverage.ts)
+  and are applied by this package's [`vitest.config.ts`](vitest.config.ts).
 - Cross-package contract changes should be validated in order: `packages/shared` -> `packages/mcp-server` -> `packages/extension`.
