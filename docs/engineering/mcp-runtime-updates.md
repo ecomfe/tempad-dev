@@ -594,6 +594,38 @@ Current shipped hooks are legacy. Exit: delivery evidence after timeout is under
 the measured benefit justifies the supervisor; otherwise retain update notices. This research
 does not block the independent 0a/0b fixes or establish that automatic updates are implemented.
 
+The opt-in measurement commands in [Testing](../../TESTING.md) now inspect supplied local
+packages without downloading releases or touching installed runtimes. They record emitted
+catalogs, artifact hashes, resolved-dependency lock provenance, process timings/RSS, and
+structural comparisons for both adjacent and skipped releases. Schema descriptions are
+separated from executable fields without erasing properties literally named `description`.
+Unknown schema keywords remain significant. Neither hash grants activation eligibility.
+
+The initial macOS/Node 24 sample covered all 12 stable npm releases from 0.5.0 through 0.11.0,
+with five fresh Hub runs per artifact and two CLI attachments per run. Of 11 adjacent transitions, five had identical
+advertisements, two changed presentation only, and four changed the wire contract. The
+0.5.0 → 0.5.1 presentation change actually changes vector/follow-up guidance and must not be
+treated as a safe text correction. The 0.7.0 → 0.7.1 change only renames/titles the server.
+All four transitions from 0.7.1 onwards change wire contracts. These counts are not hot-update
+coverage: 0.x minor boundaries also need approval, dependencies were resolved at measurement
+time, and no historical release supplies a reviewed guidance epoch.
+
+This supports a bounded bundled-only Phase 1 prototype: the 0.6.1 Hub startup-race fix is a
+concrete correction whose advertised contract stayed unchanged. It does not justify enabling
+automatic updates or carrying multiple schema implementations. Measure the prototype's added
+process and recovery cost against this baseline before accepting the supervisor architecture.
+Warm CLI attachment is only a baseline; it does not prove uninterrupted MCP reconnection.
+
+The inspected installed Claude payload was 0.4.0: one legacy payload, zero receipt/retry-capable
+payloads. No live Claude binding was validated by this inventory. Both that payload and the
+current hook were exercised against a synthetic receiver. Slow persistence and lost replies
+can leave a committed event; failed persistence, early disconnect and exit before arrival
+leave none. All five cases exit successfully without usable acknowledgment. Therefore the
+receiver's retained record, followed by fresh binding evidence, must decide recovery; the
+hook exit code cannot. File/directory fsync samples and an injected 900 ms delay do not measure
+full-device flush or platform-wide load behavior. Those measurements and installed-host
+receipt/retry acceptance remain gates before automatic activation, not claims from this probe.
+
 ### Phase 1 — stable edge and supervisor, bundled runtime only
 
 - Two clients initialize and use the same bundled Hub; tools, frozen metadata, progress,

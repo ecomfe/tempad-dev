@@ -55,6 +55,19 @@ Root:
   CI runs it alongside profile isolation.
   It refuses Windows for the same fixed-pipe constraint; it does not connect to installed hosts.
   Native adapter and real Hub socket tests separately cover routing and persisted host contexts.
+- `pnpm mcp:measure-runtime --output <new.json> --runs 5 [--lockfile <installation-lock>] <package-dir> [...]`
+  compares trusted, explicitly supplied local release artifacts in the given version order. It
+  performs MCP initialization/catalog reads through fresh CLI/Hub processes and records artifact
+  hashes, structural comparisons across release windows, startup/attach timing and RSS. It never
+  downloads packages or connects to installed hosts. TCP listeners are remapped to ephemeral
+  loopback ports and IPC listeners are confined to a temporary root; Windows is refused.
+  Preserve the resolved dependency lock alongside the report. Structural equality does not prove
+  guidance or behavior compatibility, and warm attachment is not uninterrupted session recovery.
+- `pnpm mcp:measure-hooks --hook <lifecycle.mjs> --output <new.json> --runs 30` measures an inspected
+  hook against an isolated synthetic receiver, including slow commit, lost reply, failed commit,
+  disconnect and exit before request arrival. It does not modify installed hooks or contact the
+  user's Hub. File/directory fsync and injected delay are not full-device flush, disk-pressure,
+  or installed-host adoption evidence. Keep measurement reports outside version control.
 - `pnpm --filter @tempad-dev/extension test:setup` (install extension browser runtime)
 - `pnpm --filter @tempad-dev/extension test:node` (extension node tests only)
 - `pnpm --filter @tempad-dev/extension test:browser` (extension browser tests only)
