@@ -585,6 +585,13 @@ Codex/Claude UI behavior or Windows process-level isolation. No supervisor is in
 Codex App native Queue, Steer, Stop and lifecycle acceptance is required before shipping 0b;
 deterministic checks alone do not establish compatibility of the sanitized helper environment.
 
+Native acceptance passed on macOS with Codex App 26.1021.22027 and bundled CLI
+0.164.0-alpha.11.1: a comment queued from Figma reached the next native turn, Steer
+reached an already-running turn, turn completion paused the design task, and Figma Stop
+persisted cancellation and interrupted the owning turn. This used the installed checkout
+plugin and runtime-managed queue helper; it does not establish Windows or other host-version
+compatibility.
+
 ### Phase 0c — feasibility measurements and hook inventory
 
 Compare actual release-artifact contracts/guidance and measure process cost and legacy hook
