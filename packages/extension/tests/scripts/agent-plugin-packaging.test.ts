@@ -201,6 +201,19 @@ it('pins releases to npm and the development build to this checkout', () => {
     'TemPad Dev (Dev)'
   )
   expect(read(join(DEV, '.claude-plugin/plugin.json')).hooks).toBe('./clients/claude/hooks.json')
+  const profile = read(join(DEV, 'clients/shared/runtime-profile.json'))
+  expect(profile).toEqual({
+    checkout: root,
+    id: expect.stringMatching(/^[a-f0-9]{16}$/),
+    serverName: read(join(DEV, '.claude-plugin/plugin.json')).name
+  })
+  expect(read(join(DEV, '.claude-plugin/plugin.json')).mcpServers).toBe('./.mcp.json')
+  expect(Object.keys(read(join(DEV, '.mcp.json')).mcpServers)).toEqual([profile.serverName])
+  const hooks = read(join(DEV, 'clients/claude/hooks.json')).hooks
+  expect(hooks.Stop[0].hooks[0].command).toContain(
+    '--runtime-profile "${CLAUDE_PLUGIN_ROOT}/clients/shared/runtime-profile.json"'
+  )
+  expect(has(CLAUDE, 'clients/shared/runtime-profile.json')).toBe(false)
 })
 
 it('gives Codex enough time to receive the bounded canvas outcome', () => {

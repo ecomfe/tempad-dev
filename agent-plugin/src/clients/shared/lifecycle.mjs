@@ -1,12 +1,20 @@
 // Installed hooks exchange lifecycle identity and Stop notices with the existing Hub. They never
 // launch an agent, poll a model, change host trust, or unlock a stopped Figma file.
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { connect } from 'node:net'
-import { join } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import process from 'node:process'
 import { clearTimeout, setTimeout } from 'node:timers'
+import { pathToFileURL } from 'node:url'
 
 import { assertTrustedSocket, resolveDefaultRoot } from './runtime-paths.mjs'
+import {
+  checkoutProfile,
+  resolveRuntimeProfile,
+  runtimeDirectories,
+  runtimeSocketPath
+} from './runtime-profile.mjs'
 
 let socket
 const deadline = setTimeout(() => process.exit(0), 750)
@@ -55,9 +63,45 @@ try {
     kind: process.argv[2] === 'claude' ? 'claude' : 'codex',
     sessionId: input.session_id
   }
-  const runtimeDir = process.env.TEMPAD_MCP_RUNTIME_DIR || join(resolveDefaultRoot(), 'run')
-  const path =
-    process.platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(runtimeDir, 'mcp.sock')
+  let path
+  if (process.argv[3] === '--runtime-profile') {
+    const descriptorPath = process.argv[4]
+    const descriptor = JSON.parse(readFileSync(descriptorPath, 'utf8'))
+    if (typeof descriptor.serverName !== 'string' || !descriptor.serverName)
+      throw new Error('Missing checkout MCP server name.')
+    // Read the same generated configuration as MCP/preflight so directory overrides cannot drift.
+    const pluginRoot = resolve(dirname(descriptorPath), '../..')
+    const config = JSON.parse(readFileSync(join(pluginRoot, '.mcp.json'), 'utf8')).mcpServers?.[
+      descriptor.serverName
+    ]
+    if (
+      typeof config?.env?.TEMPAD_MCP_DEV_CHECKOUT !== 'string' ||
+      typeof config?.args?.[0] !== 'string'
+    )
+      throw new Error('Missing checkout MCP configuration.')
+    const runtimeDir = config.env.TEMPAD_MCP_RUNTIME_DIR
+    if (
+      runtimeDir !== undefined &&
+      (typeof runtimeDir !== 'string' || (runtimeDir && !isAbsolute(runtimeDir)))
+    )
+      throw new Error('Checkout runtime directory must be an absolute path.')
+    const env = {
+      ...process.env,
+      TEMPAD_MCP_DEV_CHECKOUT: config.env.TEMPAD_MCP_DEV_CHECKOUT,
+      ...(runtimeDir !== undefined ? { TEMPAD_MCP_RUNTIME_DIR: runtimeDir } : {})
+    }
+    const profile = resolveRuntimeProfile(env, pathToFileURL(resolve(pluginRoot, config.args[0])))
+    if (
+      profile.kind !== 'checkout' ||
+      profile.id !== descriptor.id ||
+      checkoutProfile(descriptor.checkout).id !== profile.id
+    )
+      throw new Error('Invalid checkout hook profile.')
+    path = runtimeSocketPath(runtimeDirectories(env, profile).runtime, profile)
+  } else {
+    const runtimeDir = process.env.TEMPAD_MCP_RUNTIME_DIR || join(resolveDefaultRoot(), 'run')
+    path = process.platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(runtimeDir, 'mcp.sock')
+  }
   assertTrustedSocket(path)
   socket = connect(path).setEncoding('utf8')
   const result = await new Promise((resolve, reject) => {

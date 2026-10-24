@@ -9,6 +9,10 @@ import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 
+import {
+  checkoutProfile,
+  runtimeDirectories
+} from '../../../agent-plugin/src/clients/shared/runtime-profile.mjs'
 import { ClientHookRequestSchema, ClientHooks, type ClientHook } from '../src/agent-clients/hooks'
 import { ClientEventSchema } from '../src/agent-clients/identity'
 
@@ -104,6 +108,104 @@ async function runHook(
 // The installed Windows hook ignores runtime-directory overrides for its fixed pipe.
 // Only the in-memory protocol test is safe there; never probe the user's real Hub.
 describe('plugin hook transport', () => {
+  it.skipIf(process.platform === 'win32')(
+    'uses the generated checkout and configured directory without MCP environment inheritance',
+    async () => {
+      const root = await mkdtemp('/tmp/th-profile-')
+      const checkout = join(root, 'checkout')
+      const fallbackDir = join(root, 'fallback')
+      const pluginRoot = join(root, 'plugin')
+      const descriptor = join(pluginRoot, 'clients/shared/runtime-profile.json')
+      const serverName = 'renamed-checkout-server'
+      const received: string[] = []
+      const servers = [createServer(), createServer()]
+      try {
+        await mkdir(join(checkout, 'packages/mcp-server/dist'), { recursive: true })
+        for (const name of ['cli.mjs', 'hub.mjs'])
+          await writeFile(join(checkout, 'packages/mcp-server/dist', name), '')
+        const profile = checkoutProfile(checkout)
+        await mkdir(join(pluginRoot, 'clients/shared'), { recursive: true })
+        await writeFile(descriptor, JSON.stringify({ checkout, id: profile.id, serverName }))
+        const config = {
+          mcpServers: {
+            [serverName]: {
+              command: 'node',
+              args: [join(checkout, 'packages/mcp-server/dist/cli.mjs')],
+              env: { TEMPAD_MCP_DEV_CHECKOUT: checkout, TEMPAD_MCP_RUNTIME_DIR: root }
+            }
+          }
+        }
+        const configPath = join(pluginRoot, '.mcp.json')
+        await writeFile(configPath, JSON.stringify(config))
+        const devDir = runtimeDirectories({
+          TEMPAD_MCP_RUNTIME_DIR: root,
+          TEMPAD_MCP_DEV_CHECKOUT: checkout
+        }).runtime
+        await mkdir(fallbackDir, { mode: 0o700 })
+        await mkdir(devDir, { mode: 0o700 })
+        for (const [index, directory] of [fallbackDir, devDir].entries()) {
+          const server = servers[index]!
+          server.on('connection', (socket) => {
+            socket.setEncoding('utf8')
+            let text = ''
+            socket.on('data', (data) => {
+              text += data
+              if (!text.endsWith('\n')) return
+              received.push(index ? 'checkout' : 'release')
+              socket.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }) + '\n')
+            })
+          })
+          await new Promise<void>((resolve) => server.listen(join(directory, 'mcp.sock'), resolve))
+          await chmod(join(directory, 'mcp.sock'), 0o600)
+        }
+        const invoke = async (path: string) => {
+          const child = spawn(process.execPath, [hook, 'claude', '--runtime-profile', path], {
+            env: {
+              ...process.env,
+              TEMPAD_MCP_DEV_CHECKOUT: undefined,
+              TEMPAD_MCP_RUNTIME_DIR: fallbackDir
+            },
+            stdio: ['pipe', 'ignore', 'pipe']
+          })
+          let stderr = ''
+          child.stderr.setEncoding('utf8').on('data', (data) => {
+            stderr += data
+          })
+          child.stdin.end(JSON.stringify({ hook_event_name: 'Stop', session_id: 'profile-test' }))
+          expect(await new Promise((resolve) => child.once('close', resolve))).toBe(0)
+          expect(stderr).toBe('')
+        }
+        await invoke(descriptor)
+        expect(received).toEqual(['checkout'])
+        config.mcpServers[serverName].env.TEMPAD_MCP_RUNTIME_DIR = '..'
+        await writeFile(configPath, JSON.stringify(config))
+        await invoke(descriptor)
+        expect(received).toEqual(['checkout'])
+        config.mcpServers[serverName].env.TEMPAD_MCP_RUNTIME_DIR = root
+        await writeFile(configPath, JSON.stringify(config))
+        await invoke(join(root, 'missing.json'))
+        await writeFile(descriptor, JSON.stringify({ checkout, id: '0'.repeat(16), serverName }))
+        await invoke(descriptor)
+        expect(received).toEqual(['checkout'])
+        await writeFile(descriptor, JSON.stringify({ checkout, id: profile.id }))
+        await invoke(descriptor)
+        expect(received).toEqual(['checkout'])
+        await writeFile(descriptor, JSON.stringify({ checkout, id: profile.id, serverName }))
+        config.mcpServers[serverName].env.TEMPAD_MCP_DEV_CHECKOUT = root
+        await writeFile(configPath, JSON.stringify(config))
+        await invoke(descriptor)
+        await rm(configPath)
+        await invoke(descriptor)
+        expect(received).toEqual(['checkout'])
+      } finally {
+        await Promise.all(
+          servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve())))
+        )
+        await rm(root, { recursive: true, force: true })
+      }
+    }
+  )
+
   it.skipIf(process.platform === 'win32').each([
     { name: 'a normal reply', prefix: '' },
     {

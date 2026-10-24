@@ -6,12 +6,16 @@ import {
   TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS,
+  sameRuntimeProfile,
+  type RuntimeProfile,
   type RegisteredMessage
 } from '@tempad-dev/shared'
 import { WebSocket, type RawData } from 'ws'
 
 import type { ExtensionRegistry } from './extension-registry'
 import type { ExtensionConnection } from './types'
+
+const CHECKOUT_HANDSHAKE_TIMEOUT_MS = 5000
 
 type ExtensionProtocolWarning =
   | { extensionId: string; kind: 'binary' }
@@ -21,6 +25,7 @@ type AttachExtensionSocketOptions = {
   createId: () => string
   origin: string
   registry: ExtensionRegistry
+  runtimeProfile?: RuntimeProfile
   terminalReceiptGeneration?: string
   onToolCompletion?: (message: ToolCompletionMessage, extension: ExtensionConnection) => boolean
   onActivationRejected?: (extensionId: string, activeExtensionId: string) => void
@@ -49,21 +54,34 @@ export function attachExtensionSocket(
     legacy: ws.protocol !== TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
     ws
   }
-  options.registry.add(extension)
-  options.onConnected?.(extension.id)
+  const checkout = options.runtimeProfile?.kind === 'checkout'
+  const handshakeTimer = checkout
+    ? setTimeout(
+        () => ws.close(1008, 'Checkout runtime handshake timed out.'),
+        CHECKOUT_HANDSHAKE_TIMEOUT_MS
+      )
+    : undefined
+  handshakeTimer?.unref()
+  if (!checkout) {
+    options.registry.add(extension)
+    options.onConnected?.(extension.id)
+  }
 
   const registered: RegisteredMessage = {
     id: extension.id,
     protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
     supportedProtocolVersions: [...TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS],
+    ...(checkout ? { runtimeProfile: options.runtimeProfile } : {}),
     ...(options.terminalReceiptGeneration
       ? { terminalReceiptGeneration: options.terminalReceiptGeneration }
       : {}),
     type: 'registered'
   }
   ws.send(JSON.stringify(extension.legacy ? { type: 'registered', id: extension.id } : registered))
-  options.onStateChange()
-  scheduleAutoActivation(options)
+  if (!checkout) {
+    options.onStateChange()
+    scheduleAutoActivation(options)
+  }
 
   ws.on('message', (raw: RawData, isBinary: boolean) => {
     // Policy rejection starts a closing handshake; queued frames may still arrive.
@@ -107,6 +125,10 @@ export function attachExtensionSocket(
     }
 
     const message = parseResult.data
+    if (checkout && !extension.runtime && message.type !== 'runtimeHello') {
+      ws.close(1008, 'Checkout runtime handshake required.')
+      return
+    }
     if (
       !extension.legacy &&
       !extension.runtime &&
@@ -175,6 +197,10 @@ export function attachExtensionSocket(
         }
         break
       case 'runtimeHello': {
+        if (!sameRuntimeProfile(options.runtimeProfile, message.runtimeProfile)) {
+          ws.close(1008, 'Runtime profile mismatch.')
+          return
+        }
         if (message.terminalReceipts && !options.terminalReceiptGeneration) {
           ws.close(1008, 'Terminal receipts are unavailable.')
           return
@@ -199,11 +225,19 @@ export function attachExtensionSocket(
           ws.close(1008, 'Extension changed runtime identity.')
           break
         }
+        const firstHello = !extension.runtime
+        clearTimeout(handshakeTimer)
         extension.runtime = {
           protocolVersion,
           version: message.extensionVersion,
           fingerprint: message.extensionRuntimeFingerprint,
           ...(message.terminalReceipts ? { terminalReceipts: true as const } : {})
+        }
+        if (checkout && firstHello) {
+          options.registry.add(extension)
+          options.onConnected?.(extension.id)
+          options.onStateChange()
+          scheduleAutoActivation(options)
         }
         options.onRuntimeHello?.(extension)
         break
@@ -218,6 +252,7 @@ export function attachExtensionSocket(
   })
 
   ws.once('close', () => {
+    clearTimeout(handshakeTimer)
     const removed = options.registry.remove(extension.id)
     if (!removed) return
     options.onDisconnected?.(extension.id, removed.wasActive)
@@ -225,6 +260,7 @@ export function attachExtensionSocket(
     scheduleAutoActivation(options)
   })
 
+  if (checkout && extension.legacy) ws.close(1008, 'Checkout runtime identity required.')
   return extension
 }
 

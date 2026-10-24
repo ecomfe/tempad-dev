@@ -12,6 +12,7 @@
     "build:plugins": "pnpm --filter @tempad-dev/plugins build",
     "build:mcp": "pnpm --filter @tempad-dev/mcp build",
     "mcp:check-bridge": "pnpm --filter @tempad-dev/shared build && pnpm --filter @tempad-dev/mcp check:bridge-compatibility",
+    "mcp:check-profiles": "pnpm --filter @tempad-dev/shared build && pnpm build:mcp && node packages/mcp-server/scripts/check-runtime-profiles.mjs",
     "screenshots": "pnpm --filter @tempad-dev/extension screenshots",
     "test": "pnpm -r --parallel --if-present test",
     "test:run": "pnpm -r --if-present test:run",

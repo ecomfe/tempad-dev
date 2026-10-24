@@ -38,6 +38,7 @@ vi.mock('../src/shared', async () => {
   return {
     ASSET_DIR: `${fixture.directory}/assets`,
     RUNTIME_DIR: fixture.directory,
+    RUNTIME_PROFILE: { kind: 'release' },
     SOCK_PATH: fixture.socketPath,
     HUB_LOCK_PATH: `${fixture.directory}/hub.lock`,
     HUB_LOCK_STALE_MS: 10000,

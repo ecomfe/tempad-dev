@@ -1,6 +1,16 @@
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { checkoutProfile } from '../agent-plugin/src/clients/shared/runtime-profile.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const srcRoot = join(root, 'agent-plugin/src')
@@ -135,6 +145,22 @@ function buildDev(marketplaces) {
       }
     }
   )
+
+  const checkout = realpathSync(root)
+  writeJson(join(devRoot, 'clients/shared/runtime-profile.json'), {
+    checkout,
+    id: checkoutProfile(checkout).id,
+    serverName: devName
+  })
+  const hooks = readJson(join(devRoot, 'clients/claude/hooks.json'))
+  for (const entries of Object.values(hooks.hooks)) {
+    for (const entry of entries) {
+      for (const hook of entry.hooks)
+        hook.command +=
+          ' --runtime-profile "${CLAUDE_PLUGIN_ROOT}/clients/shared/runtime-profile.json"'
+    }
+  }
+  writeJson(join(devRoot, 'clients/claude/hooks.json'), hooks)
 
   const codexMarketplace = structuredClone(marketplaces.codex)
   codexMarketplace.name = devName

@@ -2,6 +2,7 @@
 
 ## 0.23.5 (unreleased)
 
+- Isolated checkout builds on separate MCP ports with profile verification; release connections are unchanged.
 - Improved CSS exports for layered fills and gradients, image crops and tiles, stacking and blending,
   mixed fonts and text spacing, variable opacity, and SVG sizing and placement, including rotated vectors.
 - Fixed canvas updates involving components, grids, fonts, and variable modes. Invalid resource

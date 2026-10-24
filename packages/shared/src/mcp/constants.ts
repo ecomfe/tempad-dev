@@ -1,4 +1,5 @@
 export const MCP_PORT_CANDIDATES = [6220, 7431, 8127]
+export const MCP_CHECKOUT_PORT_CANDIDATES = [16220, 17431, 18127]
 
 // Select versioned registration before the first frame. Extension 0.20.0 sends no
 // subprotocol and strictly rejects version fields; it uses the legacy read-only wire.

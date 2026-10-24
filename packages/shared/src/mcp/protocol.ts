@@ -2,6 +2,7 @@ import type { ZodType } from 'zod'
 
 import { z } from 'zod'
 
+import { MCP_CHECKOUT_PORT_CANDIDATES, MCP_PORT_CANDIDATES } from './constants'
 import {
   DesignTaskSchema,
   DesignToolRouteSchema,
@@ -11,6 +12,21 @@ import {
 } from './design-task'
 import { TempadMcpErrorPayloadSchema } from './errors'
 import { hasToolResultOutcome, TOOL_RESULT_OUTCOME_ERROR } from './tool-result'
+
+export const RuntimeProfileSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('release') }).strict(),
+  z.object({ kind: z.literal('checkout'), id: z.string().regex(/^[a-f0-9]{16}$/) }).strict()
+])
+export type RuntimeProfile = z.infer<typeof RuntimeProfileSchema>
+
+export function sameRuntimeProfile(left?: RuntimeProfile, right?: RuntimeProfile): boolean {
+  if (left?.kind === 'checkout') return right?.kind === 'checkout' && left.id === right.id
+  return right?.kind !== 'checkout'
+}
+
+export function runtimePortCandidates(profile?: RuntimeProfile): readonly number[] {
+  return profile?.kind === 'checkout' ? MCP_CHECKOUT_PORT_CANDIDATES : MCP_PORT_CANDIDATES
+}
 
 // Messages from hub to extension. These envelopes stay open to unknown keys: a newer Hub reaches an
 // older installed extension, and rejecting an added envelope field would drop the whole message.
@@ -22,6 +38,7 @@ export const RegisteredMessageSchema = z.object({
   id: z.string().min(1),
   protocolVersion: z.number().int().positive(),
   supportedProtocolVersions: z.array(z.number().int().positive()).min(1).optional(),
+  runtimeProfile: RuntimeProfileSchema.optional(),
   terminalReceiptGeneration: z.string().min(1).max(128).optional()
 })
 
@@ -114,6 +131,7 @@ export const PingMessageSchema = z
 export const RuntimeHelloMessageSchema = z
   .object({
     type: z.literal('runtimeHello'),
+    runtimeProfile: RuntimeProfileSchema.optional(),
     // Released protocol 13 peers omit this field. The Hub treats omission conservatively as 13.
     protocolVersion: z.number().int().positive().optional(),
     terminalReceipts: z.literal(true).optional(),

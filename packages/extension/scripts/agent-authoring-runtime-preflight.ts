@@ -2,12 +2,14 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { access, readFile, realpath, stat } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, normalize, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
-import { resolveDefaultRoot } from '../../../agent-plugin/src/clients/shared/runtime-paths.mjs'
+import {
+  resolveRuntimeProfile,
+  runtimeDirectories
+} from '../../../agent-plugin/src/clients/shared/runtime-profile.mjs'
 
 const execFileAsync = promisify(execFile)
 const defaultRepoRoot = fileURLToPath(new URL('../../../', import.meta.url))
@@ -417,14 +419,6 @@ export function evaluateTempadPluginIdentity(
   return { installed, issues }
 }
 
-export function resolveDefaultRuntimeDir(
-  systemTmpDir: string = tmpdir(),
-  platform: NodeJS.Platform = process.platform,
-  uid: number | undefined = process.getuid?.()
-): string {
-  return join(resolveDefaultRoot(systemTmpDir, platform, uid), 'run')
-}
-
 async function resolveRuntimeConfiguration(checkout: string): Promise<RuntimeConfiguration> {
   const pluginRoot = join(checkout, '.dev/plugins/tempad-dev-dev')
   const manifestPath = join(pluginRoot, '.codex-plugin/plugin.json')
@@ -456,16 +450,21 @@ async function resolveRuntimeConfiguration(checkout: string): Promise<RuntimeCon
   const hub = join(dirname(cli), 'hub.mjs')
   const serverEnv = server.env === undefined ? {} : objectValue(server.env, `${mcpPath}#env`)
   const configuredRuntimeDir = serverEnv.TEMPAD_MCP_RUNTIME_DIR
-  if (configuredRuntimeDir !== undefined && typeof configuredRuntimeDir !== 'string') {
-    fail(`Invalid TEMPAD_MCP_RUNTIME_DIR in ${mcpPath}.`)
+  if (
+    configuredRuntimeDir !== undefined &&
+    (typeof configuredRuntimeDir !== 'string' ||
+      (configuredRuntimeDir && !isAbsolute(configuredRuntimeDir)))
+  ) {
+    fail(`TEMPAD_MCP_RUNTIME_DIR in ${mcpPath} must be an absolute path.`)
   }
-  const runtimeDir = configuredRuntimeDir
-    ? normalize(
-        isAbsolute(configuredRuntimeDir)
-          ? configuredRuntimeDir
-          : resolve(pluginRoot, configuredRuntimeDir)
-      )
-    : resolveDefaultRuntimeDir()
+  if (typeof serverEnv.TEMPAD_MCP_DEV_CHECKOUT !== 'string')
+    fail(`Missing checkout identity in ${mcpPath}. Run pnpm agent-plugin:build.`)
+  const env = {
+    ...process.env,
+    TEMPAD_MCP_DEV_CHECKOUT: serverEnv.TEMPAD_MCP_DEV_CHECKOUT,
+    ...(configuredRuntimeDir !== undefined ? { TEMPAD_MCP_RUNTIME_DIR: configuredRuntimeDir } : {})
+  }
+  const runtimeDir = runtimeDirectories(env, resolveRuntimeProfile(env, pathToFileURL(cli))).runtime
   await Promise.all([access(cli), access(hub)])
   return {
     generatedVersion: manifest.version,

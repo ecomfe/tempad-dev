@@ -287,9 +287,19 @@ Before every live dispatch:
    development plugin when a generator input changed:
 
    ```sh
-   pnpm build
+   TEMPAD_MCP_DEV_CHECKOUT="$PWD" pnpm build
    pnpm agent-plugin:build
    ```
+
+   The explicit checkout identity is required for a production-mode extension candidate.
+   Without it, `pnpm build` produces a release extension, which connects only to the release
+   Hub. `pnpm dev` selects the checkout automatically. Both use the same checkout hash as
+   the generated development plugin; checkout discovery never falls back to release ports.
+
+   When upgrading from the shared development runtime, restart the old dev Hub once to release
+   its release discovery port. Existing dev task state and assets remain in the release stores;
+   they are not migrated. Checkout state now defaults to `~/.tempad-dev/checkouts/<id>/state`,
+   and previously returned dev asset references no longer resolve through the new checkout Hub.
 
 2. When generated plugin content changed, replace `tempad-dev-dev` **in the running
    Codex App** using the CDP script:

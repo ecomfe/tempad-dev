@@ -29,6 +29,14 @@ expiry, and recovery semantics. Taskless reads use the active route unless they 
 3. The broker starts one WebSocket client for all Figma tabs in the extension context.
 4. The client probes the known ports and requests the `tempad-mcp` WebSocket subprotocol before
    receiving any frames. It accepts a candidate only after receiving both `registered` and `state`.
+   Release and checkout builds use disjoint port pools from shared constants. A checkout Hub
+   announces its real-path profile hash in `registered`; the broker must match it and send
+   `runtimeHello` before the Hub registers the connection or exposes state and asset access.
+   Missing profile fields mean release. Checkout peers reject missing or different identities
+   and never fall back to release ports. Release peers preserve the existing handshake.
+   Discovery uses the build profile independently of the runtime fingerprint. A checkout build
+   without a valid runtime identity makes no connection attempt. Checkout Hubs close connections
+   with code 1008 if the runtime handshake has not completed within five seconds.
    Registration announces `protocolVersion` and the versions the Hub still serves. A Hub that does
    not serve this extension is rejected with instructions to restart the agent's MCP connection
    using `@tempad-dev/mcp@latest`, including other agents keeping an old Hub alive. Reloading Figma
@@ -83,7 +91,8 @@ agent decides whether to reuse or refresh the Hub under the
 [evolution guide](../testing/agent-authoring-evolution.md#3-establish-a-trustworthy-runtime).
 Compatible extension updates can reconnect to the same Hub. Runtime handshakes,
 protocol validation, connection ownership, and stale-request checks remain enforced.
-Exact checkout matching belongs to preflight and the frozen run record.
+Checkout identity must match during the handshake. Exact source/build matching belongs to
+preflight and the frozen run record.
 
 ### Released unversioned extensions
 

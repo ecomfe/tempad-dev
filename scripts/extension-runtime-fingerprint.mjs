@@ -33,7 +33,8 @@ const EXTENSION_RUNTIME_ENTRIES = [
   'tsconfig.base.json',
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
-  'scripts/extension-runtime-fingerprint.mjs'
+  'scripts/extension-runtime-fingerprint.mjs',
+  'agent-plugin/src/clients/shared/runtime-profile.mjs'
 ]
 
 export function listExtensionRuntimeSources(repositoryRoot) {

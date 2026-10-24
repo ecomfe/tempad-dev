@@ -88,6 +88,9 @@ jobs:
       - name: Check bridge compatibility
         run: node packages/mcp-server/scripts/check-bridge-compatibility.mjs
 
+      - name: Check runtime profile isolation
+        run: node packages/mcp-server/scripts/check-runtime-profiles.mjs
+
   typescript-compatibility:
     runs-on: ubuntu-latest
     steps:

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.8
+
+- Kept development Claude hooks connected to their own checkout when a release runtime is also running.
+
 ## 0.5.7
 
 - Preserved Unicode text in Claude lifecycle messages and tolerated malformed Hub replies.

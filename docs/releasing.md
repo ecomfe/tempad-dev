@@ -29,6 +29,8 @@ were prepared before their source changes were committed.
 3. Run the checks in [TESTING.md](../TESTING.md), then `pnpm format:check`, `pnpm build`, and
    `pnpm zip`. Ordinary build must not change tracked agent-plugin files. The extension archive is
    written to `packages/extension/.output/` with the version from the extension package.
+   ZIP packaging rejects checkout profiles; unset `TEMPAD_MCP_DEV_CHECKOUT` before packaging.
+   The build log prints the selected profile.
 4. Remove `packages/mcp-server/dist` and rebuild before packing. A working tree that has been
    built repeatedly has been seen holding a stale hashed shared chunk even though `clean` is
    configured, and packing from it ships both copies. Then run `npm pack` in `packages/mcp-server`
@@ -64,6 +66,9 @@ CLI also reuses an existing Hub, and an older CLI can restart its own packaged H
 that runtime requires disconnecting all TemPad MCP clients before restarting their MCP servers.
 The extension separately waits for Chrome Web Store review and staged rollout. Neither npm nor
 store publication establishes that users are running the update or have reloaded Figma.
+
+The proposed [runtime update design and release policy](engineering/mcp-runtime-updates.md)
+are not implemented and do not change these restart requirements.
 
 | Hub change                                          | Release requirement                                                                                           |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |

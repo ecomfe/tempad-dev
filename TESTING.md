@@ -42,6 +42,12 @@ Root:
     Hub-to-extension, extension-to-Hub, and formatted MCP fixture responses.
 - `pnpm agent-plugin:check-installer` (networked discovery smoke test with `plugins@1.3.4`;
   run after `pnpm agent-plugin:build`, without installing into a host)
+- `pnpm mcp:check-profiles` (builds and launches isolated real CLI/Hub processes; checks
+  shared release ownership, default and overridden directories, actual release/checkout WebSocket
+  ports, and independent shutdown). CI runs the same harness beside the bridge check.
+  Windows process-level isolation is unverified: the harness refuses Windows and Unix hook
+  fixtures are skipped there. Unit tests cover pipe naming by user and checkout and the unchanged
+  release pipe; runtime-directory overrides cannot isolate two Windows Hubs for the same checkout.
 - `pnpm --filter @tempad-dev/extension test:setup` (install extension browser runtime)
 - `pnpm --filter @tempad-dev/extension test:node` (extension node tests only)
 - `pnpm --filter @tempad-dev/extension test:browser` (extension browser tests only)

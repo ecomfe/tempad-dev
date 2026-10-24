@@ -1,12 +1,4 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync
-} from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -21,7 +13,6 @@ import {
   parseProcessTable,
   processRunsRuntimeEntry,
   resolveCodexExecutable,
-  resolveDefaultRuntimeDir,
   runPreflight
 } from '@/scripts/agent-authoring-runtime-preflight'
 
@@ -47,12 +38,13 @@ function runtimeProcess(path: string, pid: number, startedAtMs: number) {
 
 describe('agent authoring runtime preflight', () => {
   it.each([
-    { copiedManifest: false, symlinkCheckout: false },
-    { copiedManifest: true, symlinkCheckout: false },
-    { copiedManifest: false, symlinkCheckout: true }
+    { copiedManifest: false, symlinkCheckout: false, relativeRuntime: false },
+    { copiedManifest: true, symlinkCheckout: false, relativeRuntime: false },
+    { copiedManifest: false, symlinkCheckout: true, relativeRuntime: false },
+    { copiedManifest: false, symlinkCheckout: false, relativeRuntime: true }
   ])(
-    'requires entries from this checkout (copied: $copiedManifest, symlink: $symlinkCheckout)',
-    async ({ copiedManifest, symlinkCheckout }) => {
+    'requires this checkout and an absolute runtime path (copied: $copiedManifest, symlink: $symlinkCheckout, relative: $relativeRuntime)',
+    async ({ copiedManifest, symlinkCheckout, relativeRuntime }) => {
       const directory = mkdtempSync(join(tmpdir(), 'tempad-preflight-checkout-'))
       const physicalCheckout = join(directory, 'checkout')
       const checkout = symlinkCheckout ? join(directory, 'checkout-link') : physicalCheckout
@@ -87,11 +79,20 @@ describe('agent authoring runtime preflight', () => {
             'tempad-dev-dev': {
               command: 'node',
               args: [cli],
-              env: { TEMPAD_MCP_RUNTIME_DIR: runtimeDir }
+              env: {
+                TEMPAD_MCP_RUNTIME_DIR: relativeRuntime ? '../run' : runtimeDir,
+                TEMPAD_MCP_DEV_CHECKOUT: checkout
+              }
             }
           }
         })
-        writeJson(join(runtimeDir, 'hub-runtime.json'), {
+        const { runtimeDirectories } =
+          await import('../../../../agent-plugin/src/clients/shared/runtime-profile.mjs')
+        const profileRuntime = runtimeDirectories({
+          TEMPAD_MCP_RUNTIME_DIR: runtimeDir,
+          TEMPAD_MCP_DEV_CHECKOUT: checkout
+        }).runtime
+        writeJson(join(profileRuntime, 'hub-runtime.json'), {
           processId: 102,
           activeExtension: {
             connectedAt: '2026-10-01T00:00:00.000Z',
@@ -119,6 +120,9 @@ describe('agent authoring runtime preflight', () => {
         const preflight = runPreflight({ appPath, checkout })
         if (copiedManifest) {
           await expect(preflight).rejects.toThrow('this checkout')
+          expect(exec).not.toHaveBeenCalled()
+        } else if (relativeRuntime) {
+          await expect(preflight).rejects.toThrow('must be an absolute path')
           expect(exec).not.toHaveBeenCalled()
         } else {
           await expect(preflight).resolves.toMatchObject({ valid: true })
@@ -150,31 +154,6 @@ describe('agent authoring runtime preflight', () => {
     }
   })
 
-  it.skipIf(process.platform === 'win32')(
-    'locates the same private Linux root as the Hub, retaining a safe legacy runtime',
-    () => {
-      const directory = mkdtempSync(join(tmpdir(), 'tempad-preflight-path-'))
-      const legacyRoot = join(directory, 'tempad-dev')
-      const isolated = join(directory, `tempad-dev-${process.getuid!()}`, 'run')
-      try {
-        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(join(legacyRoot, 'run'))
-        expect(existsSync(legacyRoot)).toBe(false)
-        mkdirSync(legacyRoot, { mode: 0o700 })
-        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(join(legacyRoot, 'run'))
-        expect(resolveDefaultRuntimeDir(directory, 'linux', process.getuid!() + 1)).toBe(
-          join(directory, `tempad-dev-${process.getuid!() + 1}`, 'run')
-        )
-        chmodSync(legacyRoot, 0o755)
-        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(isolated)
-        rmSync(legacyRoot, { recursive: true })
-        symlinkSync(directory, legacyRoot)
-        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(isolated)
-        expect(resolveDefaultRuntimeDir(directory, 'darwin')).toBe(join(legacyRoot, 'run'))
-      } finally {
-        rmSync(directory, { recursive: true, force: true })
-      }
-    }
-  )
   it('reads one unambiguous development bundle fingerprint', () => {
     const fingerprint = 'a'.repeat(64)
     expect(

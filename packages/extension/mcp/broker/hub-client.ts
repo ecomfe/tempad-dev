@@ -14,7 +14,8 @@ import type {
 } from '@tempad-dev/shared'
 
 import {
-  MCP_PORT_CANDIDATES,
+  runtimePortCandidates,
+  sameRuntimeProfile,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
   parseMessageToExtension
@@ -58,6 +59,7 @@ type HubConnection = {
 class McpBridgeProtocolMismatchError extends Error {}
 
 export class McpHubClient {
+  private readonly runtimeProfile = __TEMPAD_RUNTIME_PROFILE__
   private activeId: string | null = null
   private assetServerUrl: string | null = null
   private candidateSocket: WebSocket | null = null
@@ -158,6 +160,13 @@ export class McpHubClient {
 
   private async connect(epoch: number): Promise<void> {
     this.clearReconnectTimer()
+    if (!sameRuntimeProfile(this.runtimeProfile, this.runtimeIdentity?.runtimeProfile)) {
+      this.status = 'error'
+      this.errorMessage =
+        'MCP runtime identity is missing or inconsistent. Rebuild and reload the extension.'
+      this.emitSnapshot()
+      return
+    }
     this.status = 'connecting'
     this.errorMessage = null
     this.emitSnapshot()
@@ -177,7 +186,7 @@ export class McpHubClient {
         }
         this.attachSocket(connection.ws)
         this.handleHubMessage(connection.registered)
-        if (this.runtimeIdentity)
+        if (this.runtimeIdentity && this.runtimeProfile.kind === 'release')
           this.sendJson({
             ...this.runtimeIdentity,
             ...(this.terminalReceiptGeneration ? { terminalReceipts: true } : {})
@@ -208,13 +217,14 @@ export class McpHubClient {
   }
 
   private getPortCandidates(): number[] {
-    if (this.lastSuccessfulPort && MCP_PORT_CANDIDATES.includes(this.lastSuccessfulPort)) {
+    const candidates = runtimePortCandidates(this.runtimeProfile)
+    if (this.lastSuccessfulPort && candidates.includes(this.lastSuccessfulPort)) {
       return [
         this.lastSuccessfulPort,
-        ...MCP_PORT_CANDIDATES.filter((port) => port !== this.lastSuccessfulPort)
+        ...candidates.filter((port) => port !== this.lastSuccessfulPort)
       ]
     }
-    return [...MCP_PORT_CANDIDATES]
+    return [...candidates]
   }
 
   private openHubConnection(port: number): Promise<HubConnection> {
@@ -262,6 +272,14 @@ export class McpHubClient {
           return
         }
         if (message.type === 'registered') {
+          if (!sameRuntimeProfile(this.runtimeProfile, message.runtimeProfile)) {
+            fail(
+              new McpBridgeProtocolMismatchError(
+                'MCP runtime profile does not match this extension build.'
+              )
+            )
+            return
+          }
           if (!servesThisExtension(message)) {
             fail(createProtocolMismatchError(message))
             return
@@ -271,6 +289,20 @@ export class McpHubClient {
             return
           }
           registered = message
+          // Checkout Hubs withhold routes and asset access until identity is verified.
+          if (this.runtimeProfile.kind === 'checkout') {
+            try {
+              ws.send(
+                JSON.stringify({
+                  ...this.runtimeIdentity,
+                  ...(message.terminalReceiptGeneration ? { terminalReceipts: true } : {})
+                })
+              )
+            } catch (error) {
+              fail(error instanceof Error ? error : new Error(String(error)))
+              return
+            }
+          }
         } else if (message.type === 'state') {
           if (state) {
             fail(new Error('Received duplicate MCP server state'))

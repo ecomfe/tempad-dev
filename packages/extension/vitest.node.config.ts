@@ -13,6 +13,7 @@ import { workspaceSources } from './build/workspace-sources.ts'
 const rootDir = fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
+  define: { __TEMPAD_RUNTIME_PROFILE__: JSON.stringify({ kind: 'release' }) },
   resolve: {
     conditions: ['source', 'module', 'node', 'development|production'],
     alias: [

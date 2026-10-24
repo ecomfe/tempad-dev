@@ -83,6 +83,7 @@ import {
   PACKAGE_VERSION,
   log,
   RUNTIME_DIR,
+  RUNTIME_PROFILE,
   SOCK_PATH,
   ensureDir,
   assertTrustedSocket,
@@ -143,7 +144,7 @@ export async function startHub(): Promise<void> {
     autoActivateGraceMs,
     assetTtlMs,
     allowedExtensionOrigins
-  } = getMcpServerConfig()
+  } = getMcpServerConfig(RUNTIME_PROFILE)
   const extensionOriginPolicy = createExtensionOriginPolicy(allowedExtensionOrigins)
 
   log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Hub starting...')
@@ -1507,6 +1508,7 @@ export async function startHub(): Promise<void> {
 
   activeWss.on('connection', (ws, request) => {
     attachExtensionSocket(ws, {
+      runtimeProfile: RUNTIME_PROFILE,
       terminalReceiptGeneration: terminalReceipts.generation,
       onToolCompletion: (message, extension) => {
         const { accepted, recovered } = terminalReceipts.accept(message, extension)

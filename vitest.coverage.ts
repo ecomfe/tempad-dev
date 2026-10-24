@@ -29,7 +29,10 @@ export const EXTENSION_CORE_COVERAGE_FILES = ['mcp/**/*.ts'] as const
 // Include every other top-level module and every nested runtime module.
 export const MCP_CORE_COVERAGE_FILES = ['src/!(cli.ts|hub.ts)', 'src/*/**/*.ts'] as const
 
-export const AGENT_RUNTIME_FILES = ['agent-plugin/src/clients/shared/runtime-paths.mjs']
+export const AGENT_RUNTIME_FILES = [
+  'agent-plugin/src/clients/shared/runtime-paths.mjs',
+  'agent-plugin/src/clients/shared/runtime-profile.mjs'
+]
 
 export const EXTENSION_COVERAGE_FILES = [
   'scripts/inspect-agent-run-identity.ts',

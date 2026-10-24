@@ -1085,6 +1085,10 @@ function extensionRuntimeIdentity(): RuntimeHelloMessage | null {
     type: 'runtimeHello',
     protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
     extensionVersion: manifest.version,
+    ...(typeof __TEMPAD_RUNTIME_PROFILE__ !== 'undefined' &&
+    __TEMPAD_RUNTIME_PROFILE__.kind === 'checkout'
+      ? { runtimeProfile: __TEMPAD_RUNTIME_PROFILE__ }
+      : {}),
     extensionRuntimeFingerprint: runtimeFingerprint
   }
 }
