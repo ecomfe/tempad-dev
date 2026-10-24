@@ -12,7 +12,9 @@ import {
   matchingProcesses,
   parseReinstallArguments,
   resolveDevPluginVersion,
-  selectCodexPageUrl
+  selectCodexPageUrl,
+  stopRuntimeProcesses,
+  threadPageUrl
 } from '@/scripts/reinstall-codex-dev-plugin-runtime'
 
 /** Both native ps tables exercise the same discovery parser as preflight and reinstall. */
@@ -32,6 +34,7 @@ function rows(...entries: [pid: number, ppid: number, command: string, executabl
 
 const pluginRoot = '/checkout/.dev/plugins/tempad-dev-dev'
 const version = '0.2.0+codex.new'
+const threadId = '019a1234-5678-7abc-8def-123456789abc'
 const entry = {
   pluginId: devPluginId,
   name: 'tempad-dev-dev',
@@ -63,6 +66,7 @@ describe('Codex App reinstall arguments', () => {
 
   it('requires an explicit restart flag and permits precise App and page selection', () => {
     vi.stubEnv('CODEX_CDP_URL', 'http://localhost:9444')
+    vi.stubEnv('CODEX_THREAD_ID', threadId)
     expect(parseReinstallArguments([])).toEqual({
       cdpPort: 9444,
       cdpUrl: 'http://localhost:9444',
@@ -89,9 +93,34 @@ describe('Codex App reinstall arguments', () => {
       timeoutMs: 2500,
       cdpUrl: 'http://127.0.0.1:9222',
       pageUrl: 'window=main',
-      restartCodex: true
+      restartCodex: true,
+      resumeThread: threadId
     })
     expect(parseReinstallArguments(['--help'])).toBeNull()
+  })
+
+  it('requires a captured task and saved report for detached recovery', () => {
+    vi.stubEnv('CODEX_THREAD_ID', undefined)
+    expect(() => parseReinstallArguments(['--restart-codex'])).toThrow('--resume-thread')
+    expect(() =>
+      parseReinstallArguments(['--resume-after-restart', '--resume-thread', threadId])
+    ).toThrow('--report-path')
+    expect(
+      parseReinstallArguments([
+        '--resume-after-restart',
+        '--resume-thread',
+        threadId,
+        '--report-path',
+        '/tmp/report.json'
+      ])
+    ).toMatchObject({ resumeThread: threadId, reportPath: '/tmp/report.json' })
+    expect(() => parseReinstallArguments(['--resume-thread', '/another/task'])).toThrow('UUID')
+    expect(() =>
+      parseReinstallArguments(['--resume-thread', threadId, '--report-path', 'relative.json'])
+    ).toThrow('absolute')
+    expect(() => parseReinstallArguments(['--restart-codex', '--resume-after-restart'])).toThrow(
+      'one restart mode'
+    )
   })
 
   it.each([
@@ -140,14 +169,14 @@ describe('read-only plugin source and installation verification', () => {
 
   it('accepts an available-but-uninstalled entry as a source, and rejects it as installation proof', async () => {
     const run = runner([], [{ ...entry, installed: false }])
-    await expect(inspectDevPlugin(run, pluginRoot)).resolves.toBeUndefined()
+    await expect(inspectDevPlugin(run, pluginRoot)).resolves.toBe(false)
     await expect(inspectDevPlugin(run, pluginRoot, version)).rejects.toThrow(
       'not enabled at version'
     )
   })
 
   it('confirms an installed, enabled entry at the generated version', async () => {
-    await expect(inspectDevPlugin(runner(), pluginRoot, version)).resolves.toBeUndefined()
+    await expect(inspectDevPlugin(runner(), pluginRoot, version)).resolves.toBe(true)
   })
 
   it('propagates a CLI failure instead of reporting a verified source', async () => {
@@ -184,9 +213,25 @@ describe('read-only plugin source and installation verification', () => {
       'not enabled at version'
     )
   })
+
+  it('does not treat a missing installation flag as successful uninstall', async () => {
+    await expect(
+      inspectDevPlugin(runner([{ ...entry, installed: undefined }]), pluginRoot)
+    ).rejects.toThrow('whether')
+  })
 })
 
 describe('App restart and CDP target boundaries', () => {
+  it('restores only a local task in the selected App window', () => {
+    const url = new URL(
+      threadPageUrl('app://-/index.html?window=main&initialRoute=%2Fplugins#old', threadId)
+    )
+    expect(url.searchParams.get('initialRoute')).toBe(`/local/${threadId}`)
+    expect(url.searchParams.get('window')).toBe('main')
+    expect(url.hash).toBe('')
+    expect(() => threadPageUrl('https://example.com/index.html', threadId)).toThrow('found 0')
+    expect(() => threadPageUrl('app://-/index.html', '../another')).toThrow('UUID')
+  })
   it('accepts only browser WebSockets on the verified local CDP listener', () => {
     const url = 'ws://127.0.0.1:9222/devtools/browser/example'
     expect(cdpWebSocketUrl({ webSocketDebuggerUrl: url }, 'http://127.0.0.1:9222')).toBe(url)
@@ -322,5 +367,73 @@ describe('App restart and CDP target boundaries', () => {
     expect(selectCodexPageUrl([main, other], 'window=other')).toBe(other)
     expect(() => selectCodexPageUrl([main, main], main)).toThrow('found 2')
     expect(() => selectCodexPageUrl(['https://example.com'])).toThrow('found 0')
+  })
+})
+
+describe('runtime shutdown before reinstall', () => {
+  function clock() {
+    let elapsed = 0
+    return {
+      now: () => elapsed,
+      sleep: async (ms: number) => {
+        elapsed += ms
+      },
+      timeoutMs: 3000,
+      quietMs: 1000
+    }
+  }
+
+  it('waits for a sustained empty process list, not the first empty snapshot', async () => {
+    const time = clock()
+    const stop = vi.fn()
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce([42])
+      .mockResolvedValueOnce([42])
+      .mockResolvedValue([])
+    await expect(stopRuntimeProcesses(list, stop, time)).resolves.toEqual([42])
+    expect(stop).toHaveBeenCalledExactlyOnceWith(42)
+    expect(time.now()).toBe(1250)
+  })
+
+  it('refuses installation if a host respawns a checkout process', async () => {
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce([42])
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([43])
+    const stop = vi.fn()
+    await expect(stopRuntimeProcesses(list, stop, clock())).rejects.toThrow('respawned')
+    expect(stop.mock.calls).toEqual([[42]])
+  })
+
+  it('does not install when shutdown times out or signalling fails', async () => {
+    await expect(stopRuntimeProcesses(async () => [42], vi.fn(), clock())).rejects.toThrow(
+      'Timed out'
+    )
+    await expect(
+      stopRuntimeProcesses(
+        async () => [42],
+        () => {
+          throw new Error('denied')
+        },
+        clock()
+      )
+    ).rejects.toThrow('denied')
+  })
+
+  it('accepts a process that exited before signalling, but still verifies the quiet period', async () => {
+    const time = clock()
+    const list = vi.fn().mockResolvedValueOnce([42]).mockResolvedValue([])
+    await expect(
+      stopRuntimeProcesses(
+        list,
+        () => {
+          throw Object.assign(new Error('gone'), { code: 'ESRCH' })
+        },
+        time
+      )
+    ).resolves.toEqual([42])
+    expect(time.now()).toBe(1000)
   })
 })
