@@ -1,7 +1,10 @@
 # Canvas authoring coverage
 
 Status: implemented surface and gap ledger
-Baseline: `@figma/plugin-typings@1.130.0`, 2026-07-28
+
+API baseline: the repository's `@figma/plugin-typings` version resolved in
+[`pnpm-lock.yaml`](../../pnpm-lock.yaml). The [shared canvas schema](../../packages/shared/src/mcp/canvas.ts)
+owns the accepted result fields.
 
 ## Scope
 
@@ -9,8 +12,8 @@ This ledger covers persistent, authorable state in the Figma Design document mod
 that state with the current `apply_canvas` contract; it does not assign a percentage because Figma
 does not define a canonical set of equally weighted capabilities.
 
-The inventory is based on the Plugin API types pinned by this repository and cross-checked against
-Figma's current [Plugin API reference](https://developers.figma.com/docs/plugins/api/api-reference/),
+The inventory is based on that Plugin API and cross-checked against Figma's
+[Plugin API reference](https://developers.figma.com/docs/plugins/api/api-reference/),
 [shared node properties](https://developers.figma.com/docs/plugins/api/node-properties/), and
 [node types](https://developers.figma.com/docs/plugins/api/nodes/).
 
@@ -42,6 +45,11 @@ The export and handoff items above are deliberate product boundaries, not author
 Pattern Paint is included: although it launched alongside Draw, Plugin API
 [update 110](https://developers.figma.com/docs/plugins/updates/2025/05/07/version-1-update-110/)
 explicitly states that the beta paint type can be used in both Figma Design and Figma Draw.
+
+Native preconditions and the [reconciliation limits](./mcp-canvas-authoring-design.md#reconciliation)
+apply to every row. Supported declarations can still require rejecting an edit when native setters
+cannot produce and verify the requested state. This inventory measures native authoring, not CSS
+export fidelity.
 
 Status terms:
 
@@ -224,6 +232,10 @@ native Auto Layout Grid. `data-style-grid` instead links an existing frame layou
 | Multiple effects and effect order | ordered `Effect[]`                                                                                  | **Supported** on frames, authored components, component sets, slots, groups, Boolean operations, text, instances, and basic shapes; omission preserves the live stack, `[]` clears it, and a supplied direct stack replaces any linked Effect style                                                                                                                                                                                                                    |
 | Effect variables                  | shadow color/radius/spread/offsets and blur radius                                                  | **Supported** on direct shadow and blur effects for every field in the pinned `VariableBindableEffectField` union                                                                                                                                                                                                                                                                                                                                                      |
 
+Noise and Texture retain independent vector dimensions: only `noiseSizeVector.x` must equal
+`noiseSize`, following [Figma's Effect contract](https://developers.figma.com/docs/plugins/api/Effect/).
+Omitting the vector uses the scalar for both axes.
+
 Media bytes are a transport concern, not persistent Figma Design state. `apply_canvas` accepts an
 existing current-file hash, imports an HTTP(S) image URL or downloaded HTTPS video through
 Figma's native APIs, or resolves an exact Hub image hash through the extension's bounded local bridge. It
@@ -254,7 +266,7 @@ intentionally does not place inline binary payloads in model-visible MCP JSON.
 | Auto rename           | derive the layer name from changed characters                                                             | **Supported** through `figma.text.autoRename`; fixed `figma.name` plus enabled auto-renaming is rejected as contradictory                                                                                                                                                                    |
 | Rich text ranges      | per-range font, case, spacing, line height, fill, styles, lists, decoration, links, and variable bindings | **Supported** for every non-deprecated range setter for formatting, lists, links, styles, and variables in the pinned typings; declarative `characters` replaces procedural insertion/deletion; patches are ordered, non-overlapping UTF-16 intervals and omitted fields preserve live state |
 | Text and fill styles  | whole-node or range `textStyleId` and `fillStyleId`                                                       | **Supported** by local ID, published key, or stable local `styleKey`, including same-result authored styles and explicit `null` unlinking at whole-node or range scope                                                                                                                       |
-| OpenType features     | `openTypeFeatures`                                                                                        | Plugin API 1.130 exposes this state read-only; `apply_canvas` cannot author it without a Figma API addition                                                                                                                                                                                  |
+| OpenType features     | `openTypeFeatures`                                                                                        | The pinned Plugin API exposes this state read-only; `apply_canvas` cannot author it without a Figma API addition                                                                                                                                                                             |
 
 Text ranges remain subject to the native binding and TextStyle
 [reconciliation limits](./mcp-canvas-authoring-design.md#reconciliation).
