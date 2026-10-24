@@ -15,10 +15,10 @@ replace judgment and must not grow into a second product-quality rubric.
 ## Operational tools
 
 Use CLI commands, native task-management tools, and TemPad MCP for runtime
-inspection and authoring. When UI automation is authorized and the available
-tool permits the target, use the detached CDP installer below for Codex plugin
-replacement and computer use for Chrome extension reload, Figma reload, and
-MCP activation. Prefer native Chrome controls for these setup actions: browser
+inspection and authoring. When authorized, invoke the repository's detached
+CDP installer directly for Codex plugin replacement; this does not require
+acquiring Codex as a computer-use app. Use computer use for Chrome extension
+reload, Figma reload, and MCP activation. Prefer native Chrome controls: browser
 instrumentation has interfered with the code-output plugin's HTML sandbox.
 
 - Build, install, inspect processes/logs, and run preflight through the CLI.
@@ -33,11 +33,9 @@ instrumentation has interfered with the code-output plugin's HTML sandbox.
   references. Preserve the distinction between retrieved text and visual
   evidence; do not claim to have experienced an interface from text alone.
 
-If an automation tool rejects the target, stop that path rather than using a
-different channel to bypass the restriction. Finish independent preparation,
-then request only the blocked manual action. After any refresh, require
-preflight and a native MCP read before dispatch. A broken UI codegen sandbox
-does not establish that independent MCP tools are broken, or vice versa:
+After any refresh, require preflight and a native MCP read before dispatch.
+A broken UI codegen sandbox does not establish that independent MCP tools are
+broken, or vice versa:
 report the affected lane separately. Codegen-plugin acceptance needs a clean
 page without the interfering instrumentation. Isolated browser regression
 tests still follow `TESTING.md`.

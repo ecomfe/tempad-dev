@@ -5,10 +5,10 @@ import { threadPageUrl } from './reinstall-codex-dev-plugin-runtime'
 const displayName = 'TemPad Dev (Dev)'
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-async function openPlugin(page: Page) {
+async function openPlugin(page: Page, reopen = false) {
   // The heading's accessible name also includes its folder-marketplace icon.
   const title = page.getByRole('heading', { level: 1 }).filter({ hasText: /^TemPad Dev \(Dev\)$/ })
-  if (await title.isVisible()) return
+  if (!reopen && (await title.isVisible())) return
   const main = page.getByRole('main')
   const search = main.getByRole('textbox', { name: 'Search plugins', exact: true })
   if (!(await search.isVisible())) {
@@ -63,10 +63,13 @@ export async function reinstallInApp(
   // Installation must not proceed until disk state AND stable process exit are verified.
   await afterUninstall()
   await openPlugin(page)
-  await page.getByText(version, { exact: true }).waitFor({ state: 'visible' })
+  await main.getByText(version, { exact: true }).waitFor({ state: 'visible' })
   await install.evaluate((element: HTMLElement) => element.click())
+  await install.waitFor({ state: 'hidden' })
+  // Installing can navigate to a new chat. Reopen the detail page to verify its state.
+  await openPlugin(page, true)
   await actions.waitFor({ state: 'visible' })
-  await page.getByText(version, { exact: true }).waitFor({ state: 'visible' })
+  await main.getByText(version, { exact: true }).waitFor({ state: 'visible' })
   if (await install.isVisible())
     throw new Error('Codex App still offers installation; reinstall is not confirmed.')
 }
@@ -91,8 +94,9 @@ export async function resumeThreadInApp(
   if (draft?.trim())
     throw new Error('The original task has a draft; leaving it intact instead of resuming.')
   const send = composer.getByRole('button', { name: 'Send', exact: true })
-  await send.waitFor({ state: 'visible' })
+  // Empty interrupted tasks offer Resume, and an empty idle composer may offer voice.
   await editor.fill(message)
+  await send.waitFor({ state: 'visible' })
   // Persist uncertainty before the single click. A crash must never trigger an automatic retry.
   await beforeSend()
   await send.click()
