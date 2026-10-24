@@ -9020,13 +9020,11 @@ describe('mcp/tools/canvas', () => {
         }
       })
       const page = figma.createPage()
-      let rejectLoad!: (error: Error) => void
-      vi.mocked(page.loadAsync).mockImplementationOnce(
-        () =>
-          new Promise<void>((_, reject) => {
-            rejectLoad = reject
-          })
-      )
+      const loading = Promise.withResolvers<void>()
+      vi.mocked(page.loadAsync).mockImplementationOnce(async () => {
+        await loading.promise
+        throw new Error('Cold page unavailable')
+      })
       fixture.commitUndo.mockClear()
       const createCollection = vi.mocked(figma.variables.createVariableCollection)
       createCollection.mockClear()
@@ -9044,15 +9042,16 @@ describe('mcp/tools/canvas', () => {
           tokens: removal
         }
       }).catch((error: unknown) => error)
-      await vi.waitFor(() => expect(rejectLoad).toBeTypeOf('function'))
-      const commitsWhileLoading = fixture.commitUndo.mock.calls.length
-      const creationsWhileLoading = createCollection.mock.calls.length
-      const nameWhileLoading = fixture.getNode(created.rootNodeId!).name
-      rejectLoad(new Error('Cold page unavailable'))
-      const error = await pending
-      expect(commitsWhileLoading).toBe(0)
-      expect(creationsWhileLoading).toBe(0)
-      expect(nameWhileLoading).not.toBe('Changed')
+      let error: unknown
+      try {
+        await vi.waitFor(() => expect(page.loadAsync).toHaveBeenCalled())
+        expect(fixture.commitUndo).not.toHaveBeenCalled()
+        expect(createCollection).not.toHaveBeenCalled()
+        expect(fixture.getNode(created.rootNodeId!).name).not.toBe('Changed')
+      } finally {
+        loading.resolve()
+        error = await pending
+      }
       expect(error).toMatchObject({
         code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
         cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
@@ -10923,7 +10922,7 @@ describe('mcp/tools/canvas', () => {
     expect(page.removed).toBe(false)
   })
 
-  it('rejects unavailable fonts before creating the requested page', async () => {
+  it('rejects an unavailable variable mode before creating the requested page', async () => {
     const fixture = createFixture()
     await expect(
       applyCanvas({
@@ -12834,13 +12833,8 @@ describe('mcp/tools/canvas', () => {
 
   it('rejects concurrent apply requests within one Figma session', async () => {
     const fixture = createFixture()
-    let finishFontLoad: (() => void) | undefined
-    fixture.loadFontAsync.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          finishFontLoad = resolve
-        })
-    )
+    const loading = Promise.withResolvers<void>()
+    fixture.loadFontAsync.mockReturnValueOnce(loading.promise)
     const input = {
       mode: 'create' as const,
       markup:
@@ -12848,13 +12842,17 @@ describe('mcp/tools/canvas', () => {
     }
 
     const first = applyCanvasFromTool(input)
-    await vi.waitFor(() => expect(finishFontLoad).toBeTypeOf('function'))
-    await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
-      message: expect.stringContaining('CANVAS_BUSY')
-    })
-
-    finishFontLoad?.()
+    void first.catch(() => undefined)
+    try {
+      await vi.waitFor(() => expect(fixture.loadFontAsync).toHaveBeenCalled())
+      await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+        message: expect.stringContaining('CANVAS_BUSY')
+      })
+    } finally {
+      loading.resolve()
+      await first.catch(() => undefined)
+    }
     await expect(first).resolves.toMatchObject({ rootNodeId: expect.any(String) })
   })
 })
