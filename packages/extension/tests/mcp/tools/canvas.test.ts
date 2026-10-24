@@ -560,6 +560,8 @@ describe('mcp/tools/canvas', () => {
     expect(copy.getRangeParagraphSpacing(0, copy.characters.length)).toBe(8)
     await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
 
+    copy.setRangeFontName(0, 2, { family: 'IBM Plex Sans', style: 'Medium' })
+    copy.setRangeFontName(2, copy.characters.length, { family: 'IBM Plex Sans', style: 'Regular' })
     copy.fontName = figma.mixed
     copy.textAutoResize = 'TRUNCATE'
     await applyCanvasFromTool({
@@ -568,6 +570,10 @@ describe('mcp/tools/canvas', () => {
       native: { copy: { figma: { name: 'Guest name' } } }
     })
     expect(copy.fontName).toBe(figma.mixed)
+    expect(copy.getRangeAllFontNames(0, copy.characters.length)).toEqual([
+      { family: 'IBM Plex Sans', style: 'Medium' },
+      { family: 'IBM Plex Sans', style: 'Regular' }
+    ])
     expect(copy.textAutoResize).toBe('TRUNCATE')
     expect(copy.characters).toBe('Guest')
     expect(copy.textAlignVertical).toBe('CENTER')

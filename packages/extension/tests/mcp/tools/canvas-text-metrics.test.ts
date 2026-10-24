@@ -224,6 +224,11 @@ describe('native text metric reconciliation', () => {
       expect(write).toHaveBeenCalledTimes(2)
 
       if (path !== 'style') {
+        // A mixed getter still has concrete font faces for preloading.
+        vi.mocked(label.getRangeAllFontNames).mockReturnValue([
+          { family: 'Roboto', style: 'Bold', variationSettings: { wght: 400 } },
+          { family: 'Roboto', style: 'Bold', variationSettings: { wght: 700 } }
+        ])
         stored = figma.mixed
         expect((await update({ family: 'Roboto', style: 'Bold' })).mutationCount).toBe(1)
         expect(write).toHaveBeenCalledTimes(3)

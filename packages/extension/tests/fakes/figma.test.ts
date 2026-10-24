@@ -73,6 +73,65 @@ describe('Figma authoring fixture', () => {
     expect(other.loadAsync).toHaveBeenCalledOnce()
   })
 
+  it('resolves range-style bindings from their owning fixture after another fixture starts', async () => {
+    const first = createFixture()
+    const text = first.createNode('TEXT') as TextNode
+    text.characters = 'Owner'
+    const style = first.styles.get('style:text') as TextStyle
+    const variable = first.variables.get('variable:range-size')!
+    Object.assign(style, {
+      boundVariables: { fontSize: { type: 'VARIABLE_ALIAS', id: variable.id } }
+    })
+
+    const second = createFixture()
+    second.variables.set(variable.id, {
+      ...variable,
+      resolveForConsumer: () => ({ value: 99, resolvedType: 'FLOAT' })
+    } as Variable)
+    const foreignLookup = vi.mocked(figma.variables.getVariableByIdAsync)
+
+    await text.setRangeTextStyleIdAsync(0, text.characters.length, style.id)
+
+    expect(text.getRangeFontSize(0, text.characters.length)).toBe(18)
+    expect(text.getRangeBoundVariable(0, text.characters.length, 'fontSize')).toEqual({
+      type: 'VARIABLE_ALIAS',
+      id: variable.id
+    })
+    expect(foreignLookup).not.toHaveBeenCalled()
+  })
+
+  it('stores and deletes shared metadata consistently for pages, nodes, and resources', () => {
+    const fixture = createFixture()
+    const collection = figma.variables.createVariableCollection('Tokens')
+    const objects: PluginDataMixin[] = [
+      fixture.page,
+      fixture.createNode('FRAME'),
+      figma.createTextStyle(),
+      collection,
+      figma.variables.createVariable('Spacing', collection, 'FLOAT')
+    ]
+    for (const object of objects) {
+      object.setSharedPluginData('tempad_dev', 'key', 'retained')
+      object.setSharedPluginData('tempad_dev', 'custom:key', 'removed')
+      object.setSharedPluginData('tempad_dev_extra', 'key', 'separate')
+      expect(object.getSharedPluginDataKeys('tempad_dev').sort()).toEqual(['custom:key', 'key'])
+      expect(object.getSharedPluginDataKeys('tempad_dev_extra')).toEqual(['key'])
+
+      object.setSharedPluginData('tempad_dev', 'custom:key', '')
+      expect(object.getSharedPluginData('tempad_dev', 'custom:key')).toBe('')
+      expect(object.getSharedPluginDataKeys('tempad_dev')).toEqual(['key'])
+      expect(object.getSharedPluginData('tempad_dev_extra', 'key')).toBe('separate')
+    }
+    for (const object of objects) {
+      expect(() => object.getSharedPluginDataKeys('invalid:namespace')).toThrow('namespace')
+    }
+    const copy = (objects[1] as FrameNode).clone()
+    expect(copy.getSharedPluginDataKeys('tempad_dev')).toEqual(['key'])
+    expect(copy.getSharedPluginData('tempad_dev', 'key')).toBe('retained')
+    copy.setSharedPluginData('tempad_dev', 'key', '')
+    expect(objects[1]!.getSharedPluginData('tempad_dev', 'key')).toBe('retained')
+  })
+
   it('stores opted-in native scalars at float32 precision from creation', () => {
     const fixture = createFixture({ float32: ['opacity', 'width', 'height'] })
     const node = fixture.createNode('FRAME')
