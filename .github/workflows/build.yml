@@ -91,6 +91,9 @@ jobs:
       - name: Check runtime profile isolation
         run: node packages/mcp-server/scripts/check-runtime-profiles.mjs
 
+      - name: Check CLI host context isolation
+        run: node packages/mcp-server/scripts/check-host-context.mjs
+
   typescript-compatibility:
     runs-on: ubuntu-latest
     steps:

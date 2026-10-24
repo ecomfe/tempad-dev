@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({ spawn: vi.fn(), execFile: vi.fn() }))
 vi.mock('node:child_process', () => mocks)
 
 import { CodexQueueRpc, codexQueueExecutable } from '../src/agent-clients/codex-queue-rpc'
+import { captureHostContext } from '../src/agent-clients/host-context'
+
+const context = captureHostContext({ HOME: '/fixture', TMPDIR: '/fixture/tmp' })
 
 type Request = { id?: number; method: string; params?: Record<string, unknown> }
 const clients: CodexQueueRpc[] = []
@@ -42,12 +45,44 @@ function peer(handle: (request: Request) => unknown = () => ({ data: [], nextCur
 }
 
 function client(executable = vi.fn(async () => '/host/resources/codex')) {
-  const rpc = new CodexQueueRpc(executable)
+  const rpc = new CodexQueueRpc(context, executable)
   clients.push(rpc)
   return rpc
 }
 
 describe('queue-only native RPC', () => {
+  it('starts each helper with its originating host paths and without inherited credentials', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'not-for-helpers')
+    vi.stubEnv('CODEX_HOME', '/first-launcher')
+    vi.stubEnv('CODEX_THREAD_ID', 'first-thread')
+    vi.stubEnv('NODE_OPTIONS', '--require /unrelated.js')
+    try {
+      peer()
+      peer()
+      const first = client()
+      const otherContext = {
+        ...context,
+        codexHome: '/second-home',
+        codexSqliteHome: '/second-sqlite'
+      }
+      const second = new CodexQueueRpc(otherContext, async () => '/host/resources/codex')
+      clients.push(second)
+      await Promise.all([first.list('same-thread'), second.list('same-thread')])
+      expect(mocks.spawn.mock.calls.map((call) => call[2].env.CODEX_HOME)).toEqual([
+        context.codexHome,
+        otherContext.codexHome
+      ])
+      for (const [, , options] of mocks.spawn.mock.calls) {
+        expect(options.env).not.toHaveProperty('OPENAI_API_KEY')
+        expect(options.env).not.toHaveProperty('CODEX_THREAD_ID')
+        expect(options.env).not.toHaveProperty('NODE_OPTIONS')
+      }
+      expect(mocks.spawn.mock.calls[1]![2].env.CODEX_SQLITE_HOME).toBe('/second-sqlite')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('releases an idle queue process and reconnects on demand', async () => {
     vi.useFakeTimers()
     const first = peer()
@@ -216,32 +251,34 @@ describe('desktop executable discovery', () => {
     processes(
       '/usr/local/bin/codex\n/Applications/Codex.app/Contents/Resources/codex\n/Applications/Codex.app/Contents/Resources/codex\n'
     )
-    expect(await codexQueueExecutable()).toBe('/Applications/Codex.app/Contents/Resources/codex')
+    expect(await codexQueueExecutable(context)).toBe(
+      '/Applications/Codex.app/Contents/Resources/codex'
+    )
   })
 
   it('does not guess between different running desktop installations', async () => {
     processes(
       '/Applications/Codex.app/Contents/Resources/codex\n/Applications/ChatGPT.app/Contents/Resources/codex\n'
     )
-    await expect(codexQueueExecutable()).rejects.toThrow('could not be identified')
+    await expect(codexQueueExecutable(context)).rejects.toThrow('could not be identified')
   })
 
   it('discovers the nested desktop CLI and deduplicates its running processes', async () => {
     const executable =
       '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'
     processes(`/usr/local/bin/codex\n${executable}\n${executable}\n`)
-    expect(await codexQueueExecutable()).toBe(executable)
+    expect(await codexQueueExecutable(context)).toBe(executable)
   })
 
   it('rejects ambiguity between nested and legacy desktop installations', async () => {
     processes(
       '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex\n/Applications/Codex.app/Contents/Resources/codex\n'
     )
-    await expect(codexQueueExecutable()).rejects.toThrow('could not be identified')
+    await expect(codexQueueExecutable(context)).rejects.toThrow('could not be identified')
   })
 
   it('does not use a standalone CLI when no desktop binary is running', async () => {
     processes('/usr/local/bin/codex\n')
-    await expect(codexQueueExecutable()).rejects.toThrow('could not be identified')
+    await expect(codexQueueExecutable(context)).rejects.toThrow('could not be identified')
   })
 })

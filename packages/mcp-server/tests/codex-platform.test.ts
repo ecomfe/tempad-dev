@@ -9,6 +9,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CodexAppFeedback } from '../src/agent-clients/codex-feedback'
 import { CodexIpc, CodexIpcError, codexSocketPaths } from '../src/agent-clients/codex-ipc'
 import { CodexNativeQueue, CodexQueueUnavailable } from '../src/agent-clients/codex-queue'
+import { captureHostContext } from '../src/agent-clients/host-context'
+import { hostEnvironment } from '../src/process-environment'
+
+const context = captureHostContext({ HOME: '/fixture', TMPDIR: '/fixture/tmp' })
 
 vi.mock('node:net', async (original) => ({
   ...(await original<typeof import('node:net')>()),
@@ -75,11 +79,28 @@ function pipe(response?: Record<string, unknown>) {
 }
 
 describe('Codex Windows integration', () => {
+  it.each([
+    ['C:\\Users\\another', 'C:', '\\Users\\another'],
+    ['\\\\server\\users\\another', '\\\\server\\users', '\\another']
+  ])('keeps Windows home variables consistent with %s', (home, drive, path) => {
+    windows()
+    expect(
+      hostEnvironment(
+        { ...context, home },
+        {
+          HOMEDRIVE: 'Z:',
+          HOMEPATH: '\\first-launcher',
+          USERPROFILE: 'Z:\\first-launcher'
+        }
+      )
+    ).toMatchObject({ HOME: home, USERPROFILE: home, HOMEDRIVE: drive, HOMEPATH: path })
+  })
+
   it('connects and initializes the fixed local pipe without Unix inode checks', async () => {
     windows()
     const messages = pipe()
-    expect(codexSocketPaths()).toEqual([String.raw`\\.\pipe\codex-ipc`])
-    const ipc = await CodexIpc.open()
+    expect(codexSocketPaths(context)).toEqual([String.raw`\\.\pipe\codex-ipc`])
+    const ipc = await CodexIpc.open(codexSocketPaths(context))
     try {
       expect(await ipc.owner('thread-a')).toBe('owner')
       expect(connect).toHaveBeenCalledExactlyOnceWith(String.raw`\\.\pipe\codex-ipc`)
@@ -101,7 +122,7 @@ describe('Codex Windows integration', () => {
   ])('preserves delivery certainty for $response', async ({ response, uncertain }) => {
     windows()
     pipe(response)
-    const ipc = await CodexIpc.open()
+    const ipc = await CodexIpc.open(codexSocketPaths(context))
     try {
       await expect(ipc.request('thread-follower-start-turn', 2, {}, 'owner')).rejects.toMatchObject(
         { uncertain }
@@ -114,7 +135,7 @@ describe('Codex Windows integration', () => {
   it('reports a host discovery timeout as unsent input', async () => {
     windows()
     pipe({ resultType: 'error', error: 'request-timeout' })
-    const ipc = await CodexIpc.open()
+    const ipc = await CodexIpc.open(codexSocketPaths(context))
     try {
       await expect(ipc.owner('thread-a')).rejects.toMatchObject({
         message: expect.stringContaining('No comments were sent.'),
@@ -148,12 +169,12 @@ describe('Codex Windows integration', () => {
     })
     const queue = new CodexNativeQueue(
       async () => [],
-      async () => null
+      async () => null,
+      { list: vi.fn(), add: vi.fn(), remove: vi.fn(), close: vi.fn() }
     )
     vi.spyOn(queue, 'admit').mockRejectedValue(new CodexQueueUnavailable('Queue unavailable'))
-    const native = new CodexAppFeedback(
-      directory,
-      async () => ({
+    const native = new CodexAppFeedback(directory, {
+      open: async () => ({
         owner,
         request,
         close: vi.fn(),
@@ -161,11 +182,13 @@ describe('Codex Windows integration', () => {
         onBroadcast: vi.fn(() => () => {}),
         onDisconnect: vi.fn(() => () => {})
       }),
-      1,
-      undefined,
-      queue
-    )
-    const binding = { client: { kind: 'codex-app' as const, name: 'Codex', sessionId: id } }
+      retryMs: 1,
+      nativeQueue: queue
+    })
+    const binding = {
+      client: { kind: 'codex-app' as const, name: 'Codex', sessionId: id },
+      hostContext: context
+    }
     vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
       owner.mockResolvedValue('owner')
       const callback = args.at(-1) as (error: null, stdout: string, stderr: string) => void

@@ -1,7 +1,10 @@
 import { setTimeout as delay } from 'node:timers/promises'
 
-import { CodexIpc } from './codex-ipc'
+import type { HostContext } from './host-context'
+
+import { CodexIpc, codexSocketPaths } from './codex-ipc'
 import { CodexTurnState, type CodexLifecycleState } from './codex-turn-state'
+import { hostConversationKey, requireHostContext } from './host-context'
 
 export type { CodexTurn, CodexLifecycleState } from './codex-turn-state'
 
@@ -26,25 +29,28 @@ export class CodexAppLifecycle {
   constructor(
     private readonly changed: (
       conversationId: string,
-      state: CodexLifecycleState | undefined
+      state: CodexLifecycleState | undefined,
+      context?: HostContext
     ) => void,
-    private readonly open: () => Promise<Connection> = () => CodexIpc.open(),
+    private readonly open: (context?: HostContext) => Promise<Connection> = (context) =>
+      CodexIpc.open(codexSocketPaths(requireHostContext(context))),
     private readonly retryMs = 2000,
     private readonly snapshotTimeoutMs = 5000
   ) {}
 
-  watch(conversationId: string): void {
-    if (this.closed || this.watches.has(conversationId) || this.watches.size >= 128) return
+  watch(conversationId: string, context?: HostContext): void {
+    const key = hostConversationKey(conversationId, context)
+    if (this.closed || this.watches.has(key) || this.watches.size >= 128) return
     const watch = {
       controller: new AbortController(),
       state: undefined as CodexLifecycleState | undefined
     }
-    this.watches.set(conversationId, watch)
-    void this.follow(conversationId, watch)
+    this.watches.set(key, watch)
+    void this.follow(conversationId, watch, context)
   }
 
-  state(conversationId: string): CodexLifecycleState | undefined {
-    return this.watches.get(conversationId)?.state
+  state(conversationId: string, context?: HostContext): CodexLifecycleState | undefined {
+    return this.watches.get(hostConversationKey(conversationId, context))?.state
   }
 
   retain(conversationIds: Set<string>): void {
@@ -55,8 +61,12 @@ export class CodexAppLifecycle {
     }
   }
 
-  async interrupt(conversationId: string, expectedTurnId: string): Promise<boolean> {
-    const connection = await this.open()
+  async interrupt(
+    conversationId: string,
+    expectedTurnId: string,
+    context?: HostContext
+  ): Promise<boolean> {
+    const connection = await this.open(context)
     try {
       const owner = await connection.owner(conversationId, undefined, 2000)
       const response = await connection.request(
@@ -84,14 +94,15 @@ export class CodexAppLifecycle {
 
   private async follow(
     conversationId: string,
-    watch: { controller: AbortController; state?: CodexLifecycleState }
+    watch: { controller: AbortController; state?: CodexLifecycleState },
+    context?: HostContext
   ): Promise<void> {
     const signal = watch.controller.signal
     const publish = (state?: CodexLifecycleState) => {
       if (signal.aborted) return
       const changed = JSON.stringify(watch.state) !== JSON.stringify(state)
       watch.state = state
-      if (changed) this.changed(conversationId, state)
+      if (changed) this.changed(conversationId, state, context)
     }
     while (!signal.aborted) {
       let connection: Connection | undefined
@@ -99,7 +110,7 @@ export class CodexAppLifecycle {
       let timer: ReturnType<typeof setTimeout> | undefined
       const cleanups: (() => void)[] = []
       try {
-        connection = await this.open()
+        connection = await this.open(context)
         signal.throwIfAborted()
         owner = await connection.owner(conversationId, signal, 2000)
         signal.throwIfAborted()

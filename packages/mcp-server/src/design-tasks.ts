@@ -10,9 +10,12 @@ import type {
 import { MCP_DESIGN_TASK_LEASE_MS, RESUMABLE_DESIGN_TASK_STATUSES } from '@tempad-dev/shared'
 import { isDeepStrictEqual } from 'node:util'
 
+import type { HostContext } from './agent-clients/host-context'
 import type { DesignTaskSnapshot, DesignTaskStore } from './design-task-store'
 import type { ExtensionConnection } from './types'
 
+import { codexStoreKey } from './agent-clients/host-context'
+import { nativeFeedback } from './agent-clients/types'
 import { HISTORY_RETENTION_MS } from './history-retention'
 import { extensionUpgradeRequired } from './legacy-extension'
 
@@ -32,6 +35,7 @@ export type DesignTaskRecord = {
   resultNodeIds?: string[]
   browser?: BrowserIdentity & { tabId: number; documentId: string }
   retiredAt?: number
+  hostContext?: HostContext
 }
 
 /** Only a Hub begin request establishes a client binding; browser migration leaves it empty. */
@@ -168,7 +172,8 @@ export class DesignTasks {
     client?: AgentClient,
     capabilities?: AgentCapabilities,
     browser?: BrowserIdentity,
-    recoveryGeneration?: string
+    recoveryGeneration?: string,
+    hostContext?: HostContext
   ): DesignTaskRecord {
     this.assertStorageWritable(session.fileKey)
     const retry = this.retry(ownerId, requestId, recoveryGeneration)
@@ -187,6 +192,7 @@ export class DesignTasks {
       extensionId,
       requestId,
       ready: false,
+      ...(hostContext ? { hostContext } : {}),
       ...(browser && tabId !== undefined && documentId !== undefined
         ? { browser: { ...browser, tabId, documentId } }
         : {}),
@@ -258,8 +264,14 @@ export class DesignTasks {
   }
 
   /** Runtime identity may reconnect the same conversation, never a focused/last caller. */
-  attachClient(ownerId: string, client: AgentClient, capabilities?: AgentCapabilities): void {
-    if (!client.sessionId || ['other', 'unknown'].includes(client.kind)) return
+  attachClient(
+    ownerId: string,
+    client: AgentClient,
+    capabilities?: AgentCapabilities,
+    hostContext?: HostContext
+  ): string[] {
+    const mismatched: string[] = []
+    if (!client.sessionId || ['other', 'unknown'].includes(client.kind)) return mismatched
     for (const record of this.records.values()) {
       const verified = getVerifiedTaskClient(record)
       if (verified?.kind !== client.kind || verified.sessionId !== client.sessionId) continue
@@ -268,16 +280,28 @@ export class DesignTasks {
         record.ownerId !== ownerId
       )
         continue
+      if (
+        nativeFeedback(client) &&
+        record.hostContext &&
+        codexStoreKey(record.hostContext) !== codexStoreKey(hostContext)
+      ) {
+        mismatched.push(record.task.taskId)
+        continue
+      }
       const ownerChanged = record.ownerId !== ownerId
       const changed =
-        ownerChanged || (capabilities && !isDeepStrictEqual(record.task.capabilities, capabilities))
+        ownerChanged ||
+        (hostContext && !isDeepStrictEqual(record.hostContext, hostContext)) ||
+        (capabilities && !isDeepStrictEqual(record.task.capabilities, capabilities))
       record.ownerId = ownerId
       if (ownerChanged && !this.expiredRequests.has(ownerId))
         this.expiredRequests.set(ownerId, new Set())
       record.task.client = client
+      if (hostContext) record.hostContext = hostContext
       if (capabilities) record.task.capabilities = capabilities
       if (changed) this.publish(record)
     }
+    return mismatched
   }
 
   assertEpoch(taskId: string, ownerId: string, epoch?: number): DesignTaskRecord {
@@ -895,12 +919,13 @@ export class DesignTasks {
       current: Object.fromEntries(this.currentTaskIds),
       ...(this.fileFences.size ? { fileFences: Object.fromEntries(this.fileFences) } : {}),
       records: [...this.records.values()].map(
-        ({ task, requestId, browser, resultNodeIds, retiredAt }) => ({
+        ({ task, requestId, browser, resultNodeIds, retiredAt, hostContext }) => ({
           task: { ...task, capabilities: undefined, operation: null },
           requestId,
           browser,
           resultNodeIds,
-          retiredAt
+          retiredAt,
+          hostContext
         })
       )
     }

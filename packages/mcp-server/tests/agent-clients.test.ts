@@ -6,6 +6,7 @@ import type { ClientHook } from '../src/agent-clients/hooks'
 import type { DesignTaskSnapshot } from '../src/design-task-store'
 
 import { CodexAppFeedback } from '../src/agent-clients/codex-feedback'
+import { MISSING_HOST_CONTEXT_MESSAGE } from '../src/agent-clients/host-context'
 import {
   bindRequestMetadata,
   ClientEventSchema,
@@ -218,14 +219,16 @@ describe('client identity and capabilities', () => {
     async (inheritedSession, hookTurn, initialized) => {
       const tasks = new DesignTasks({ createId: () => 'claude-task', now: () => 1000 })
       const nativeOwner = vi.fn().mockResolvedValue('codex-owner')
-      const native = new CodexAppFeedback('/unused', async () => ({
-        owner: nativeOwner,
-        close: vi.fn(),
-        request: vi.fn(),
-        broadcast: vi.fn(),
-        onBroadcast: vi.fn(() => () => {}),
-        onDisconnect: vi.fn(() => () => {})
-      }))
+      const native = new CodexAppFeedback('/unused', {
+        open: async () => ({
+          owner: nativeOwner,
+          close: vi.fn(),
+          request: vi.fn(),
+          broadcast: vi.fn(),
+          onBroadcast: vi.fn(() => () => {}),
+          onDisconnect: vi.fn(() => () => {})
+        })
+      })
       const watch = vi.fn()
       const interrupt = vi.fn().mockResolvedValue(true)
       const clients = new AgentClients(tasks, native, () => ({
@@ -330,7 +333,7 @@ describe('client identity and capabilities', () => {
           expect(codex.client).toMatchObject({ kind: 'codex-app', sessionId: 'actual-thread' })
           expect(codex.capabilities).toMatchObject({ interrupt: true, queue: true, steer: true })
           expect(nativeOwner).toHaveBeenCalledWith('actual-thread', undefined, 2000)
-          expect(watch).toHaveBeenCalledWith('actual-thread')
+          expect(watch).toHaveBeenCalledWith('actual-thread', undefined)
         }
       } finally {
         clients.close()
@@ -547,7 +550,10 @@ describe('client identity and capabilities', () => {
 
   it('keeps local stop available without claiming reverse controls', async () => {
     const f = await fixture(false)
-    expect(f.record.task.capabilities).toEqual(CODEX_FEEDBACK_UNAVAILABLE)
+    expect(f.record.task.capabilities).toEqual({
+      ...CODEX_FEEDBACK_UNAVAILABLE,
+      reason: MISSING_HOST_CONTEXT_MESSAGE
+    })
     expect((await f.clients.action(f.action({ action: 'stop', feedback: undefined }))).status).toBe(
       'delivered'
     )

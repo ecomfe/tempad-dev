@@ -49,6 +49,7 @@ import type { ExtensionConnection } from './types'
 import { CodexAppFeedback } from './agent-clients/codex-feedback'
 import { CodexAppLifecycle } from './agent-clients/codex-lifecycle'
 import { ClientHookRequestSchema } from './agent-clients/hooks'
+import { HostContextNotificationSchema } from './agent-clients/host-context'
 import { ClientEventSchema } from './agent-clients/identity'
 import { AgentClients } from './agent-clients/registry'
 import { decodeImageDataUrl } from './asset-data-url'
@@ -179,7 +180,9 @@ export async function startHub(): Promise<void> {
   })
   const agentClients = new AgentClients(
     designTasks,
-    new CodexAppFeedback(join(taskStateDirectory, 'codex-feedback')),
+    new CodexAppFeedback(join(taskStateDirectory, 'codex-feedback'), {
+      taskContext: (taskId) => designTasks.find(taskId)?.hostContext
+    }),
     (changed) => new CodexAppLifecycle(changed)
   )
   let refreshingCapabilities = false
@@ -580,7 +583,7 @@ export async function startHub(): Promise<void> {
     if (issues.length) {
       throw createCodedError(TEMPAD_MCP_ERROR_CODES.RUNTIME_IDENTITY_MISMATCH, issues.join('; '))
     }
-    const { client, capabilities } = await agentClients.describe(ownerId)
+    const { client, capabilities, hostContext } = await agentClients.describe(ownerId)
     signal.throwIfAborted()
     record = designTasks.begin(
       ownerId,
@@ -593,7 +596,8 @@ export async function startHub(): Promise<void> {
       extension.sessions
         ? { browserId: extension.sessions.browserId, origin: extension.origin }
         : undefined,
-      args.recoveryGeneration
+      args.recoveryGeneration,
+      hostContext
     )
     const task = record.task
     const binding = bindDesignTask(record, extension, session)
@@ -652,9 +656,9 @@ export async function startHub(): Promise<void> {
     signal: AbortSignal
   ): Promise<ToolResponse> {
     const { extension, session } = resolveDesignRoute(ownerId, args.taskId, false)
-    const { client, capabilities } = await agentClients.describe(ownerId)
+    const { client, capabilities, hostContext } = await agentClients.describe(ownerId)
     signal.throwIfAborted()
-    designTasks.attachClient(ownerId, client, capabilities)
+    designTasks.attachClient(ownerId, client, capabilities, hostContext)
     const record = designTasks.resume(args.taskId, ownerId, args.epoch, session)
     record.extensionId = extension.id
     if (!record.ready)
@@ -687,6 +691,9 @@ export async function startHub(): Promise<void> {
 
     mcp.server.setNotificationHandler(ClientEventSchema, (notification) =>
       agentClients.event(ownerId, notification)
+    )
+    mcp.server.setNotificationHandler(HostContextNotificationSchema, (notification) =>
+      agentClients.registerContext(ownerId, notification.params)
     )
     mcp.server.setNotificationHandler(ClientBindingSubscribeSchema, (notification) => {
       agentClients.subscribeBinding(

@@ -48,6 +48,13 @@ Root:
   Windows process-level isolation is unverified: the harness refuses Windows and Unix hook
   fixtures are skipped there. Unit tests cover pipe naming by user and checkout and the unchanged
   release pipe; runtime-directory overrides cannot isolate two Windows Hubs for the same checkout.
+- `pnpm mcp:check-host-context` (builds and exercises real CLI processes against a private fixture
+  Hub; checks both host launch orders, sanitized child environments, registration after reconnect,
+  and continued bridging after the original launcher exits). A real MCP SDK fixture also checks
+  that the pre-context Hub contract accepts new CLIs through initialization, identity, and tools.
+  CI runs it alongside profile isolation.
+  It refuses Windows for the same fixed-pipe constraint; it does not connect to installed hosts.
+  Native adapter and real Hub socket tests separately cover routing and persisted host contexts.
 - `pnpm --filter @tempad-dev/extension test:setup` (install extension browser runtime)
 - `pnpm --filter @tempad-dev/extension test:node` (extension node tests only)
 - `pnpm --filter @tempad-dev/extension test:browser` (extension browser tests only)

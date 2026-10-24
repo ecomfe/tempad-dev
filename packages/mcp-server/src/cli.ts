@@ -10,12 +10,14 @@ import { finished } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 
+import { captureHostContext, HostContextNotificationSchema } from './agent-clients/host-context'
 import { runtimeIdentity } from './agent-clients/identity'
 import {
   ClientBindingFilter,
   ClientBindingSubscribeSchema,
   type ClaudeBinding
 } from './client-binding'
+import { hubEnvironment } from './process-environment'
 import {
   HUB_BUSY_EXIT_CODE,
   HUB_LOCK_STALE_MS,
@@ -67,6 +69,7 @@ const CONNECT_RETRY_DELAY = 200
 const FAILED_RESTART_DELAY = 5000
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 const HUB_ENTRY = join(HERE, 'hub.mjs')
+const hostContext = captureHostContext(process.env)
 
 ensureDir(RUNTIME_DIR)
 
@@ -115,6 +118,13 @@ function bridge(socket: Socket): Promise<boolean> {
     socket.on('error', (err) => log.warn({ err }, 'Socket error occurred.'))
 
     const binding = claudeBinding ?? runtimeIdentity(process.env).client
+    socket.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: HostContextNotificationSchema.shape.method.value,
+        params: hostContext
+      }) + '\n'
+    )
     socket.write(
       JSON.stringify({
         jsonrpc: '2.0',
@@ -219,7 +229,8 @@ function startHub(): ChildProcess {
   log.info('Spawning new Hub process...')
   return spawn(process.execPath, [HUB_ENTRY], {
     detached: true,
-    stdio: 'ignore'
+    stdio: 'ignore',
+    env: hubEnvironment(process.env)
   })
 }
 

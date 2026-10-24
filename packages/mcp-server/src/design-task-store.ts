@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname } from 'node:path'
 import { z } from 'zod'
 
+import { HostContextSchema } from './agent-clients/host-context'
+
 const SnapshotSchema = z.object({
   revision: z.number().int().nonnegative(),
   current: stringRecord(z.string(), z.string()),
@@ -11,6 +13,7 @@ const SnapshotSchema = z.object({
     z.object({
       task: DesignTaskSchema.strip(),
       requestId: z.string(),
+      hostContext: HostContextSchema.optional(),
       retiredAt: z.number().nonnegative().optional(),
       browser: z
         .object({

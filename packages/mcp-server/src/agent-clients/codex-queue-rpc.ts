@@ -2,6 +2,9 @@ import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child
 import { createInterface } from 'node:readline'
 import { promisify } from 'node:util'
 
+import type { HostContext } from './host-context'
+
+import { hostEnvironment } from '../process-environment'
 import { CodexIpcError } from './codex-ipc'
 
 export type ServerQueuedMessage = {
@@ -11,7 +14,8 @@ export type ServerQueuedMessage = {
 }
 
 /** Use the running desktop's bundled binary, never an unrelated CLI on PATH. */
-export async function codexQueueExecutable(): Promise<string> {
+export async function codexQueueExecutable(context: HostContext): Promise<string> {
+  const options = { timeout: 3000, env: hostEnvironment(context) }
   const { stdout } =
     process.platform === 'win32'
       ? await promisify(execFile)(
@@ -22,11 +26,9 @@ export async function codexQueueExecutable(): Promise<string> {
             '-Command',
             '(Get-Process codex -ErrorAction Stop).Path'
           ],
-          { timeout: 3000 }
+          options
         )
-      : await promisify(execFile)('ps', ['-U', String(process.getuid!()), '-o', 'comm='], {
-          timeout: 3000
-        })
+      : await promisify(execFile)('ps', ['-U', String(process.getuid!()), '-o', 'comm='], options)
   const paths = [...new Set(stdout.split(/\r?\n/).map((path) => path.trim()))].filter((path) =>
     /[/\\]resources[/\\](?:codex-cli[/\\]CodexCLI\.app[/\\]Contents[/\\]MacOS[/\\])?codex(?:\.exe)?$/i.test(
       path
@@ -52,7 +54,10 @@ export class CodexQueueRpc {
     }
   >()
 
-  constructor(private readonly executable = codexQueueExecutable) {}
+  constructor(
+    private readonly context: HostContext,
+    private readonly executable = codexQueueExecutable
+  ) {}
 
   async list(threadId: string, signal?: AbortSignal): Promise<ServerQueuedMessage[]> {
     await this.connect()
@@ -137,9 +142,13 @@ export class CodexQueueRpc {
   }
 
   private async start(): Promise<void> {
-    const executable = await this.executable()
+    const executable = await this.executable(this.context)
     if (this.closed) throw new Error('Codex queue connection is closed.')
-    const child = spawn(executable, ['app-server'], { stdio: 'pipe', windowsHide: true })
+    const child = spawn(executable, ['app-server'], {
+      stdio: 'pipe',
+      windowsHide: true,
+      env: hostEnvironment(this.context)
+    })
     this.child = child
     child.stderr.resume()
     const lines = createInterface({ input: child.stdout })

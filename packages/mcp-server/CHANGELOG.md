@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Kept Codex queues, feedback and Stop tied to each agent's configuration when multiple clients share a Hub.
 - Isolated checkout Hubs on separate ports and stores with profile verification; release connections are unchanged.
 - Fixed Claude task routing after reconnects and `/clear`, including sessions launched from Codex.
 - Kept stopped tasks cancelled across reconnects and restarts, and prevented overlapping canvas

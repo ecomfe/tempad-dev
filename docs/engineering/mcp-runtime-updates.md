@@ -1,6 +1,6 @@
 # Updating a running MCP runtime
 
-Status: proposed updater; Phase 0a isolation is implemented with the validation limits below.
+Status: proposed updater; Phase 0a isolation and 0b host contexts are implemented with the validation limits below.
 No supervisor or automatic update mechanism is implemented. Design baseline: `74ed70c9`.
 
 This design is for maintainers implementing runtime updates and preparing compatible
@@ -556,6 +556,34 @@ supervisor. Remove first-launcher environment dependence from host adapters and 
 Exit: Codex and Claude launch in either order, two Codex homes remain isolated, and losing
 the first launcher cannot change another session's identity, queue path, or helper environment.
 Deliver and review this behavior change separately from 0a.
+
+The CLI now sends a versioned `notifications/tempad/host-context` registration before the
+unchanged client identity notification on every connection. Unknown notifications leave
+older Hubs' identity handling intact. The Hub accepts one immutable context per connection;
+request metadata and native ownership checks still select the conversation. Queue readers,
+helper environments, availability caches and lifecycle subscriptions use that context.
+Hub launch uses an environment allowlist rather than inheriting host identities or credentials.
+Codex task ownership and delivery serialization compare only the Codex home and SQLite home.
+`home` and `tempDir` remain discovery inputs: a verified reconnect updates them without losing
+its task or delivery identity. Caches still distinguish complete discovery contexts. Claude
+task reconnection does not depend on Codex paths. Rejected storage mismatches are logged.
+
+Contexts remain private to the Hub: saved tasks and feedback receipts retain their routing
+context through disconnect and restart, without exposing it to MCP results or the extension.
+Older clients and stored records without context keep canvas access and local Stop; native
+controls require updating the CLI and restarting its MCP server in the host; reconnecting an old
+process cannot supply missing context. They never use
+the first launcher's configuration as a fallback. Contexts do not authorize executable paths.
+Legacy queue receipts without recoverable context retain their deduplication/cancellation evidence
+instead of expiring without checking the native queue, as detailed in the
+[feedback retention rules](../extension/mcp-design-tasks.md#codex-feedback-native-queue-and-steer).
+
+`pnpm mcp:check-host-context` verifies real CLI launch/reconnect behavior with a private fixture
+Hub. Real Hub socket tests cover registration and task persistence; adapter tests cover two
+Codex homes, scoped queue helpers and restored receipts. These checks do not establish live
+Codex/Claude UI behavior or Windows process-level isolation. No supervisor is introduced.
+Codex App native Queue, Steer, Stop and lifecycle acceptance is required before shipping 0b;
+deterministic checks alone do not establish compatibility of the sanitized helper environment.
 
 ### Phase 0c — feasibility measurements and hook inventory
 

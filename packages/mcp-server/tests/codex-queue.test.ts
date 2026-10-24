@@ -90,13 +90,12 @@ async function fixture(existing?: string) {
     },
     onDisconnect: () => () => {}
   }
-  const native = new CodexAppFeedback(
-    directory,
-    async () => connection,
-    1,
-    vi.fn(),
-    new CodexNativeQueue(read, readServer, server)
-  )
+  const native = new CodexAppFeedback(directory, {
+    open: async () => connection,
+    retryMs: 1,
+    load: vi.fn(),
+    nativeQueue: new CodexNativeQueue(read, readServer, server)
+  })
   cleanups.push(() => native.close())
   const controller = new AbortController()
   const dispatched = vi.fn()
@@ -738,25 +737,25 @@ describe('native Codex queue admission', () => {
 
   it('reads current persisted queue state without modifying the host file', async () => {
     const f = await fixture()
-    vi.stubEnv('CODEX_HOME', f.directory)
+    vi.stubEnv('CODEX_HOME', join(f.directory, 'wrong-host'))
     const path = join(f.directory, '.codex-global-state.json')
     const original = JSON.stringify({
       'queued-follow-ups': { 'thread-a': [{ id: 'one', extra: 42 }] },
       unrelated: 'keep'
     })
     await writeFile(path, original)
-    expect(await readCodexQueue('thread-a')).toEqual([{ id: 'one', extra: 42 }])
-    expect(await readCodexQueue('other')).toEqual([])
+    expect(await readCodexQueue('thread-a', f.directory)).toEqual([{ id: 'one', extra: 42 }])
+    expect(await readCodexQueue('other', f.directory)).toEqual([])
     expect(await readFile(path, 'utf8')).toBe(original)
     await writeFile(path, JSON.stringify({ 'queued-follow-ups': { 'thread-a': [{ id: 'two' }] } }))
-    expect(await readCodexQueue('thread-a')).toEqual([{ id: 'two' }])
+    expect(await readCodexQueue('thread-a', f.directory)).toEqual([{ id: 'two' }])
     await writeFile(path, JSON.stringify({ 'queued-follow-ups': { 'thread-a': null } }))
     // A null entry is the native representation of no stored queue.
-    expect(await readCodexQueue('thread-a')).toEqual([])
+    expect(await readCodexQueue('thread-a', f.directory)).toEqual([])
     await writeFile(
       path,
       JSON.stringify({ 'queued-follow-ups': { 'thread-a': [{ id: 'x' }, { id: 'x' }] } })
     )
-    await expect(readCodexQueue('thread-a')).rejects.toThrow('duplicate')
+    await expect(readCodexQueue('thread-a', f.directory)).rejects.toThrow('duplicate')
   })
 })

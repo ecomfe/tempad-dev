@@ -1,15 +1,14 @@
 import { stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 export type CodexServerQueueState = { hasMessages: boolean } | null
 
 /** A missing database identifies an older store; an unreadable store is never empty. */
-export async function readCodexServerQueue(conversationId: string): Promise<CodexServerQueueState> {
-  const path = join(
-    process.env.CODEX_SQLITE_HOME || process.env.CODEX_HOME || join(homedir(), '.codex'),
-    'queue_1.sqlite'
-  )
+export async function readCodexServerQueue(
+  conversationId: string,
+  home: string
+): Promise<CodexServerQueueState> {
+  const path = join(home, 'queue_1.sqlite')
   try {
     try {
       await stat(path)

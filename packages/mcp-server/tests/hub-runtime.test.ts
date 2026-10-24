@@ -71,6 +71,8 @@ vi.mock('../src/asset-store', async (load) => {
 })
 
 import { CodexAppFeedback } from '../src/agent-clients/codex-feedback'
+import { CodexAppLifecycle } from '../src/agent-clients/codex-lifecycle'
+import { captureHostContext, type HostContext } from '../src/agent-clients/host-context'
 import { AgentClients } from '../src/agent-clients/registry'
 import { createAssetHttpServer } from '../src/asset-http-server'
 import { createAssetStore } from '../src/asset-store'
@@ -91,7 +93,11 @@ const structure = {
   roots: [{ id: '1:1', name: 'Root', type: 'FRAME', x: 0, y: 0, width: 100, height: 100 }]
 }
 
-async function connectConsumer(clientEventFirst = false, clientName = 'isolated-test') {
+async function connectConsumer(
+  clientEventFirst = false,
+  clientName = 'isolated-test',
+  context?: HostContext
+) {
   const socket = connect(fixture.socketPath)
   consumerSockets.push(socket)
   await once(socket, 'connect')
@@ -121,6 +127,7 @@ async function connectConsumer(clientEventFirst = false, clientName = 'isolated-
     await vi.waitFor(() => expect(replies.has(id)).toBe(true), { interval: 1 })
     return replies.get(id)!
   }
+  if (context) send({ method: 'notifications/tempad/host-context', params: context })
   if (clientEventFirst)
     send({
       method: 'notifications/tempad/client-event',
@@ -280,6 +287,65 @@ afterEach(async () => {
 afterAll(() => rmSync(fixture.directory, { recursive: true, force: true }))
 
 describe('Hub runtime module', () => {
+  it('receives private CLI contexts before initialize and persists only the task owner context', async () => {
+    const context = captureHostContext({
+      HOME: `${fixture.directory}/host-a`,
+      TMPDIR: fixture.directory
+    })
+    const other = captureHostContext({
+      HOME: `${fixture.directory}/host-b`,
+      TMPDIR: fixture.directory
+    })
+    const available = vi.spyOn(CodexAppFeedback.prototype, 'available').mockResolvedValue(true)
+    vi.spyOn(CodexAppLifecycle.prototype, 'watch').mockImplementation(() => {})
+    const attach = vi.spyOn(DesignTasks.prototype, 'attachClient')
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const first = await connectConsumer(true, 'codex', context)
+    const second = await connectConsumer(true, 'codex', other)
+    const _meta = { 'x-codex-turn-metadata': { thread_id: 'same-thread', turn_id: 'turn' } }
+    first.send({
+      id: 1,
+      method: 'tools/call',
+      params: {
+        name: 'manage_design_task',
+        arguments: {
+          action: 'begin',
+          title: 'Context',
+          requestId: '00000000-0000-4000-8000-000000000004'
+        },
+        _meta
+      }
+    })
+    const binding = await extension.call(0)
+    extension.send({ type: 'toolResult', id: binding.id, payload: binding.payload.args })
+    const result = await first.reply(1)
+    expect(result.result?.isError).not.toBe(true)
+    expect(available).toHaveBeenCalledWith(expect.objectContaining({ hostContext: context }))
+    // Host filesystem paths never cross the public MCP or extension contract.
+    expect(JSON.stringify(result)).not.toContain(context.home)
+    expect(JSON.stringify(binding)).not.toContain(context.home)
+    first.socket.destroy()
+    await once(first.socket, 'close')
+    second.send({
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'list_design_sessions', arguments: {}, _meta }
+    })
+    expect((await second.reply(1)).result?.isError).not.toBe(true)
+    expect(attach).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ sessionId: 'same-thread' }),
+      undefined,
+      other
+    )
+    expect(
+      new DesignTaskStore(`${fixture.directory}/state/design-tasks.json`).load()?.records[0]
+        ?.hostContext
+    ).toEqual(context)
+  })
+
   it('deduplicates a shared state and asset directory', async () => {
     vi.mocked(resolveStateDir).mockReturnValue(`${fixture.directory}/assets`)
     const { startHub } = await loadRuntime()

@@ -227,6 +227,17 @@ dispatched interruptions, acknowledgements, and failures. There is no hook fallb
 
 ### Codex feedback: native Queue and Steer
 
+Each CLI registers its resolved host paths before forwarding MCP requests. The Hub scopes
+queue readers, helper environments, availability caches and lifecycle subscriptions to that
+context, independently of which client started it. Saved Hub tasks and delivery receipts retain
+the context across reconnects and restarts; these paths are never included in public task data.
+Task reconnection and delivery deduplication use the Codex home and SQLite home, not `HOME` or
+temporary discovery paths. A verified reconnect refreshes those discovery inputs. Claude task
+binding does not compare Codex paths. An older CLI must be updated and its MCP server restarted
+in the host before native feedback is available; reconnecting the same old process is insufficient.
+Canvas access and local Stop remain available. Context paths are
+discovery inputs, not conversation ownership evidence; native verification is still required.
+
 Where legacy admission is available, Queue admits comments into Codex's local native
 queue and settles after the host acknowledges storage. The Hub serializes submissions per conversation, reads the
 latest committed `queued-follow-ups` snapshot from Codex home without modifying
@@ -329,6 +340,11 @@ message. Cleanup rechecks the receipt inside the conversation's existing seriali
 An unreadable queue is never treated as empty. Uncertain submissions and cancellation
 tombstones that could still receive a late commit remain until that uncertainty is resolved;
 an empty queue alone does not establish that a disconnected writer has finished.
+Pre-context queue receipts with no recoverable task context intentionally have no age-only
+cleanup: their native queue cannot be checked safely. Retaining this bounded legacy set preserves
+delivery deduplication and late cancellation evidence. Reconnecting the original conversation
+through an updated CLI can recover context while its task still exists, after which normal
+verified cleanup applies. Never infer a missing context from the Hub's environment.
 
 Feedback batches older than 30 days, or dated more than five minutes in the future, cannot
 be dispatched. A failed expiry check keeps the draft and delivery identity. The user must

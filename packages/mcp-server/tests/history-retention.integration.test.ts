@@ -51,14 +51,14 @@ describe('history retention across task and host adapters', () => {
     let messages = [{ id: 'feedback-a' }]
     const queue = new CodexNativeQueue(
       async () => messages,
-      async () => null
+      async () => null,
+      { list: vi.fn(), add: vi.fn(), remove: vi.fn(), close: vi.fn() }
     )
     const remove = vi.spyOn(queue, 'remove').mockImplementation(async () => {
       messages = []
     })
-    const native = new CodexAppFeedback(
-      directory,
-      async () => ({
+    const native = new CodexAppFeedback(directory, {
+      open: async () => ({
         owner: vi.fn().mockResolvedValue('host-a'),
         close: vi.fn(),
         request: vi.fn(),
@@ -66,10 +66,10 @@ describe('history retention across task and host adapters', () => {
         onBroadcast: vi.fn(() => () => {}),
         onDisconnect: vi.fn(() => () => {})
       }),
-      1,
-      vi.fn(),
-      queue
-    )
+      retryMs: 1,
+      load: vi.fn(),
+      nativeQueue: queue
+    })
     const clients = new AgentClients(tasks, native)
     try {
       await writeFile(
