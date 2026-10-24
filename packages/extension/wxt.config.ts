@@ -53,7 +53,17 @@ export default defineConfig({
     disabled: true
   },
   manifest: (env) => ({
-    minimum_chrome_version: '116',
+    ...(env.browser === 'firefox'
+      ? {
+          browser_specific_settings: {
+            gecko: {
+              id: 'tempad-dev-firefox@n1k1tal0x',
+              strict_min_version: '128.0',
+              data_collection_permissions: { required: ['none'] }
+            }
+          }
+        }
+      : { minimum_chrome_version: '116' }),
     name: 'TemPad Dev',
     version: packageJson.version,
     content_security_policy: {
