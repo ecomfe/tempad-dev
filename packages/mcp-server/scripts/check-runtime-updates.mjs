@@ -503,6 +503,13 @@ async function automaticAcceptance(a, b) {
     await until(() => [...automaticPids].every(exited), 'automatic fixture shutdown', 15_000)
     return { stagingMs, admissionPauseMs, uninterruptedCalls: calls }
   } catch (error) {
+    const diagnostic = await owner
+      .request({ method: 'tempad/runtime-status' }, ResultSchema, { timeout: 5000 })
+      .catch((inspectionError) => ({ error: String(inspectionError) }))
+    await writeFile(
+      join(directory, 'failure-status.json'),
+      JSON.stringify(diagnostic, null, 2)
+    ).catch((inspectionError) => console.error(`Could not save failure status: ${inspectionError}`))
     await preserveFixtureEvidence(directory, error.stack)
     throw error
   } finally {
