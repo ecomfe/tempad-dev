@@ -17,6 +17,7 @@ import { WebSocket } from 'ws'
 import { runtimeEndpoint } from '../src/runtime-platform.ts'
 import {
   fixtureEnvironment,
+  fixtureNodeArguments,
   fixtureProcesses as processes,
   fixtureRoot,
   preserveFixtureEvidence,
@@ -74,7 +75,7 @@ async function launch(label) {
   await mkdir(home, { mode: 0o700 })
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [entry, '--root', root],
+    args: fixtureNodeArguments([entry, '--root', root]),
     stderr: 'pipe',
     env: {
       ...fixtureEnvironment(home, root),

@@ -23,10 +23,12 @@ jobs:
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       TEMPAD_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/runtime-ci-logs/fixtures
-      pnpm_config_cache_dir: ${{ runner.temp }}/tempad-pnpm-cache
     steps:
       - name: Preserve reviewed source bytes
         run: git config --global core.autocrlf false
+
+      - name: Share dependency metadata across install and offline packaging
+        run: '"pnpm_config_cache_dir=$env:RUNNER_TEMP/tempad-pnpm-cache" >> $env:GITHUB_ENV'
 
       - name: Checkout repository
         uses: actions/checkout@v7

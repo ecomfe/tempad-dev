@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, stat, writeFile } from 'no
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, sep } from 'node:path'
 import process from 'node:process'
+import { URL } from 'node:url'
 
 import { ensurePrivateDirectory, windowsPowerShellEnvironment } from '../src/runtime-platform.ts'
 
@@ -31,6 +32,12 @@ export function fixtureEnvironment(home, temp = home) {
     TEMP: temp,
     TMP: temp
   }
+}
+
+export function fixtureNodeArguments(args) {
+  return process.env.TEMPAD_RUNTIME_EVIDENCE_DIR
+    ? ['--import', new URL('./runtime-startup-trace.mjs', import.meta.url).href, ...args]
+    : args
 }
 
 /** Copy bounded fixture diagnostics before shutdown removes live ownership records. */

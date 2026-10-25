@@ -28,6 +28,7 @@ import { runtimeEndpoint } from '../src/runtime-platform.ts'
 import config from '../tsdown.prototype.config.ts'
 import {
   fixtureEnvironment,
+  fixtureNodeArguments,
   fixtureProcesses,
   fixtureRoot,
   preserveFixtureEvidence
@@ -232,7 +233,7 @@ async function scenario(a, b, mode, incompatible) {
   async function openClient(name, timeout = 15000) {
     const transport = new StdioClientTransport({
       command: process.execPath,
-      args: [a, '--root', root],
+      args: fixtureNodeArguments([a, '--root', root]),
       stderr: 'pipe',
       env: {
         ...fixtureEnvironment(root),
@@ -682,7 +683,7 @@ async function coldAttachment(entry) {
   async function openClient() {
     const transport = new StdioClientTransport({
       command: process.execPath,
-      args: [entry, '--root', root],
+      args: fixtureNodeArguments([entry, '--root', root]),
       stderr: 'pipe',
       env: fixtureEnvironment(root)
     })
