@@ -1,0 +1,256 @@
+import { createHash } from 'node:crypto'
+import {
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
+import { describe, expect, it, vi } from 'vitest'
+
+import { readArchive, verifyIntegrity } from '../src/runtime-update/archive'
+import { cacheDirectory, installArchive, verifyCached } from '../src/runtime-update/cache'
+import {
+  compatibilityReasons,
+  supportsNode,
+  validatePolicyBaseline,
+  type RuntimeManifest
+} from '../src/runtime-update/manifest'
+import { sha256, verifyPackage } from '../src/runtime-update/package'
+import { downloadRelease, resolveRelease } from '../src/runtime-update/registry'
+
+function tar(entries: { path: string; data?: string; type?: string }[]) {
+  const blocks: Buffer[] = []
+  for (const entry of entries) {
+    const header = Buffer.alloc(512)
+    const data = Buffer.from(entry.data ?? '')
+    header.write(entry.path)
+    header.write(data.length.toString(8).padStart(11, '0') + '\0', 124)
+    header.write('        ', 148)
+    header.write(entry.type ?? '0', 156)
+    const checksum = header.reduce((sum, value) => sum + value, 0)
+    header.write(checksum.toString(8).padStart(6, '0') + '\0 ', 148)
+    blocks.push(header, data, Buffer.alloc((512 - (data.length % 512)) % 512))
+  }
+  return gzipSync(Buffer.concat([...blocks, Buffer.alloc(1024)]))
+}
+const integrity = (bytes: Buffer) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`
+const baselineIntegrity = integrity(Buffer.from('baseline'))
+function fixture() {
+  const files = new Map(
+    Object.entries({
+      'package.json': JSON.stringify({
+        name: '@tempad-dev/mcp',
+        version: '0.12.0',
+        bin: 'dist/cli.mjs',
+        engines: { node: '^22 || ^24 || >=26' },
+        dependencies: { test: '1.0.0' },
+        bundleDependencies: ['test']
+      }),
+      'dist/cli.mjs': '',
+      'dist/managed-runtime.mjs': '',
+      'dist/log-transport.mjs': '',
+      'node_modules/test/package.json': JSON.stringify({ name: 'test', version: '1.0.0' })
+    }).map(([key, value]) => [key, Buffer.from(value)])
+  )
+  const manifest: RuntimeManifest = {
+    version: 1,
+    name: '@tempad-dev/mcp',
+    packageVersion: '0.12.0',
+    entry: 'dist/managed-runtime.mjs',
+    node: '^22 || ^24 || >=26',
+    platforms: ['darwin', 'linux'],
+    guidanceEpoch: 1,
+    guidanceReview: {
+      version: '0.12.0',
+      sourceHash: 'a'.repeat(64),
+      decision: 'initial',
+      baseline: { version: '0.11.0', integrity: baselineIntegrity },
+      rationale: 'First release with reviewed runtime guidance.'
+    },
+    wireHash: 'b'.repeat(64),
+    presentationHash: 'c'.repeat(64),
+    lockHash: 'd'.repeat(64),
+    controlProtocols: [1],
+    state: { family: 'tempad', reads: [1], writes: 1 },
+    extension: { protocols: [1], legacy: true },
+    hookProtocol: 2,
+    files: Object.fromEntries([...files].map(([key, value]) => [key, sha256(value)]))
+  }
+  files.set('dist/runtime-manifest.json', Buffer.from(JSON.stringify(manifest)))
+  return { files, manifest }
+}
+
+describe('release archives', () => {
+  it('checks integrity before accepting regular package files', () => {
+    const bytes = tar([{ path: 'package/dist/cli.mjs', data: 'ok' }])
+    verifyIntegrity(bytes, integrity(bytes))
+    expect(readArchive(bytes).get('dist/cli.mjs')?.toString()).toBe('ok')
+    expect(() => verifyIntegrity(bytes, baselineIntegrity)).toThrow('integrity')
+    expect(() => readArchive(bytes.subarray(0, bytes.length - 6))).toThrow()
+  })
+  it.each(['../escape', 'a/../../escape', '/absolute', 'a\\b', 'C:/outside', 'a//b', 'a/./b'])(
+    'rejects path %s',
+    (path) => {
+      expect(() => readArchive(tar([{ path: `package/${path}`, data: 'x' }]))).toThrow()
+    }
+  )
+  it.each(['1', '2', '3', '4', '6', 'g'])('rejects non-file tar type %s', (type) => {
+    expect(() => readArchive(tar([{ path: 'package/link', type }]))).toThrow()
+  })
+  it('rejects duplicates and file ancestors', () => {
+    expect(() => readArchive(tar([{ path: 'package/a' }, { path: 'package/a' }]))).toThrow()
+    expect(() => readArchive(tar([{ path: 'package/a/b' }, { path: 'package/a' }]))).toThrow()
+  })
+  it('checks checksums and empty packages', () => {
+    expect(() => readArchive(tar([]))).toThrow()
+    const bytes = Buffer.alloc(1024, 1)
+    expect(() => readArchive(gzipSync(bytes))).toThrow()
+  })
+})
+
+describe('release manifest and dependency closure', () => {
+  it('accepts the exact inventoried package', () => {
+    const { files, manifest } = fixture()
+    expect(verifyPackage(files, '0.12.0')).toEqual(manifest)
+    validatePolicyBaseline(manifest)
+  })
+  it('rejects modified, missing, extra and misidentified files', () => {
+    const { files } = fixture()
+    expect(() => verifyPackage(files, '0.12.1')).toThrow('identity')
+    files.set('dist/cli.mjs', Buffer.from('modified'))
+    expect(() => verifyPackage(files, '0.12.0')).toThrow('hash')
+    files.delete('dist/cli.mjs')
+    expect(() => verifyPackage(files, '0.12.0')).toThrow('inventory')
+  })
+  it('rejects incomplete bundled transitive dependencies', () => {
+    const { files, manifest } = fixture()
+    const path = 'node_modules/test/package.json'
+    files.set(path, Buffer.from(JSON.stringify({ dependencies: { absent: '1.0.0' } })))
+    manifest.files[path] = sha256(files.get(path)!)
+    files.set('dist/runtime-manifest.json', Buffer.from(JSON.stringify(manifest)))
+    expect(() => verifyPackage(files, '0.12.0')).toThrow('Unbundled runtime dependency absent')
+  })
+  it('allows a presentation correction but blocks reverted text across epochs', () => {
+    const { manifest: first } = fixture()
+    const third = {
+      ...first,
+      packageVersion: '0.12.2',
+      presentationHash: first.presentationHash,
+      guidanceEpoch: 2
+    }
+    expect(compatibilityReasons(first, { ...first, presentationHash: 'e'.repeat(64) })).toEqual([])
+    expect(compatibilityReasons(first, third)).toContain('Guidance epoch changed; restart MCP')
+  })
+  it('requires state rollback, control, extension and wire compatibility', () => {
+    const { manifest } = fixture()
+    expect(
+      compatibilityReasons(manifest, {
+        ...manifest,
+        wireHash: 'e'.repeat(64),
+        controlProtocols: [2],
+        state: { ...manifest.state, reads: [2] },
+        extension: { protocols: [2], legacy: false }
+      })
+    ).toHaveLength(4)
+  })
+  it('requires fresh monotonic guidance decisions', () => {
+    const { manifest: prior } = fixture()
+    const next = {
+      ...prior,
+      packageVersion: '0.12.1',
+      guidanceReview: {
+        ...prior.guidanceReview,
+        version: '0.12.1',
+        decision: 'compatible' as const,
+        baseline: { version: prior.packageVersion, integrity: baselineIntegrity }
+      }
+    }
+    validatePolicyBaseline(next, prior)
+    expect(() => validatePolicyBaseline(next)).toThrow('Missing historical')
+    expect(() => validatePolicyBaseline({ ...next, guidanceEpoch: 2 }, prior)).toThrow('disagree')
+    expect(() => validatePolicyBaseline({ ...next, guidanceEpoch: 0 }, prior)).toThrow('decrease')
+  })
+  it('only interprets explicitly supported Node engine policies', () => {
+    expect(supportsNode('^22 || ^24 || >=26', '24.1.0')).toBe(true)
+    expect(supportsNode('^22 || ^24 || >=26', '23.1.0')).toBe(false)
+    expect(() => supportsNode('>=22.0.0')).toThrow('Unsupported')
+  })
+})
+
+describe('private release cache', () => {
+  it('publishes a complete package and rechecks corrupted cache bytes', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'tp-cache-')))
+    try {
+      const { files } = fixture()
+      const archive = tar(
+        [...files].map(([path, data]) => ({ path: `package/${path}`, data: data.toString() }))
+      )
+      const sri = integrity(archive)
+      const installed = installArchive(root, '0.12.0', sri, archive)
+      expect(
+        readFileSync(join(installed.directory, 'node_modules/test/package.json'), 'utf8')
+      ).toContain('1.0.0')
+      expect(installArchive(root, '0.12.0', sri, archive)).toEqual(installed)
+      writeFileSync(join(installed.directory, 'dist/cli.mjs'), 'tampered')
+      expect(() => verifyCached(root, '0.12.0', sri)).toThrow('hash mismatch')
+      expect(() => installArchive(root, '0.12.0', sri, archive)).toThrow('hash mismatch')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it('never follows a cached package symlink', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'tp-cache-')))
+    try {
+      symlinkSync(root, cacheDirectory(root, baselineIntegrity))
+      expect(() => verifyCached(root, '0.12.0', baselineIntegrity)).toThrow('canonical private')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('official release acquisition', () => {
+  const metadata = {
+    name: '@tempad-dev/mcp',
+    version: '0.12.0',
+    dist: {
+      integrity: baselineIntegrity,
+      tarball: 'https://registry.npmjs.org/@tempad-dev/mcp/-/mcp-0.12.0.tgz'
+    }
+  }
+  it('pins exact metadata and refuses redirects or alternate tarball hosts', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(metadata))
+    expect(await resolveRelease('latest', fetcher)).toEqual({
+      version: '0.12.0',
+      integrity: baselineIntegrity,
+      url: metadata.dist.tarball
+    })
+    expect(fetcher.mock.calls[0]![1]).toMatchObject({ redirect: 'error', credentials: 'omit' })
+    fetcher.mockResolvedValueOnce(
+      Response.json({ ...metadata, dist: { ...metadata.dist, tarball: 'https://evil.test/a.tgz' } })
+    )
+    await expect(resolveRelease('0.12.0', fetcher)).rejects.toThrow('official release')
+    expect(() =>
+      downloadRelease(
+        { version: '0.12.0', integrity: baselineIntegrity, url: 'http://localhost/a' },
+        fetcher
+      )
+    ).toThrow('official npm')
+  })
+  it('rejects prereleases, wrong versions, errors and oversized metadata', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+    await expect(resolveRelease('0.12.0-alpha', fetcher)).rejects.toThrow()
+    expect(fetcher).not.toHaveBeenCalled()
+    fetcher.mockResolvedValueOnce(Response.json(metadata))
+    await expect(resolveRelease('0.12.1', fetcher)).rejects.toThrow('requested')
+    fetcher.mockResolvedValueOnce(new Response('', { status: 503 }))
+    await expect(resolveRelease('latest', fetcher)).rejects.toThrow('HTTP 503')
+    fetcher.mockResolvedValueOnce(new Response('x'.repeat(2 * 1024 * 1024 + 1)))
+    await expect(resolveRelease('latest', fetcher)).rejects.toThrow('byte limit')
+  })
+})
