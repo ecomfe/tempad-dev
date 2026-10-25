@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { ClientHooks, type ClientHook } from '../src/agent-clients/hooks'
 
 let sequence = 0
-function event(name: ClientHook['event'], extra: Partial<ClientHook> = {}): ClientHook {
+function event(
+  name: ClientHook['event'],
+  extra: Partial<Extract<ClientHook, { version: 1 }>> = {}
+): ClientHook {
   return {
     version: 1,
     kind: 'codex',

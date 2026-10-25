@@ -33,6 +33,7 @@ import {
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_ERROR_CODES,
   measureCallToolResultBytes,
+  sameRuntimeProfile,
   utf8Bytes,
   type TempadMcpErrorCode
 } from '@tempad-dev/shared'
@@ -48,7 +49,7 @@ import type { ExtensionConnection } from './types'
 
 import { CodexAppFeedback } from './agent-clients/codex-feedback'
 import { CodexAppLifecycle } from './agent-clients/codex-lifecycle'
-import { ClientHookRequestSchema } from './agent-clients/hooks'
+import { ClientHookRequestSchema, type ClientHook } from './agent-clients/hooks'
 import { HostContextNotificationSchema } from './agent-clients/host-context'
 import { ClientEventSchema } from './agent-clients/identity'
 import { AgentClients } from './agent-clients/registry'
@@ -136,7 +137,13 @@ function hasCanvasReadEvidence(tool: ToolName, payload: unknown): boolean {
 
 export async function startHub(
   options: {
-    prototype?: { secret: string; root?: string; socketPath?: string; paused?: boolean }
+    prototype?: {
+      secret: string
+      root?: string
+      socketPath?: string
+      paused?: boolean
+      release?: boolean
+    }
   } = {}
 ): Promise<void> {
   const SOCK_PATH = options.prototype?.socketPath ?? DEFAULT_SOCK_PATH
@@ -169,8 +176,7 @@ export async function startHub(
         inspect: handoffStatus,
         flush: flushHandoff,
         stop: shutdownHandoff,
-        hook: (input) =>
-          designTasks.applyHook(input.invocationId, input, () => agentClients.clientHook(input))
+        hook: (input) => receiveHook(input, true)
       })
     : undefined
   const endpoints = options.prototype?.root ? readEndpoints(options.prototype.root) : undefined
@@ -181,7 +187,8 @@ export async function startHub(
       }
     : undefined
   const runtimeDataSockets = new Map<string, Socket>()
-  if (options.prototype) wsPortCandidates.splice(0, wsPortCandidates.length, endpoints?.wsPort ?? 0)
+  if (endpoints || (options.prototype && !options.prototype.release))
+    wsPortCandidates.splice(0, wsPortCandidates.length, endpoints?.wsPort ?? 0)
 
   log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Hub starting...')
 
@@ -268,6 +275,18 @@ export async function startHub(
   let hubRuntimeIdentity: HubRuntimeIdentity | null = null
   const consumerSessions = new Set<McpServer>()
   const incomingSockets = new Set<Socket>()
+
+  function receiveHook(input: ClientHook, durable = false) {
+    if (input.version === 2 && !sameRuntimeProfile(input.profile, RUNTIME_PROFILE))
+      throw new Error('Lifecycle hook belongs to a different runtime profile.')
+    const result =
+      durable || input.version === 2
+        ? designTasks.applyHook(input.invocationId, input, () => agentClients.clientHook(input))
+        : agentClients.clientHook(input)
+    return input.version === 2
+      ? { ...result, receipt: { version: 2, invocationId: input.invocationId, state: 'applied' } }
+      : result
+  }
 
   function handoffStatus() {
     const blockers: string[] = []
@@ -836,9 +855,7 @@ export async function startHub(
         notification.params?.sessionId
       )
     })
-    mcp.server.setRequestHandler(ClientHookRequestSchema, (request) =>
-      agentClients.clientHook(request.params)
-    )
+    mcp.server.setRequestHandler(ClientHookRequestSchema, (request) => receiveHook(request.params))
 
     const registered: string[] = []
     for (const tool of TOOL_DEFINITIONS) {
@@ -1578,7 +1595,7 @@ export async function startHub(
           if (!('id' in message)) throw new Error('Lifecycle hooks require a request ID.')
           const request = ClientHookRequestSchema.safeParse(message)
           const reply = request.success
-            ? { result: agentClients.clientHook(request.data.params) }
+            ? { result: receiveHook(request.data.params) }
             : { error: { code: -32602, message: 'Invalid lifecycle hook parameters.' } }
           sock.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, ...reply }) + '\n')
           return

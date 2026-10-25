@@ -11,6 +11,7 @@ import { HookReceiptSchema } from './hook-receipts'
 const SnapshotSchema = z.object({
   revision: z.number().int().nonnegative(),
   hookReceipts: z.array(HookReceiptSchema).optional(),
+  hookReceiptCutoff: z.number().optional(),
   current: stringRecord(z.string(), z.string()),
   fileFences: stringRecord(z.string(), z.boolean()).optional(),
   records: z.array(

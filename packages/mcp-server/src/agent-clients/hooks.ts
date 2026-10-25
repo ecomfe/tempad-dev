@@ -1,29 +1,8 @@
-import { z } from 'zod'
+import type { ClientHook } from '@tempad-dev/shared'
+export { ClientHookRequestSchema, type ClientHook } from '@tempad-dev/shared'
 
 import type { ClientBinding } from './types'
 
-export const ClientHookRequestSchema = z.object({
-  method: z.literal('tempad/client-hook'),
-  params: z
-    .object({
-      version: z.literal(1),
-      kind: z.enum(['codex', 'claude']),
-      sessionId: z.string().min(1).max(256),
-      event: z.enum([
-        'PreToolUse',
-        'PostToolUse',
-        'UserPromptSubmit',
-        'Stop',
-        'Interrupt',
-        'SessionEnd'
-      ]),
-      invocationId: z.string().uuid(),
-      turnId: z.string().min(1).max(256).optional(),
-      taskId: z.string().min(1).max(128).optional()
-    })
-    .strict()
-})
-export type ClientHook = z.infer<typeof ClientHookRequestSchema>['params']
 export type ClientHookResult = {
   output?: {
     hookSpecificOutput: { hookEventName: ClientHook['event']; additionalContext: string }
@@ -33,6 +12,7 @@ type Session = {
   active: boolean
   turnId?: string
   stopNotice?: { taskId: string; turnId?: string }
+  receiptCapable?: boolean
 }
 
 function scope(kind: string, sessionId: string): string {
@@ -42,6 +22,10 @@ function scope(kind: string, sessionId: string): string {
 /** Hooks carry lifecycle identity and Stop notices, never design comments. */
 export class ClientHooks {
   private readonly sessions = new Map<string, Session>()
+
+  receiptCapable(sessionId?: string): boolean {
+    return !!sessionId && this.sessions.get(scope('claude', sessionId))?.receiptCapable === true
+  }
 
   isActive(kind: string, sessionId: string): boolean {
     return this.sessions.get(scope(kind, sessionId))?.active === true
@@ -80,6 +64,7 @@ export class ClientHooks {
     } else if (input.turnId && session.turnId && input.turnId !== session.turnId) {
       return {}
     } else if (input.turnId) session.turnId = input.turnId
+    session.receiptCapable = input.version === 2
 
     const ended = ['Interrupt', 'SessionEnd'].includes(input.event)
     session.active = !ended && input.event !== 'Stop'

@@ -48,7 +48,12 @@ async function withHookHub(
     clients.add(mcp)
     mcp.server.setRequestHandler(ClientHookRequestSchema, (request) => {
       received.push(request.params)
-      return hooks.handle(request.params)
+      return {
+        ...hooks.handle(request.params),
+        ...(request.params.version === 2
+          ? { receipt: { version: 2, invocationId: request.params.invocationId, state: 'applied' } }
+          : {})
+      }
     })
     void mcp.connect(new StdioServerTransport(socket, socket))
     socket.once('close', () => {
@@ -108,6 +113,72 @@ async function runHook(
 // The installed Windows hook ignores runtime-directory overrides for its fixed pipe.
 // Only the in-memory protocol test is safe there; never probe the user's real Hub.
 describe('plugin hook transport', () => {
+  it.skipIf(process.platform === 'win32').each(['lost reply', 'accepted', 'legacy'] as const)(
+    'retries one invocation after %s without repeating its effect',
+    async (mode) => {
+      const directory = await mkdtemp(join(tmpdir(), 'th-retry-'))
+      const received: ClientHook[] = []
+      const applied = new Set<string>()
+      const server = createServer((socket) => {
+        socket.setEncoding('utf8')
+        let buffer = ''
+        socket.on('data', (chunk) => {
+          buffer += chunk
+          if (!buffer.endsWith('\n')) return
+          const input = ClientHookRequestSchema.parse(JSON.parse(buffer)).params
+          received.push(input)
+          if (mode === 'legacy' && input.version === 2) {
+            socket.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                error: { code: -32602, message: 'Invalid lifecycle hook parameters.' }
+              }) + '\n'
+            )
+            return
+          }
+          applied.add(input.invocationId)
+          if (mode === 'lost reply' && received.length === 1) {
+            socket.destroy()
+            return
+          }
+          socket.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              result:
+                input.version === 2
+                  ? {
+                      receipt: {
+                        version: 2,
+                        invocationId: input.invocationId,
+                        state: mode === 'accepted' && received.length === 1 ? 'accepted' : 'applied'
+                      }
+                    }
+                  : {}
+            }) + '\n'
+          )
+        })
+      })
+      try {
+        await new Promise<void>((resolve) => server.listen(join(directory, 'mcp.sock'), resolve))
+        await chmod(join(directory, 'mcp.sock'), 0o600)
+        expect(await runHook(directory, 'Stop', {}, 'claude')).toEqual({
+          code: 0,
+          stdout: '',
+          stderr: ''
+        })
+        expect(received).toHaveLength(2)
+        expect(new Set(received.map((input) => input.invocationId)).size).toBe(1)
+        expect(applied.size).toBe(1)
+        expect(received[0]).toMatchObject({ version: 2, profile: { kind: 'release' } })
+        expect(received[1]?.version).toBe(mode === 'legacy' ? 1 : 2)
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+        await rm(directory, { recursive: true, force: true })
+      }
+    }
+  )
   it.skipIf(process.platform === 'win32')(
     'uses the generated checkout and configured directory without MCP environment inheritance',
     async () => {
@@ -152,7 +223,19 @@ describe('plugin hook transport', () => {
               text += data
               if (!text.endsWith('\n')) return
               received.push(index ? 'checkout' : 'release')
-              socket.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }) + '\n')
+              socket.end(
+                JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: 1,
+                  result: {
+                    receipt: {
+                      version: 2,
+                      invocationId: JSON.parse(text).params.invocationId,
+                      state: 'applied'
+                    }
+                  }
+                }) + '\n'
+              )
             })
           })
           await new Promise<void>((resolve) => server.listen(join(directory, 'mcp.sock'), resolve))
@@ -243,7 +326,16 @@ describe('plugin hook transport', () => {
         const request = ClientHookRequestSchema.parse(message)
         received = request.params
         const bytes = Buffer.from(
-          prefix + JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { output } }) + '\n'
+          prefix +
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {
+                output,
+                receipt: { version: 2, invocationId: request.params.invocationId, state: 'applied' }
+              }
+            }) +
+            '\n'
         )
         const split = bytes.indexOf(Buffer.from('🛑')) + 1
         finishResponse = () => socket.end(bytes.subarray(split))
@@ -378,7 +470,7 @@ describe('plugin hook transport', () => {
         expect(await runHook(directory, 'Interrupt')).toEqual({ code: 0, stdout: '', stderr: '' })
         expect(received).toEqual([
           expect.objectContaining({
-            version: 1,
+            version: 2,
             event: 'Interrupt',
             kind: 'codex',
             sessionId: 'thread-a',

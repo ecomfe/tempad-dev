@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.9
+
+- Retry interrupted Claude lifecycle messages without repeating their effects, including while the runtime is switching.
+
 ## 0.5.8
 
 - Kept development Claude hooks connected to their own checkout when a release runtime is also running.

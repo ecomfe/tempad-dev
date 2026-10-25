@@ -9,7 +9,7 @@ import { z } from 'zod'
 
 import { ClientHookRequestSchema, type ClientHook } from '../agent-clients/hooks'
 import { writeDurableJson } from '../durable-json'
-import { HOOK_RECEIPT_LIMIT, hookSignature } from '../hook-receipts'
+import { HOOK_RECEIPT_LIMIT, hookCutoff, hookSignature } from '../hook-receipts'
 import { listenPrivate } from './processes'
 import { readPrivateJson } from './state'
 
@@ -24,11 +24,19 @@ const InboxSchema = z.array(
 export async function startHookGateway(
   root: string,
   deliver: (input: ClientHook) => Promise<Record<string, unknown>>,
-  onFault: (error?: unknown) => void = () => {}
+  onFault: (error?: unknown) => void = () => {},
+  socketPath = join(root, 'run', 'mcp.sock')
 ) {
   const path = join(root, 'hooks.json')
-  const socketPath = join(root, 'run', 'mcp.sock')
-  let entries = readPrivateJson(path, InboxSchema) ?? []
+  const stored = readPrivateJson(
+    path,
+    z.union([
+      InboxSchema,
+      z.object({ version: z.literal(2), cutoff: z.number(), entries: InboxSchema })
+    ])
+  )
+  let entries = Array.isArray(stored) ? stored : (stored?.entries ?? [])
+  let cutoff = Array.isArray(stored) ? 0 : (stored?.cutoff ?? 0)
   let flushing: Promise<void> | undefined
   let closed = false
   const sockets = new Set<import('node:net').Socket>()
@@ -37,7 +45,7 @@ export async function startHookGateway(
   function save(next: typeof entries) {
     if (closed) throw new Error('The hook inbox owner has closed.')
     try {
-      writeDurableJson(path, next)
+      writeDurableJson(path, { version: 2, cutoff, entries: next })
       entries = next
     } catch (error) {
       onFault(error)
@@ -71,7 +79,9 @@ export async function startHookGateway(
       return
     }
     sockets.add(socket)
+    socket.setEncoding('utf8')
     let buffer = ''
+    let notifications = 0
     const timeout = setTimeout(() => socket.destroy(), 5000)
     socket.on('error', () => socket.destroy())
     socket.on('close', () => {
@@ -79,50 +89,93 @@ export async function startHookGateway(
       sockets.delete(socket)
     })
     socket.on('data', (chunk) => {
-      buffer += chunk.toString('utf8')
+      buffer += chunk
       if (Buffer.byteLength(buffer) > STDIO_DEFAULT_MAX_BUFFER_SIZE) {
         socket.destroy()
         return
       }
-      const newline = buffer.indexOf('\n')
-      if (newline < 0) return
-      socket.removeAllListeners('data')
-      void (async () => {
-        const message = deserializeMessage(buffer.slice(0, newline))
-        if (!('id' in message)) throw new Error('Hook request ID required.')
-        const parsed = ClientHookRequestSchema.safeParse(message)
-        if (!parsed.success) {
+      let newline
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        let message
+        try {
+          message = deserializeMessage(buffer.slice(0, newline))
+        } catch {
+          socket.destroy()
+          return
+        }
+        buffer = buffer.slice(newline + 1)
+        // Old CLIs send identity notifications before initialize. Consume that
+        // bounded prefix so the host receives an actionable initialize error.
+        if (!('id' in message)) {
+          if (++notifications > 16) {
+            socket.destroy()
+            return
+          }
+          continue
+        }
+        socket.removeAllListeners('data')
+        void (async () => {
+          const parsed = ClientHookRequestSchema.safeParse(message)
+          if (!parsed.success) {
+            socket.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: message.id,
+                error: {
+                  code: -32002,
+                  message: 'MCP_RUNTIME_RESTART_REQUIRED: connect through the stable MCP edge.'
+                }
+              }) + '\n'
+            )
+            return
+          }
+          const input = parsed.data.params
+          if (input.version === 2 && input.profile.kind !== 'release')
+            throw new Error('Lifecycle hook belongs to a different runtime profile.')
+          cutoff = hookCutoff(input, cutoff)
+          const retained = entries.filter(
+            (entry) => !entry.result || entry.input.version !== 2 || entry.input.issuedAt > cutoff
+          )
+          if (retained.length !== entries.length) save(retained)
+          const existing = entries.find((entry) => entry.input.invocationId === input.invocationId)
+          if (existing && hookSignature(existing.input) !== hookSignature(input))
+            throw new Error('Lifecycle invocation identity changed.')
+          if (!existing) {
+            const error = capacityFailure()
+            if (error) {
+              onFault(error)
+              throw error
+            }
+            save([...entries, { input }])
+          }
+          if (input.version === 2) {
+            void flush().catch(() => {})
+          } else await flush()
+          const result = entries.find(
+            (entry) => entry.input.invocationId === input.invocationId
+          )?.result
+          if (input.version === 1 && !result)
+            throw new Error('Hook remains queued during runtime handoff.')
           socket.end(
             JSON.stringify({
               jsonrpc: '2.0',
               id: message.id,
-              error: {
-                code: -32002,
-                message: 'MCP_RUNTIME_RESTART_REQUIRED: connect through the stable MCP edge.'
-              }
+              result:
+                input.version === 2
+                  ? {
+                      ...result,
+                      receipt: {
+                        version: 2,
+                        invocationId: input.invocationId,
+                        state: result ? 'applied' : 'accepted'
+                      }
+                    }
+                  : result
             }) + '\n'
           )
-          return
-        }
-        const input = parsed.data.params
-        const existing = entries.find((entry) => entry.input.invocationId === input.invocationId)
-        if (existing && hookSignature(existing.input) !== hookSignature(input))
-          throw new Error('Lifecycle invocation identity changed.')
-        if (!existing) {
-          const error = capacityFailure()
-          if (error) {
-            onFault(error)
-            throw error
-          }
-          save([...entries, { input }])
-        }
-        await flush()
-        const result = entries.find(
-          (entry) => entry.input.invocationId === input.invocationId
-        )?.result
-        if (!result) throw new Error('Hook remains queued during runtime handoff.')
-        socket.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }) + '\n')
-      })().catch(() => socket.destroy())
+        })().catch(() => socket.destroy())
+        return
+      }
     })
   })
   rmSync(socketPath, { force: true })

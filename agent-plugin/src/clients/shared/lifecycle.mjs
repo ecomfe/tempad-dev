@@ -63,6 +63,7 @@ try {
     kind: process.argv[2] === 'claude' ? 'claude' : 'codex',
     sessionId: input.session_id
   }
+  let profile = { kind: 'release' }
   let path
   if (process.argv[3] === '--runtime-profile') {
     const descriptorPath = process.argv[4]
@@ -90,7 +91,7 @@ try {
       TEMPAD_MCP_DEV_CHECKOUT: config.env.TEMPAD_MCP_DEV_CHECKOUT,
       ...(runtimeDir !== undefined ? { TEMPAD_MCP_RUNTIME_DIR: runtimeDir } : {})
     }
-    const profile = resolveRuntimeProfile(env, pathToFileURL(resolve(pluginRoot, config.args[0])))
+    profile = resolveRuntimeProfile(env, pathToFileURL(resolve(pluginRoot, config.args[0])))
     if (
       profile.kind !== 'checkout' ||
       profile.id !== descriptor.id ||
@@ -103,50 +104,87 @@ try {
     path = process.platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(runtimeDir, 'mcp.sock')
   }
   assertTrustedSocket(path)
-  socket = connect(path).setEncoding('utf8')
-  const result = await new Promise((resolve, reject) => {
-    let buffer = ''
-    socket.on('data', (data) => {
-      buffer += data
-      if (buffer.length > 1_000_000) {
-        socket.destroy()
-        return
-      }
-      let index
-      while ((index = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, index)
-        buffer = buffer.slice(index + 1)
-        let message
-        try {
-          message = JSON.parse(line)
-        } catch {
-          continue
-        }
-        if (message?.id !== 1) continue
-        if (message.error) reject(new Error('The Hub does not support this hook request.'))
-        else resolve(message.result)
-        return
-      }
-    })
-    socket.on('error', reject)
-    socket.once('close', () => reject(new Error('The Hub hook connection closed.')))
-    socket.once('connect', () => {
-      socket.write(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'tempad/client-hook',
-          params: {
-            ...identity,
-            event,
-            invocationId: randomUUID(),
-            ...(taskId ? { taskId } : {}),
-            ...(typeof input.turn_id === 'string' ? { turnId: input.turn_id } : {})
+  const lifecycle = {
+    ...identity,
+    event,
+    invocationId: randomUUID(),
+    ...(taskId ? { taskId } : {}),
+    ...(typeof input.turn_id === 'string' ? { turnId: input.turn_id } : {})
+  }
+  const params = { ...lifecycle, version: 2, profile, issuedAt: Date.now() }
+  let legacy = false
+  async function request() {
+    socket = connect(path).setEncoding('utf8')
+    const connection = socket
+    let timer
+    try {
+      return await new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Hook reply timed out.')), 200)
+        let buffer = ''
+        socket.on('data', (data) => {
+          buffer += data
+          if (buffer.length > 1_000_000) {
+            socket.destroy()
+            return
           }
-        }) + '\n'
-      )
-    })
-  })
+          let index
+          while ((index = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, index)
+            buffer = buffer.slice(index + 1)
+            let message
+            try {
+              message = JSON.parse(line)
+            } catch {
+              continue
+            }
+            if (message?.id !== 1) continue
+            if (message.error)
+              reject(
+                Object.assign(new Error('The Hub does not support this hook request.'), {
+                  code: message.error.code
+                })
+              )
+            else resolve(message.result)
+            return
+          }
+        })
+        socket.on('error', reject)
+        socket.once('close', () => reject(new Error('The Hub hook connection closed.')))
+        socket.once('connect', () => {
+          socket.write(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'tempad/client-hook',
+              params: legacy ? lifecycle : params
+            }) + '\n'
+          )
+        })
+      })
+    } finally {
+      clearTimeout(timer)
+      connection.destroy()
+    }
+  }
+  let result
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      result = await request()
+      if (legacy) break
+      const receipt = result?.receipt
+      if (receipt?.version !== 2 || receipt.invocationId !== params.invocationId)
+        throw new Error('Invalid lifecycle receipt.')
+      if (receipt.state === 'applied') break
+      if (receipt.state !== 'accepted') throw new Error('Invalid lifecycle receipt state.')
+      result = undefined
+    } catch (error) {
+      result = undefined
+      // Only a definite old-schema rejection permits fallback. A lost reply
+      // retries the same v2 invocation, never a second lifecycle effect.
+      if (error?.code === -32602 && !legacy) legacy = true
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  }
   // Old Hubs may still offer comment batches; never emit or acknowledge those.
   if (
     !result?.receiptId &&

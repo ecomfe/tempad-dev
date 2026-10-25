@@ -7,7 +7,11 @@ import type {
   TempadMcpErrorCode
 } from '@tempad-dev/shared'
 
-import { MCP_DESIGN_TASK_LEASE_MS, RESUMABLE_DESIGN_TASK_STATUSES } from '@tempad-dev/shared'
+import {
+  ClientHookParamsSchema,
+  MCP_DESIGN_TASK_LEASE_MS,
+  RESUMABLE_DESIGN_TASK_STATUSES
+} from '@tempad-dev/shared'
 import { isDeepStrictEqual } from 'node:util'
 
 import type { HostContext } from './agent-clients/host-context'
@@ -18,7 +22,7 @@ import type { ExtensionConnection } from './types'
 import { codexStoreKey } from './agent-clients/host-context'
 import { nativeFeedback } from './agent-clients/types'
 import { HISTORY_RETENTION_MS } from './history-retention'
-import { HOOK_RECEIPT_LIMIT, hookSignature, type HookReceipt } from './hook-receipts'
+import { HOOK_RECEIPT_LIMIT, hookCutoff, hookSignature, type HookReceipt } from './hook-receipts'
 import { extensionUpgradeRequired } from './legacy-extension'
 
 type TerminalStatus = Exclude<DesignTask['status'], 'active' | 'stopping'>
@@ -128,6 +132,7 @@ export class DesignTasks {
   private readonly filesNeedingRead = new Map<string, number>()
   private executions: Execution[] = []
   private readonly hookReceipts = new Map<string, HookReceipt>()
+  private hookReceiptCutoff = 0
   private applyingHook = false
   private readGeneration = 0
   // Every retired file rejects stale unknown reviews; true also retains its Stop write fence.
@@ -477,6 +482,17 @@ export class DesignTasks {
     input: unknown,
     apply: () => Record<string, unknown>
   ): Record<string, unknown> {
+    const parsed = ClientHookParamsSchema.safeParse(input)
+    if (parsed.success) {
+      this.hookReceiptCutoff = hookCutoff(parsed.data, this.hookReceiptCutoff, this.now())
+      for (const [id, receipt] of this.hookReceipts)
+        if (
+          receipt.issuedAt !== undefined &&
+          receipt.issuedAt <= this.hookReceiptCutoff &&
+          !receipt.error
+        )
+          this.hookReceipts.delete(id)
+    }
     const signature = hookSignature(input)
     const existing = this.hookReceipts.get(invocationId)
     if (existing) {
@@ -492,6 +508,7 @@ export class DesignTasks {
       )
     if (this.applyingHook) throw new Error('A lifecycle transaction is already in progress.')
     const receipt: HookReceipt = { invocationId, signature, result: {}, recordedAt: this.now() }
+    if (parsed.success && parsed.data.version === 2) receipt.issuedAt = parsed.data.issuedAt
     this.applyingHook = true
     try {
       receipt.result = apply()
@@ -885,6 +902,7 @@ export class DesignTasks {
     this.executions = snapshot.executions ?? []
     for (const receipt of snapshot.hookReceipts ?? [])
       this.hookReceipts.set(receipt.invocationId, receipt)
+    this.hookReceiptCutoff = snapshot.hookReceiptCutoff ?? 0
     for (const fileKey of snapshot.filesNeedingRead ?? [])
       this.filesNeedingRead.set(fileKey, ++this.readGeneration)
     for (const [fileKey, stopped] of Object.entries(snapshot.fileFences ?? {}))
@@ -1033,6 +1051,7 @@ export class DesignTasks {
     const snapshot: DesignTaskSnapshot = {
       revision: this.revision,
       ...(this.hookReceipts.size ? { hookReceipts: [...this.hookReceipts.values()] } : {}),
+      ...(this.hookReceiptCutoff ? { hookReceiptCutoff: this.hookReceiptCutoff } : {}),
       ...(this.executions.length ? { executions: this.executions } : {}),
       ...(this.recoveryGeneration ? { recoveryGeneration: this.recoveryGeneration } : {}),
       ...(this.filesNeedingRead.size

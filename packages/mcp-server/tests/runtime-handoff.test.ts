@@ -1,4 +1,5 @@
 import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { CLIENT_HOOK_RETENTION_MS, type ClientHook } from '@tempad-dev/shared'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -40,6 +41,107 @@ function tasks(root: string) {
   tasks.restore()
   return { tasks, store }
 }
+
+it('expires receipt-capable retries with a durable cutoff, even after the clock moves backward', () => {
+  const root = directory()
+  const store = new DesignTaskStore(join(root, 'tasks.json'))
+  let now = Date.now()
+  const current = new DesignTasks({ store, now: () => now, createId: randomUUID })
+  current.restore()
+  const input: ClientHook = {
+    version: 2,
+    kind: 'claude',
+    sessionId: 'session',
+    event: 'Stop',
+    invocationId: randomUUID(),
+    profile: { kind: 'release' },
+    issuedAt: now
+  }
+  const apply = vi.fn(() => ({}))
+  current.applyHook(input.invocationId, input, apply)
+  current.applyHook(input.invocationId, input, apply)
+  expect(apply).toHaveBeenCalledOnce()
+  now += CLIENT_HOOK_RETENTION_MS + 1
+  const next = { ...input, issuedAt: now, invocationId: randomUUID() }
+  current.applyHook(next.invocationId, next, apply)
+  expect(store.load()?.hookReceipts).toHaveLength(1)
+  now = input.issuedAt
+  const restored = new DesignTasks({ store, now: () => now, createId: randomUUID })
+  restored.restore()
+  expect(() => restored.applyHook(input.invocationId, input, apply)).toThrow('expired')
+  expect(apply).toHaveBeenCalledTimes(2)
+})
+
+it.skipIf(process.platform === 'win32')(
+  'distinguishes durable hook admission from application and deduplicates retries',
+  async () => {
+    const root = directory()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const deliver = vi.fn(async () => {
+      await gate
+      return { notice: 'Stop' }
+    })
+    const gateway = await startHookGateway(root, deliver)
+    cleanup.push(async () => {
+      release()
+      await gateway.close()
+    })
+    const input: ClientHook = {
+      version: 2,
+      kind: 'claude',
+      sessionId: 'session',
+      event: 'Stop',
+      invocationId: randomUUID(),
+      profile: { kind: 'release' },
+      issuedAt: Date.now()
+    }
+    const request = async () => {
+      const socket = connect(join(root, 'run/mcp.sock'))
+      await once(socket, 'connect')
+      const reply = once(socket, 'data')
+      socket.write(
+        JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tempad/client-hook', params: input }) +
+          '\n'
+      )
+      const result = JSON.parse(String((await reply)[0])).result
+      socket.destroy()
+      return result
+    }
+    expect(await request()).toEqual({
+      receipt: { version: 2, invocationId: input.invocationId, state: 'accepted' }
+    })
+    expect(await request()).toHaveProperty('receipt.state', 'accepted')
+    release()
+    await gateway.flush()
+    expect(await request()).toEqual({
+      notice: 'Stop',
+      receipt: { version: 2, invocationId: input.invocationId, state: 'applied' }
+    })
+    expect(deliver).toHaveBeenCalledOnce()
+  }
+)
+
+it.skipIf(process.platform === 'win32')(
+  'returns a restart error to an old CLI after its identity prefix',
+  async () => {
+    const root = directory()
+    const gateway = await startHookGateway(root, async () => ({}))
+    cleanup.push(() => gateway.close())
+    const socket = connect(join(root, 'run/mcp.sock'))
+    await once(socket, 'connect')
+    const reply = once(socket, 'data')
+    socket.write(
+      '{"jsonrpc":"2.0","method":"notifications/tempad/host-context","params":{}}\n{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
+    )
+    expect(JSON.parse(String((await reply)[0])).error.message).toContain(
+      'MCP_RUNTIME_RESTART_REQUIRED'
+    )
+    socket.destroy()
+  }
+)
 
 it('records a lifecycle effect and receipt in the same durable task snapshot', () => {
   const root = directory()
@@ -220,7 +322,9 @@ it.skipIf(process.platform === 'win32')(
       JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tempad/client-hook', params: input }) + '\n'
     )
     await closed
-    expect(JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8'))[0].input).toEqual(input)
+    expect(JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8')).entries[0].input).toEqual(
+      input
+    )
     await gateway.close()
     available = true
     gateway = await startHookGateway(root, deliver)
@@ -276,7 +380,7 @@ it.skipIf(process.platform === 'win32')(
     )
     await closed
     expect(deliver).toHaveBeenCalledOnce()
-    expect(JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8'))).toHaveLength(
+    expect(JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8')).entries).toHaveLength(
       HOOK_RECEIPT_LIMIT
     )
   }
@@ -322,7 +426,7 @@ it.skipIf(process.platform === 'win32')(
     await closed
     release()
     await gateway.flush()
-    expect(JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8'))[0].result).toEqual({
+    expect(JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8')).entries[0].result).toEqual({
       applied: true
     })
     expect(deliver).toHaveBeenCalledOnce()
