@@ -380,7 +380,12 @@ export async function startSupervisor(config: PrototypeConfig) {
       socket =
         pendingHub && !pendingHub.exited
           ? await waitForLaunchedSocket(path, pendingHub.child, lifetime.signal, remaining)
-          : await waitForSocket(path, lifetime.signal, remaining)
+          : await waitForSocket(
+              path,
+              lifetime.signal,
+              remaining,
+              liveIdentity ? identity.processId : undefined
+            )
     }
     const peer = new ControlPeer()
     peer.onerror = () => void peer.close()

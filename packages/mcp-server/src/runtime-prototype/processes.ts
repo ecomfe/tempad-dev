@@ -165,10 +165,23 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
   })
 }
 
-export async function waitForSocket(path: string, signal?: AbortSignal, timeoutMs = 5000) {
+export async function waitForSocket(
+  path: string,
+  signal?: AbortSignal,
+  timeoutMs = 5000,
+  processId?: number
+) {
   if (timeoutMs <= 0) throw unavailable('Runtime process has not published its endpoint yet.')
   const until = performance.now() + timeoutMs
   do {
+    if (processId !== undefined) {
+      try {
+        process.kill(processId, 0)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+        throw new Error('Runtime process exited before endpoint publication.', { cause: error })
+      }
+    }
     try {
       return await connectSocket(path, signal)
     } catch (error) {

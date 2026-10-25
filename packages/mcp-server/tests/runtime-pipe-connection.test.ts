@@ -101,6 +101,34 @@ it('bounds an unresponsive launch without terminating it', async () => {
   expect(child.kill).not.toHaveBeenCalled()
 })
 
+it.each(['ESRCH', 'EPERM'])(
+  'stops endpoint discovery when an existing owner reports %s',
+  async (code) => {
+    const failed = Object.assign(new Error('owner probe failed'), { code })
+    const probe = vi
+      .spyOn(process, 'kill')
+      .mockReturnValueOnce(true)
+      .mockImplementation(() => {
+        throw failed
+      })
+    const pending = waitForSocket(
+      '\\\\.\\pipe\\test',
+      new AbortController().signal,
+      RECOVER_MS,
+      12345
+    )
+    const rejected = expect(pending).rejects.toThrow(
+      code === 'ESRCH' ? 'process exited' : 'owner probe failed'
+    )
+    socket.emit('error', Object.assign(new Error('not ready'), { code: 'ENOENT' }))
+    await rejected
+    expect(probe).toHaveBeenCalledTimes(2)
+    expect(probe).toHaveBeenCalledWith(12345, 0)
+    expect(connect).toHaveBeenCalledOnce()
+    expect(socket.write).not.toHaveBeenCalled()
+  }
+)
+
 it.each(['EPIPEUNPROTECTED', 'EBUSY'])(
   'keeps the same connection while %s resolves, without sending control data',
   async (code) => {
