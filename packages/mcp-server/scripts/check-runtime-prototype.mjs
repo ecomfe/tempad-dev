@@ -223,8 +223,11 @@ try {
     'asset admission closes after control loss'
   )
   const before = calls.length
-  const queuedRead = call(second.client, 'get_structure', { nodeId: '1:2' })
-  void queuedRead.catch(() => {})
+  const queuedAt = performance.now()
+  const queuedRead = call(second.client, 'get_structure', { nodeId: '1:2' }).then(
+    (result) => ({ result }),
+    (error) => ({ error, elapsedMs: performance.now() - queuedAt })
+  )
   await delay(100)
   assert.equal(
     (await globalThis.fetch(`${assetUrl}/assets/${'a'.repeat(64)}`)).status,
@@ -263,8 +266,18 @@ try {
     20000
   )
   const recoverMs = performance.now() - recovering
-  assert.equal((await queuedRead).isError, undefined)
-  assert.equal(calls.length, before + 1, 'the waiting read is dispatched exactly once')
+  const queued = await queuedRead
+  // Supervisor recovery may exceed the documented ten-second request wait.
+  // Expiry must remain undispatched; only a fresh call may run after reattachment.
+  if (queued.error) {
+    assert.equal(queued.error.code, -32001)
+    assert.deepEqual(queued.error.data, { code: 'MCP_RUNTIME_UNAVAILABLE', dispatched: false })
+    assert.ok(queued.elapsedMs >= 10_000, 'the request keeps its full recovery wait budget')
+    assert.equal(calls.length, before, 'the expired read was never dispatched')
+  } else {
+    assert.equal(queued.result.isError, undefined)
+    assert.equal(calls.length, before + 1, 'the waiting read is dispatched exactly once')
+  }
   assert.equal(recovered.hubPid, hub.processId)
   assert.equal(recovered.hubId, initial.hubId)
   await until(async () => {
@@ -274,6 +287,10 @@ try {
       return false
     }
   }, 'second initialized edge reattachment')
+  if (queued.error) {
+    assert.equal((await call(second.client, 'get_structure', { nodeId: '1:2' })).isError, undefined)
+    assert.equal(calls.length, before + 1, 'only the fresh read is dispatched after expiry')
+  }
   const snapshot = await record('state/design-tasks.json')
   const saved = snapshot.records.find((value) => value.task.taskId === taskId)
   assert.equal(saved.hostContext.codexHome, join(first.home, 'codex'))
@@ -347,6 +364,7 @@ try {
         coldMs,
         attachMs,
         recoverMs,
+        queuedRead: queued.error ? 'expired-undispatched' : 'completed-once',
         twoClientsMemory,
         writes: 1,
         preservedHub: true,

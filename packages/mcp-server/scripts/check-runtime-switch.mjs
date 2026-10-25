@@ -89,7 +89,7 @@ async function artifact(version, incompatible = false) {
             // Instrument the fixture source at the durable boundary. fs.watch
             // can coalesce phases or run after the next assertion; it cannot
             // establish where a crash actually occurred.
-            return code.replace(
+            code = code.replace(
               boundary,
               `${boundary}
     const faultPath = join(config.root, 'test-fault.json')
@@ -110,6 +110,23 @@ async function artifact(version, incompatible = false) {
         }
       }
     }`
+            )
+            const prepared =
+              'persist({ ...journal, candidate: candidate.artifact, failure: undefined })'
+            assert.ok(code.includes(prepared), 'fixture verification boundary changed')
+            return code.replace(
+              prepared,
+              `const holdPath = join(config.root, 'test-hold-before-drain')
+    if (existsSync(holdPath)) {
+      rmSync(holdPath)
+      writeFileSync(join(config.root, 'test-before-drain.json'), JSON.stringify({ prepared: true }))
+      const deadline = Date.now() + 30000
+      while (!existsSync(join(config.root, 'test-release-drain'))) {
+        if (Date.now() >= deadline) throw new Error('Fixture preparation barrier timed out')
+        await pause(25)
+      }
+    }
+    ${prepared}`
             )
           }
           if (incompatible && resolve(id) === join(packageRoot, 'src/hub-runtime.ts'))
@@ -360,6 +377,25 @@ async function scenario(a, b, mode, incompatible) {
       await assert.rejects(command('--switch', a), /newer stable/)
       await assert.rejects(command('--switch', incompatible), /frozen MCP contract/)
     }
+    // Both real cold probes finish before admitting the work held across drain.
+    // Their startup/inspection/catalog/shutdown budgets must not consume that work's deadline.
+    await writeFile(join(root, 'test-hold-before-drain'), '')
+    const update = command('--switch', b).then(
+      (value) => JSON.parse(value.stdout),
+      (error) => ({ interrupted: error.message })
+    )
+    const updateBoundary = (check, label, timeout) =>
+      Promise.race([
+        until(check, label, timeout),
+        update.then((outcome) => {
+          throw new Error(`Switch ended before ${label}: ${JSON.stringify(outcome)}`)
+        })
+      ])
+    await updateBoundary(
+      () => record(root, 'test-before-drain.json'),
+      'candidate and active verification',
+      10_000 + 2 * (15_000 + 5000 + 10_000 + 6000)
+    )
     const write = call(clients[0], 'apply_canvas', {
       mode: 'update',
       targetNodeId: '1:2',
@@ -440,12 +476,12 @@ async function scenario(a, b, mode, incompatible) {
         void portBarrier.catch(() => {})
       }
     }
-    const update = command('--switch', b).then(
-      (value) => JSON.parse(value.stdout),
-      (error) => ({ interrupted: error.message })
-    )
+    await writeFile(join(root, 'test-release-drain'), '')
     if (mode !== 'orphan') {
-      await until(async () => (await rpc(root, 'tempad/runtime-status')).gated, 'drain gate')
+      await updateBoundary(
+        async () => (await rpc(root, 'tempad/runtime-status')).gated,
+        'drain gate'
+      )
       const count = calls.length
       await assert.rejects(
         call(clients[1], 'get_structure', { nodeId: '1:2' }),
