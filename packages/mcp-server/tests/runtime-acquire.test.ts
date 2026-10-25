@@ -1,6 +1,5 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { Artifact } from '../src/runtime-prototype/state'
@@ -35,6 +34,7 @@ vi.mock('../src/runtime-update/archive', () => ({
 vi.mock('../src/runtime-update/artifact', () => ({ releaseManifest: fake.manifest }))
 vi.mock('../src/runtime-prototype/probe', () => ({ probeArtifact: fake.probe }))
 vi.mock('../src/runtime-prototype/processes', () => ({ fingerprintBundle: fake.fingerprint }))
+import { createPrivateTempDirectory } from '../src/runtime-platform'
 import { stageRelease } from '../src/runtime-update/acquire'
 import { sha256 } from '../src/runtime-update/package'
 
@@ -56,7 +56,7 @@ function manifest(version: string, overrides: Partial<RuntimeManifest> = {}) {
     packageVersion: version,
     entry: 'dist/managed-runtime.mjs',
     node: '>=22',
-    platforms: ['darwin', 'linux'],
+    platforms: ['darwin', 'linux', 'win32'],
     guidanceEpoch: 1,
     guidanceReview: {
       version,
@@ -94,7 +94,7 @@ const absent = () => {
 beforeEach(() => {
   vi.resetAllMocks()
   manifests.clear()
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'tp-acquire-')))
+  root = createPrivateTempDirectory('tp-acquire-')
   manifest('0.12.0')
   manifest('0.12.1')
   context = { active: artifact('0.12.0'), control: artifact('0.12.0') }
@@ -116,7 +116,7 @@ beforeEach(() => {
         ['dist/runtime-manifest.json', Buffer.from(JSON.stringify(manifests.get(bytes.toString())))]
       ])
   )
-  const entryVersion = (entry: string) => dirname(dirname(entry)).split('/').at(-1)!
+  const entryVersion = (entry: string) => basename(dirname(dirname(entry)))
   fake.fingerprint.mockImplementation((entry) => sha256(entryVersion(entry)))
   fake.probe.mockImplementation(async (entry) => {
     const version = entryVersion(entry)

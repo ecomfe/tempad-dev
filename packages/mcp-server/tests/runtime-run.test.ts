@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+
+import { createPrivateTempDirectory } from '../src/runtime-platform'
 
 const fake = vi.hoisted(() => ({
   hub: vi.fn(),
@@ -36,7 +37,7 @@ import { runRuntime } from '../src/runtime-prototype/run'
 let root: string
 beforeEach(() => {
   vi.clearAllMocks()
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'tp-run-')))
+  root = createPrivateTempDirectory('tp-run-')
   fake.config = { version: 1, entry: '/fixture.mjs', bundle: 'a'.repeat(64), secret: randomUUID() }
   fake.request.mockResolvedValue({ status: 'okay' })
   fake.hub.mockResolvedValue(undefined)
@@ -84,7 +85,7 @@ it('restores release directories before starting a paused replacement Hub', asyn
     prototype: {
       root,
       secret: fake.config.secret,
-      socketPath: '/fixture/run/runtime-hub.sock',
+      socketPath: join(directories.runtime, 'runtime-hub.sock'),
       paused: true,
       release: true
     }
@@ -98,8 +99,10 @@ it('rejects checkout and untrusted roots before starting a child', async () => {
   process.env.TEMPAD_MCP_DEV_CHECKOUT = '/checkout'
   await expect(runRuntime('/fixture.mjs')).rejects.toThrow('without checkout')
   delete process.env.TEMPAD_MCP_DEV_CHECKOUT
-  chmodSync(root, 0o755)
-  await expect(runRuntime('/fixture.mjs')).rejects.toThrow('private')
+  if (process.platform !== 'win32') {
+    chmodSync(root, 0o755)
+    await expect(runRuntime('/fixture.mjs')).rejects.toThrow('untrusted')
+  }
   expect(fake.edge).not.toHaveBeenCalled()
 })
 it('routes local switch, diagnostics and execution recovery through private controls', async () => {

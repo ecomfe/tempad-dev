@@ -3,13 +3,15 @@ import { STDIO_DEFAULT_MAX_BUFFER_SIZE } from '@modelcontextprotocol/sdk/shared/
 import { ResultSchema, type JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { rm } from 'node:fs/promises'
 import { connect, createServer, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { captureHostContext } from '../src/agent-clients/host-context'
+import { runtimeEndpoint } from '../src/runtime-platform'
 import { HubControl, LeaseSchema } from '../src/runtime-prototype/hub-control'
+import { listenPrivate } from '../src/runtime-prototype/processes'
 import {
   ControlPeer,
   LEASE_MS,
@@ -18,6 +20,9 @@ import {
   RuntimeDataTransport,
   SocketTransport
 } from '../src/runtime-prototype/protocol'
+
+const platformModule = '../scripts/runtime-test-platform.mjs'
+const { fixtureRoot } = await import(platformModule)
 
 const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => {
@@ -33,108 +38,101 @@ describe('runtime control negotiation and admission', () => {
     expect(() => negotiate([1])).toThrow('MCP_RUNTIME_RESTART_REQUIRED')
   })
 
-  it.skipIf(process.platform === 'win32')(
-    'fences expired and replaced leases and preserves per-edge context',
-    async () => {
-      const root = await mkdtemp('/tmp/tp-control-')
-      const path = join(root, 'control.sock')
-      const sockets = new Set<Socket>()
-      let now = 0
-      const control = new HubControl('secret', () => now)
-      const server = createServer((socket) => {
-        sockets.add(socket)
-        socket.once('close', () => sockets.delete(socket))
-        void control.attach(socket)
-      })
-      server.listen(path)
-      await once(server, 'listening')
-      cleanup.push(async () => {
-        await control.close()
-        for (const socket of sockets) socket.destroy()
-        await new Promise<void>((resolve) => server.close(() => resolve()))
-        await rm(root, { recursive: true, force: true })
-      })
-      const peer = async () => {
-        const socket = connect(path)
-        await once(socket, 'connect')
-        const rpc = new ControlPeer()
-        await rpc.connect(new SocketTransport(socket))
-        cleanup.push(() => rpc.close())
-        return rpc
-      }
-      const first = await peer()
-      const acquire = (rpc: ControlPeer, secret = 'secret') =>
-        rpc.request(
-          {
-            method: 'tempad/runtime-acquire',
-            params: { secret, versions: [1, 2] }
-          },
-          LeaseSchema
-        )
-      await expect(acquire(first, 'wrong')).rejects.toThrow('invalid')
-      const lease = await acquire(first)
-      expect(lease.generation).toBe(1)
-      const registration = {
-        sessionId: randomUUID(),
-        token: randomUUID(),
-        context: captureHostContext({ HOME: root, TMPDIR: root }),
-        versions: [2]
-      }
-      await first.request({ method: 'tempad/runtime-register', params: registration }, ResultSchema)
-      expect(control.pendingConnections()).toBe(1)
-      expect(control.claimSession(registration.sessionId, registration.token).context).toEqual(
-        registration.context
+  it('fences expired and replaced leases and preserves per-edge context', async () => {
+    const root = await fixtureRoot('tp-control-')
+    const path = runtimeEndpoint(root, 'control.sock')
+    const sockets = new Set<Socket>()
+    let now = 0
+    const control = new HubControl('secret', () => now)
+    const server = createServer((socket) => {
+      sockets.add(socket)
+      socket.once('close', () => sockets.delete(socket))
+      void control.attach(socket)
+    })
+    await listenPrivate(server, path)
+    cleanup.push(async () => {
+      await control.close()
+      for (const socket of sockets) socket.destroy()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+      await rm(root, { recursive: true, force: true })
+    })
+    const peer = async () => {
+      const socket = connect(path)
+      await once(socket, 'connect')
+      const rpc = new ControlPeer()
+      await rpc.connect(new SocketTransport(socket))
+      cleanup.push(() => rpc.close())
+      return rpc
+    }
+    const first = await peer()
+    const acquire = (rpc: ControlPeer, secret = 'secret') =>
+      rpc.request(
+        {
+          method: 'tempad/runtime-acquire',
+          params: { secret, versions: [1, 2] }
+        },
+        LeaseSchema
       )
-      expect(control.pendingConnections()).toBe(0)
-      expect(control.admits(registration.sessionId, lease.generation)).toBe(true)
-      const second = await peer()
-      await expect(acquire(second)).rejects.toThrow('already owned')
-      now = LEASE_MS
-      expect(control.available()).toBe(false)
-      await expect(first.request({ method: 'tempad/runtime-renew' }, ResultSchema)).rejects.toThrow(
-        'not dispatched'
-      )
-      const replacement = await acquire(second)
-      expect(replacement.generation).toBe(2)
-      expect(replacement.hubId).toBe(lease.hubId)
-      expect(control.admits(registration.sessionId, 2)).toBe(false)
-      await second.request(
-        { method: 'tempad/runtime-register', params: registration },
+    await expect(acquire(first, 'wrong')).rejects.toThrow('invalid')
+    const lease = await acquire(first)
+    expect(lease.generation).toBe(1)
+    const registration = {
+      sessionId: randomUUID(),
+      token: randomUUID(),
+      context: captureHostContext({ HOME: root, TMPDIR: root }),
+      versions: [2]
+    }
+    await first.request({ method: 'tempad/runtime-register', params: registration }, ResultSchema)
+    expect(control.pendingConnections()).toBe(1)
+    expect(control.claimSession(registration.sessionId, registration.token).context).toEqual(
+      registration.context
+    )
+    expect(control.pendingConnections()).toBe(0)
+    expect(control.admits(registration.sessionId, lease.generation)).toBe(true)
+    const second = await peer()
+    await expect(acquire(second)).rejects.toThrow('already owned')
+    now = LEASE_MS
+    expect(control.available()).toBe(false)
+    await expect(first.request({ method: 'tempad/runtime-renew' }, ResultSchema)).rejects.toThrow(
+      'not dispatched'
+    )
+    const replacement = await acquire(second)
+    expect(replacement.generation).toBe(2)
+    expect(replacement.hubId).toBe(lease.hubId)
+    expect(control.admits(registration.sessionId, 2)).toBe(false)
+    await second.request({ method: 'tempad/runtime-register', params: registration }, ResultSchema)
+    expect(control.admits(registration.sessionId, 2)).toBe(true)
+    expect(control.admits(registration.sessionId, 1)).toBe(false)
+    const abandoned = { ...registration, sessionId: randomUUID(), token: randomUUID() }
+    await second.request({ method: 'tempad/runtime-register', params: abandoned }, ResultSchema)
+    expect(control.pendingConnections()).toBe(1)
+    expect(() => control.claimSession(abandoned.sessionId, registration.token)).toThrow(
+      'no current'
+    )
+    now += RECOVER_MS
+    expect(control.pendingConnections()).toBe(0)
+    expect(() => control.claimSession(abandoned.sessionId, abandoned.token)).toThrow('no current')
+    const third = await peer()
+    await acquire(third)
+    await expect(
+      third.request(
+        {
+          method: 'tempad/runtime-register',
+          params: {
+            ...registration,
+            context: { ...registration.context, codexHome: join(root, 'other') }
+          }
+        },
         ResultSchema
       )
-      expect(control.admits(registration.sessionId, 2)).toBe(true)
-      expect(control.admits(registration.sessionId, 1)).toBe(false)
-      const abandoned = { ...registration, sessionId: randomUUID(), token: randomUUID() }
-      await second.request({ method: 'tempad/runtime-register', params: abandoned }, ResultSchema)
-      expect(control.pendingConnections()).toBe(1)
-      expect(() => control.claimSession(abandoned.sessionId, registration.token)).toThrow(
-        'no current'
-      )
-      now += RECOVER_MS
-      expect(control.pendingConnections()).toBe(0)
-      expect(() => control.claimSession(abandoned.sessionId, abandoned.token)).toThrow('no current')
-      const third = await peer()
-      await acquire(third)
-      await expect(
-        third.request(
-          {
-            method: 'tempad/runtime-register',
-            params: {
-              ...registration,
-              context: { ...registration.context, codexHome: join(root, 'other') }
-            }
-          },
-          ResultSchema
-        )
-      ).rejects.toThrow('identity changed')
-      control.forget(registration.sessionId)
-      expect(() => control.claimSession(registration.sessionId, registration.token)).toThrow(
-        'no current'
-      )
-      await third.close()
-      await vi.waitFor(() => expect(control.available()).toBe(false))
-    }
-  )
+    ).rejects.toThrow('identity changed')
+    control.forget(registration.sessionId)
+    expect(() => control.claimSession(registration.sessionId, registration.token)).toThrow(
+      'no current'
+    )
+    await third.close()
+    await vi.waitFor(() => expect(control.available()).toBe(false))
+  })
 
   it('rejects stale/expired calls while allowing cancellation and accepted replies to settle', async () => {
     const [client, wire] = InMemoryTransport.createLinkedPair()
@@ -192,42 +190,39 @@ describe('runtime control negotiation and admission', () => {
     ).rejects.toMatchObject({ data: { dispatched: false } })
   })
 
-  it.skipIf(process.platform === 'win32')(
-    'bounds socket output and settles backpressure when the peer closes',
-    async () => {
-      const sockets = new Set<Socket>()
-      const server = createServer((socket) => {
-        socket.pause()
-        sockets.add(socket)
-      })
-      server.listen(0, '127.0.0.1')
-      await once(server, 'listening')
-      const address = server.address()
-      if (!address || typeof address === 'string') throw new Error('Expected ephemeral port')
-      const socket = connect(address.port, '127.0.0.1')
-      await once(socket, 'connect')
-      const transport = new SocketTransport(socket)
-      await transport.start()
-      cleanup.push(async () => {
-        await transport.close()
-        for (const socket of sockets) socket.destroy()
-        await new Promise<void>((resolve) => server.close(() => resolve()))
-      })
-      await expect(
-        transport.send({
-          jsonrpc: '2.0',
-          id: 1,
-          result: { text: 'x'.repeat(STDIO_DEFAULT_MAX_BUFFER_SIZE) }
-        })
-      ).rejects.toThrow('buffer is full')
-      const sends = Array.from({ length: 8 }, (_, id) =>
-        transport.send({ jsonrpc: '2.0', id, result: { text: 'x'.repeat(1024 * 1024) } })
-      )
-      const settled = Promise.allSettled(sends)
+  it('bounds socket output and settles backpressure when the peer closes', async () => {
+    const sockets = new Set<Socket>()
+    const server = createServer((socket) => {
+      socket.pause()
+      sockets.add(socket)
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('Expected ephemeral port')
+    const socket = connect(address.port, '127.0.0.1')
+    await once(socket, 'connect')
+    const transport = new SocketTransport(socket)
+    await transport.start()
+    cleanup.push(async () => {
       await transport.close()
-      const results = await settled
-      expect(results.some((result) => result.status === 'rejected')).toBe(true)
-      await expect(transport.send({ jsonrpc: '2.0', id: 9, result: {} })).rejects.toThrow('closed')
-    }
-  )
+      for (const socket of sockets) socket.destroy()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    })
+    await expect(
+      transport.send({
+        jsonrpc: '2.0',
+        id: 1,
+        result: { text: 'x'.repeat(STDIO_DEFAULT_MAX_BUFFER_SIZE) }
+      })
+    ).rejects.toThrow('buffer is full')
+    const sends = Array.from({ length: 8 }, (_, id) =>
+      transport.send({ jsonrpc: '2.0', id, result: { text: 'x'.repeat(1024 * 1024) } })
+    )
+    const settled = Promise.allSettled(sends)
+    await transport.close()
+    const results = await settled
+    expect(results.some((result) => result.status === 'rejected')).toBe(true)
+    await expect(transport.send({ jsonrpc: '2.0', id: 9, result: {} })).rejects.toThrow('closed')
+  })
 })

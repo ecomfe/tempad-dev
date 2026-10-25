@@ -200,6 +200,7 @@ export async function acquireRelease(
     ],
     {
       env: hubEnvironment(process.env),
+      windowsHide: true,
       signal,
       timeout: 240_000,
       maxBuffer: 1024 * 1024

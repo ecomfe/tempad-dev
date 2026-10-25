@@ -2,7 +2,6 @@ import {
   deserializeMessage,
   STDIO_DEFAULT_MAX_BUFFER_SIZE
 } from '@modelcontextprotocol/sdk/shared/stdio.js'
-import { rmSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -16,6 +15,7 @@ import {
   hookSignature,
   isExpiredHookResult
 } from '../hook-receipts'
+import { cleanupEndpoint, runtimeEndpoint } from '../runtime-platform'
 import { listenPrivate } from './processes'
 import { readPrivateJson } from './state'
 
@@ -34,7 +34,7 @@ export async function startHookGateway(
   root: string,
   deliver: (input: ClientHook, admittedHubId?: string) => Promise<Record<string, unknown>>,
   onFault: (error?: unknown) => void = () => {},
-  socketPath = join(root, 'run', 'mcp.sock')
+  socketPath = runtimeEndpoint(join(root, 'run'), 'mcp.sock')
 ) {
   const path = join(root, 'hooks.json')
   const stored = readPrivateJson(
@@ -224,7 +224,7 @@ export async function startHookGateway(
       }
     })
   })
-  rmSync(socketPath, { force: true })
+  cleanupEndpoint(socketPath)
   await listenPrivate(server, socketPath)
   onFault(
     capacityFailure() ?? (pending() ? new Error('Lifecycle hooks remain queued.') : undefined)
@@ -253,7 +253,7 @@ export async function startHookGateway(
       closed = true
       for (const socket of sockets) socket.destroy()
       await new Promise<void>((resolve) => server.close(() => resolve()))
-      rmSync(socketPath, { force: true })
+      cleanupEndpoint(socketPath)
     }
   }
 }

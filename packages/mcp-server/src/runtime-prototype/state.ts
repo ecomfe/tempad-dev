@@ -1,8 +1,9 @@
-import { lstatSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 
 import { writeDurableJson } from '../durable-json'
+import { assertPrivatePath } from '../runtime-platform'
 
 export const ArtifactSchema = z
   .object({
@@ -69,14 +70,7 @@ export function readPrivateJson<T extends z.ZodType>(
   schema: T
 ): z.output<T> | undefined {
   try {
-    const stat = lstatSync(path)
-    if (
-      !stat.isFile() ||
-      stat.isSymbolicLink() ||
-      stat.uid !== process.getuid?.() ||
-      stat.mode & 0o077
-    )
-      throw new Error(`Refusing untrusted runtime state: ${path}`)
+    assertPrivatePath(path, 'file')
     return schema.parse(JSON.parse(readFileSync(path, 'utf8')))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return

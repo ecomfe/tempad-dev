@@ -11,6 +11,7 @@ import {
 } from '../../../agent-plugin/src/clients/shared/runtime-profile.mjs'
 import packageJson from '../package.json' with { type: 'json' }
 import { pruneExpiredLogs } from './log-retention'
+import { ensurePrivateDirectory } from './runtime-platform'
 
 export {
   assertTrustedSocket,
@@ -22,12 +23,17 @@ export function normalizePackageVersion(version: unknown): string {
 }
 
 export function ensureDir(dirPath: string): void {
+  if (process.platform === 'win32') {
+    ensurePrivateDirectory(dirPath)
+    return
+  }
   mkdirSync(dirPath, { recursive: true, mode: 0o700 })
   const stat = lstatSync(dirPath)
   if (
     !stat.isDirectory() ||
     stat.isSymbolicLink() ||
-    (process.platform !== 'win32' && (stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0))
+    stat.uid !== process.getuid?.() ||
+    (stat.mode & 0o077) !== 0
   )
     throw new Error(`Refusing untrusted runtime directory: ${dirPath}`)
 }

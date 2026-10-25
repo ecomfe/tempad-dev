@@ -1,5 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -7,6 +6,7 @@ import type { Artifact } from '../src/runtime-prototype/state'
 import type { AcquisitionResult } from '../src/runtime-update/acquire'
 
 import * as durable from '../src/durable-json'
+import { createPrivateTempDirectory } from '../src/runtime-platform'
 import { updateIntent } from '../src/runtime-update/bootstrap'
 import { ReleaseUpdates } from '../src/runtime-update/manager'
 
@@ -18,7 +18,7 @@ const candidate: Artifact = {
   version: '0.12.1'
 }
 function root() {
-  const value = realpathSync(mkdtempSync(join(tmpdir(), 'tp-updates-')))
+  const value = createPrivateTempDirectory('tp-updates-')
   roots.push(value)
   return value
 }

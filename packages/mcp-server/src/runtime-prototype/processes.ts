@@ -2,22 +2,23 @@ import type { Socket } from 'node:net'
 
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import {
-  existsSync,
-  lstatSync,
-  readFileSync,
-  readdirSync,
-  writeFileSync,
-  realpathSync
-} from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync, realpathSync } from 'node:fs'
 import { connect, type Server } from 'node:net'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import lockfile from 'proper-lockfile'
 
 import { hubEnvironment } from '../process-environment'
+import {
+  assertPrivateEndpoint,
+  assertPrivatePath,
+  ensurePrivateDirectory,
+  isPipe,
+  protectPipe,
+  runtimeEndpoint
+} from '../runtime-platform'
 import { verifyReleaseArtifact } from '../runtime-update/artifact'
-import { assertTrustedSocket, ensureFile, ensureDir } from '../shared'
+import { assertTrustedSocket, ensureFile } from '../shared'
 import { isRuntimeUnavailable, RECOVER_MS, unavailable } from './protocol'
 import { ConfigSchema, readJournal, type Artifact, type PrototypeConfig } from './state'
 export type { PrototypeConfig } from './state'
@@ -47,18 +48,16 @@ export function runtimePaths(config: PrototypeConfig) {
 }
 
 export function hubSocketPath(root: string, runtime = join(root, 'run')) {
-  return join(runtime, 'runtime-hub.sock')
+  return runtimeEndpoint(runtime, 'runtime-hub.sock')
 }
 
 export function supervisorSocketPath(config: PrototypeConfig) {
-  return join(config.directories?.runtime ?? config.root, 'supervisor.sock')
+  return runtimeEndpoint(config.directories?.runtime ?? config.root, 'supervisor.sock')
 }
 
 export function prototypeConfig(root: string, entry: string, role = 'edge'): PrototypeConfig {
-  if (process.platform === 'win32')
-    throw new Error('The runtime prototype requires isolated Unix sockets.')
   root = realpathSync(root)
-  ensureDir(root)
+  ensurePrivateDirectory(root)
   const bundle = fingerprintBundle(entry)
   const path = join(root, 'prototype.json')
   try {
@@ -69,14 +68,7 @@ export function prototypeConfig(root: string, entry: string, role = 'edge'): Pro
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
   }
-  const stat = lstatSync(path)
-  if (
-    !stat.isFile() ||
-    stat.isSymbolicLink() ||
-    stat.uid !== process.getuid?.() ||
-    stat.mode & 0o077
-  )
-    throw new Error('Refusing an untrusted runtime prototype configuration.')
+  assertPrivatePath(path, 'file')
   const config = ConfigSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
   if (config.entry !== entry || config.bundle !== bundle) {
     const journal = readJournal(root)
@@ -106,6 +98,7 @@ export function launch(config: PrototypeConfig, role: 'supervisor' | 'hub', arti
     throw new Error('Verified runtime bundle changed before launch.')
   const child = spawn(process.execPath, [entry, '--root', config.root, '--role', role], {
     detached: true,
+    windowsHide: true,
     stdio: 'ignore',
     env: hubEnvironment(process.env)
   })
@@ -115,9 +108,10 @@ export function launch(config: PrototypeConfig, role: 'supervisor' | 'hub', arti
 }
 
 export function connectSocket(path: string, signal?: AbortSignal): Promise<Socket> {
-  assertTrustedSocket(path)
+  if (!isPipe(path)) assertTrustedSocket(path)
   return new Promise((resolve, reject) => {
     const socket = connect(path)
+    const deadline = performance.now() + 1000
     const cleanup = () => {
       clearTimeout(timer)
       signal?.removeEventListener('abort', abort)
@@ -131,9 +125,32 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
     const abort = () => fail(new Error('Runtime connection cancelled.'))
     const timer = setTimeout(() => fail(new Error('Runtime connection timed out.')), 1000)
     socket.once('error', fail)
+    const verify = async () => {
+      while (!socket.destroyed) {
+        try {
+          if (isPipe(path)) assertPrivateEndpoint(path)
+          return
+        } catch (error) {
+          if (
+            (error as NodeJS.ErrnoException).code !== 'EPIPEUNPROTECTED' ||
+            performance.now() >= deadline
+          )
+            throw error
+          await delay(25, undefined, { signal })
+        }
+      }
+    }
     socket.once('connect', () => {
-      cleanup()
-      resolve(socket)
+      // Keep the connection open while inspecting: a connected pipe cannot be replaced by
+      // a different owner between this check and the caller's first authenticated frame.
+      void verify().then(
+        () => {
+          if (socket.destroyed) return
+          cleanup()
+          resolve(socket)
+        },
+        (error) => fail(error instanceof Error ? error : new Error(String(error)))
+      )
     })
     signal?.addEventListener('abort', abort, { once: true })
     if (signal?.aborted) abort()
@@ -155,7 +172,7 @@ export async function waitForSocket(path: string, signal?: AbortSignal) {
 }
 
 export function unavailableSocket(error: unknown) {
-  return ['ENOENT', 'ECONNREFUSED'].includes((error as NodeJS.ErrnoException).code ?? '')
+  return ['ENOENT', 'ECONNREFUSED', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '')
 }
 
 export async function supervisorConnection(config: PrototypeConfig, signal: AbortSignal) {
@@ -224,6 +241,12 @@ export async function withStartupLock<T>(root: string, action: () => Promise<T>,
 }
 
 export async function listenPrivate(server: Server, path: string) {
+  const connectionListeners = isPipe(path) ? server.rawListeners('connection') : undefined
+  const rejectUnprotected = (socket: Socket) => socket.destroy()
+  if (connectionListeners) {
+    server.removeAllListeners('connection')
+    server.on('connection', rejectUnprotected)
+  }
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timer)
@@ -241,8 +264,20 @@ export async function listenPrivate(server: Server, path: string) {
     const mask = process.umask(0o177)
     try {
       server.listen(path, () => {
-        cleanup()
-        resolve()
+        try {
+          // This synchronous ACL operation completes before connection callbacks can run.
+          if (isPipe(path)) protectPipe(path)
+          if (connectionListeners) {
+            server.off('connection', rejectUnprotected)
+            for (const listener of connectionListeners)
+              server.on('connection', listener as (socket: Socket) => void)
+          }
+          cleanup()
+          resolve()
+        } catch (error) {
+          server.close()
+          fail(error instanceof Error ? error : new Error(String(error)))
+        }
       })
     } catch (error) {
       fail(error instanceof Error ? error : new Error(String(error)))

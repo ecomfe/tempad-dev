@@ -6,7 +6,7 @@ import {
 } from '@tempad-dev/shared'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter, once } from 'node:events'
-import { mkdtemp, mkdir, writeFile, realpath, rm } from 'node:fs/promises'
+import { mkdir, writeFile, rm } from 'node:fs/promises'
 import { createServer, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -25,12 +25,14 @@ import { AgentClients } from '../src/agent-clients/registry'
 import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
 import { createHubRuntimeIdentity } from '../src/runtime-identity'
+import { cleanupEndpoint, runtimeEndpoint } from '../src/runtime-platform'
 import {
   connectSocket,
   fingerprintBundle,
   hubSocketPath,
   listenPrivate,
-  prototypeConfig
+  prototypeConfig,
+  supervisorSocketPath
 } from '../src/runtime-prototype/processes'
 import {
   ControlPeer,
@@ -45,6 +47,21 @@ import * as releaseArtifacts from '../src/runtime-update/artifact'
 import * as releaseAcquisition from '../src/runtime-update/manager'
 import { PACKAGE_VERSION } from '../src/shared'
 
+const platformModule = '../scripts/runtime-test-platform.mjs'
+const { fixtureRoot } = await import(platformModule)
+
+async function endpointClosed(path: string) {
+  try {
+    const socket = await connectSocket(path)
+    socket.destroy()
+    return false
+  } catch (error) {
+    if (['ENOENT', 'ECONNREFUSED'].includes((error as NodeJS.ErrnoException).code ?? ''))
+      return true
+    throw error
+  }
+}
+
 const cleanups: (() => Promise<unknown>)[] = []
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
@@ -56,7 +73,7 @@ async function fixture(
   hook?: (input: ClientHook, fresh: boolean) => Record<string, unknown>,
   automatic = false
 ) {
-  const root = await realpath(await mkdtemp('/tmp/tp-switch-test-'))
+  const root = await fixtureRoot('tp-switch-test-')
   await mkdir(join(root, 'run'), { mode: 0o700 })
   cleanups.push(() => rm(root, { recursive: true, force: true }))
   const artifact = async (version: string): Promise<Artifact> => {
@@ -85,7 +102,7 @@ async function fixture(
           wireHash: 'a'.repeat(64),
           guidanceEpoch: 1,
           node: '>=22',
-          platforms: ['darwin', 'linux'],
+          platforms: ['darwin', 'linux', 'win32'],
           controlProtocols: [2],
           state: { family: 'test', reads: [1], writes: 1 },
           extension: { legacy: true, protocols: [1] }
@@ -118,7 +135,7 @@ async function fixture(
     const id = randomUUID()
     let gated = false
     live.add(pid)
-    await rm(hubSocketPath(root), { force: true })
+    cleanupEndpoint(hubSocketPath(root))
     await writeFile(
       join(root, 'run/hub-runtime.json'),
       JSON.stringify(createHubRuntimeIdentity(artifact.entry, artifact.version, { processId: pid }))
@@ -199,19 +216,16 @@ async function fixture(
   await startSupervisor(config)
   const shutdown = process.listeners('SIGTERM').find((listener) => !stops.has(listener))!
   const control = new ControlPeer()
-  await control.connect(new SocketTransport(await connectSocket(join(root, 'supervisor.sock'))))
+  const supervisorPath = supervisorSocketPath(config)
+  await control.connect(new SocketTransport(await connectSocket(supervisorPath)))
   cleanups.push(async () => {
     await control.close()
     await new Promise((resolve) => setTimeout(resolve, 10))
     for (const hub of hubs) if (live.has(hub.pid)) await hub.stop()
-    await vi.waitFor(async () => {
-      expect(
-        await import('node:fs').then((fs) => fs.existsSync(join(root, 'supervisor.sock')))
-      ).toBe(false)
-    })
+    await vi.waitFor(async () => expect(await endpointClosed(supervisorPath)).toBe(true))
   })
   const edge = new ControlPeer()
-  await edge.connect(new SocketTransport(await connectSocket(join(root, 'supervisor.sock'))))
+  await edge.connect(new SocketTransport(await connectSocket(supervisorPath)))
   cleanups.push(() => edge.close())
   const ready = (hubId: string) =>
     edge.request(
@@ -296,23 +310,18 @@ async function fixture(
   }
 }
 
-it.skipIf(process.platform === 'win32')(
-  'automatically replaces a compatible idle runtime once',
-  async () => {
-    const f = await fixture(undefined, true)
-    f.auto.allow()
-    await vi.waitFor(
-      async () => expect(await f.status()).toMatchObject({ active: f.b, gated: false }),
-      { timeout: 5000 }
-    )
-    expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b])
-    expect(readJournal(f.root)).toMatchObject({ phase: 'committed', previous: f.a })
-  }
-)
+it('automatically replaces a compatible idle runtime once', async () => {
+  const f = await fixture(undefined, true)
+  f.auto.allow()
+  await vi.waitFor(
+    async () => expect(await f.status()).toMatchObject({ active: f.b, gated: false }),
+    { timeout: 5000 }
+  )
+  expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b])
+  expect(readJournal(f.root)).toMatchObject({ phase: 'committed', previous: f.a })
+})
 
-it
-  .skipIf(process.platform === 'win32')
-  .each(['oldEdge', 'unready', 'legacyHub', 'recentWork'] as const)(
+it.each(['oldEdge', 'unready', 'legacyHub', 'recentWork'] as const)(
   'keeps serving when automatic readiness is missing: %s',
   async (scenario) => {
     const f = await fixture(undefined, true)
@@ -324,7 +333,7 @@ it
   }
 )
 
-it.skipIf(process.platform === 'win32').each(['raceGate', 'refuseStop'] as const)(
+it.each(['raceGate', 'refuseStop'] as const)(
   'reopens the original Hub when work races automatic shutdown: %s',
   async (scenario) => {
     const f = await fixture(undefined, true)
@@ -345,138 +354,128 @@ it.skipIf(process.platform === 'win32').each(['raceGate', 'refuseStop'] as const
   }
 )
 
-it.skipIf(process.platform === 'win32')(
-  'isolates and backs off automatic verification failures',
-  async () => {
-    const f = await fixture(undefined, true)
-    const verify = vi.spyOn(releaseArtifacts, 'verifyReleaseArtifact').mockImplementation(() => {
-      throw new Error('damaged archive')
-    })
-    f.auto.allow()
-    await vi.waitFor(
-      async () =>
-        expect(await f.status()).toMatchObject({
-          active: f.a,
-          gated: false,
-          updates: { automaticError: expect.stringContaining('damaged archive') }
-        }),
-      { timeout: 5000 }
-    )
-    await new Promise((resolve) => setTimeout(resolve, 2200))
-    expect(verify).toHaveBeenCalledOnce()
-    expect(f.hubs).toHaveLength(1)
-  }
-)
-
-it.skipIf(process.platform === 'win32')(
-  'recovers a supervisor with an expired admitted hook without replay or loss of Stop',
-  async () => {
-    let now = Date.now()
-    vi.spyOn(Date, 'now').mockImplementation(() => now)
-    let available = false
-    let tasks!: DesignTasks
-    const applied = vi.fn((input: ClientHook, fresh: boolean) => clients.clientHook(input, fresh))
-    const f = await fixture((input, fresh) => {
-      if (!available) throw new Error('Hub outcome unavailable after crash')
-      return tasks.applyHook(
-        input.invocationId,
-        input,
-        () => applied(input, fresh),
-        () => clients.retireHook(input)
-      )
-    })
-    const store = new DesignTaskStore(join(f.root, 'tasks.json'))
-    tasks = new DesignTasks({ store, createId: randomUUID, now: () => now })
-    const session = {
-      sessionId: 'figma',
-      fileKey: 'file',
-      fileName: 'File',
-      pageId: '0:1',
-      busy: false
-    }
-    const task = tasks.begin('owner', 'extension', session, 'Work', 'begin', {
-      kind: 'claude',
-      name: 'Claude',
-      sessionId: 'old-session'
-    })
-    tasks.stop(task.task.taskId, 'cancelled', { sessionId: 'old-session' })
-    const input: ClientHook = {
-      version: 2,
-      kind: 'claude',
-      sessionId: 'old-session',
-      event: 'Stop',
-      invocationId: randomUUID(),
-      issuedAt: now,
-      profile: { kind: 'release' }
-    }
-    const request = async (params: ClientHook) => {
-      const socket = await connectSocket(join(f.root, 'run/mcp.sock'))
-      const reply = once(socket, 'data')
-      socket.write(
-        JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tempad/client-hook', params }) + '\n'
-      )
-      try {
-        return JSON.parse(String((await reply)[0]))
-      } finally {
-        socket.destroy()
-      }
-    }
-    expect((await request(input)).result.receipt.state).toBe('accepted')
-    await vi.waitFor(async () =>
+it('isolates and backs off automatic verification failures', async () => {
+  const f = await fixture(undefined, true)
+  const verify = vi.spyOn(releaseArtifacts, 'verifyReleaseArtifact').mockImplementation(() => {
+    throw new Error('damaged archive')
+  })
+  f.auto.allow()
+  await vi.waitFor(
+    async () =>
       expect(await f.status()).toMatchObject({
-        gated: true,
-        hookFault: expect.stringContaining('after crash')
-      })
-    )
-    f.shutdown()
-    await vi.waitFor(async () =>
-      expect(
-        await import('node:fs').then((fs) => fs.existsSync(join(f.root, 'supervisor.sock')))
-      ).toBe(false)
-    )
+        active: f.a,
+        gated: false,
+        updates: { automaticError: expect.stringContaining('damaged archive') }
+      }),
+    { timeout: 5000 }
+  )
+  await new Promise((resolve) => setTimeout(resolve, 2200))
+  expect(verify).toHaveBeenCalledOnce()
+  expect(f.hubs).toHaveLength(1)
+})
 
-    now += CLIENT_HOOK_RETENTION_MS + 1
-    tasks = new DesignTasks({ store, createId: randomUUID, now: () => now })
-    tasks.restore()
-    const clients = new AgentClients(tasks)
-    available = true
-    const stops = new Set(process.listeners('SIGTERM'))
-    await startSupervisor(f.config)
-    const stop = process.listeners('SIGTERM').find((listener) => !stops.has(listener))!
-    cleanups.push(async () => {
-      clients.close()
-      stop('SIGTERM')
-      await vi.waitFor(async () =>
-        expect(
-          await import('node:fs').then((fs) => fs.existsSync(join(f.root, 'supervisor.sock')))
-        ).toBe(false)
-      )
-    })
-    const control = new ControlPeer()
-    await control.connect(new SocketTransport(await connectSocket(join(f.root, 'supervisor.sock'))))
-    cleanups.push(() => control.close())
-    expect(await control.request({ method: 'tempad/runtime-status' }, ResultSchema)).toMatchObject({
-      gated: false,
-      phase: 'committed'
-    })
-    expect(applied).not.toHaveBeenCalled()
-    const fresh = {
-      ...input,
-      sessionId: 'fresh-session',
-      invocationId: randomUUID(),
-      issuedAt: now,
-      event: 'UserPromptSubmit' as const
-    }
-    expect((await request(fresh)).result.receipt.state).toBe('accepted')
-    await vi.waitFor(() => expect(applied).toHaveBeenCalledExactlyOnceWith(fresh, true))
-    expect(tasks.find(task.task.taskId)).toMatchObject({
-      task: { status: 'cancelled' },
-      claudeStopNotice: { sessionId: 'old-session' }
-    })
+it('recovers a supervisor with an expired admitted hook without replay or loss of Stop', async () => {
+  let now = Date.now()
+  vi.spyOn(Date, 'now').mockImplementation(() => now)
+  let available = false
+  let tasks!: DesignTasks
+  const applied = vi.fn((input: ClientHook, fresh: boolean) => clients.clientHook(input, fresh))
+  const f = await fixture((input, fresh) => {
+    if (!available) throw new Error('Hub outcome unavailable after crash')
+    return tasks.applyHook(
+      input.invocationId,
+      input,
+      () => applied(input, fresh),
+      () => clients.retireHook(input)
+    )
+  })
+  const store = new DesignTaskStore(join(f.root, 'tasks.json'))
+  tasks = new DesignTasks({ store, createId: randomUUID, now: () => now })
+  const session = {
+    sessionId: 'figma',
+    fileKey: 'file',
+    fileName: 'File',
+    pageId: '0:1',
+    busy: false
   }
-)
+  const task = tasks.begin('owner', 'extension', session, 'Work', 'begin', {
+    kind: 'claude',
+    name: 'Claude',
+    sessionId: 'old-session'
+  })
+  tasks.stop(task.task.taskId, 'cancelled', { sessionId: 'old-session' })
+  const input: ClientHook = {
+    version: 2,
+    kind: 'claude',
+    sessionId: 'old-session',
+    event: 'Stop',
+    invocationId: randomUUID(),
+    issuedAt: now,
+    profile: { kind: 'release' }
+  }
+  const request = async (params: ClientHook) => {
+    const socket = await connectSocket(runtimeEndpoint(join(f.root, 'run'), 'mcp.sock'))
+    const reply = once(socket, 'data')
+    socket.write(
+      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tempad/client-hook', params }) + '\n'
+    )
+    try {
+      return JSON.parse(String((await reply)[0]))
+    } finally {
+      socket.destroy()
+    }
+  }
+  expect((await request(input)).result.receipt.state).toBe('accepted')
+  await vi.waitFor(async () =>
+    expect(await f.status()).toMatchObject({
+      gated: true,
+      hookFault: expect.stringContaining('after crash')
+    })
+  )
+  f.shutdown()
+  await vi.waitFor(async () =>
+    expect(await endpointClosed(supervisorSocketPath(f.config))).toBe(true)
+  )
 
-it.skipIf(process.platform === 'win32').each([false, true])(
+  now += CLIENT_HOOK_RETENTION_MS + 1
+  tasks = new DesignTasks({ store, createId: randomUUID, now: () => now })
+  tasks.restore()
+  const clients = new AgentClients(tasks)
+  available = true
+  const stops = new Set(process.listeners('SIGTERM'))
+  await startSupervisor(f.config)
+  const stop = process.listeners('SIGTERM').find((listener) => !stops.has(listener))!
+  cleanups.push(async () => {
+    clients.close()
+    stop('SIGTERM')
+    await vi.waitFor(async () =>
+      expect(await endpointClosed(supervisorSocketPath(f.config))).toBe(true)
+    )
+  })
+  const control = new ControlPeer()
+  await control.connect(new SocketTransport(await connectSocket(supervisorSocketPath(f.config))))
+  cleanups.push(() => control.close())
+  expect(await control.request({ method: 'tempad/runtime-status' }, ResultSchema)).toMatchObject({
+    gated: false,
+    phase: 'committed'
+  })
+  expect(applied).not.toHaveBeenCalled()
+  const fresh = {
+    ...input,
+    sessionId: 'fresh-session',
+    invocationId: randomUUID(),
+    issuedAt: now,
+    event: 'UserPromptSubmit' as const
+  }
+  expect((await request(fresh)).result.receipt.state).toBe('accepted')
+  await vi.waitFor(() => expect(applied).toHaveBeenCalledExactlyOnceWith(fresh, true))
+  expect(tasks.find(task.task.taskId)).toMatchObject({
+    task: { status: 'cancelled' },
+    claudeStopNotice: { sessionId: 'old-session' }
+  })
+})
+
+it.each([false, true])(
   'rolls back an active failure using current data (socket closes before exit: %s)',
   async (socketClosesFirst) => {
     const f = await fixture()
@@ -516,9 +515,7 @@ it.skipIf(process.platform === 'win32').each([false, true])(
   }
 )
 
-it
-  .skipIf(process.platform === 'win32')
-  .each(['work', 'Claude binding without receipt/retry hooks'])(
+it.each(['work', 'Claude binding without receipt/retry hooks'])(
   'defers %s without killing the current runtime',
   async (reason) => {
     const f = await fixture()
@@ -537,78 +534,66 @@ it
   }
 )
 
-it.skipIf(process.platform === 'win32')(
-  'allows repeated operator recovery without reacquiring its own live lease',
-  async () => {
-    const f = await fixture()
-    await f.update()
-    const before = await f.status()
-    for (let attempt = 0; attempt < 2; attempt++)
-      expect(
-        await f.control.request({ method: 'tempad/runtime-recover' }, ResultSchema)
-      ).toMatchObject({ status: 'recovered', version: f.b.version })
-    expect(await f.status()).toMatchObject({
-      active: f.b,
-      hubId: before.hubId,
-      gated: false
-    })
-    expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b])
-  }
-)
+it('allows repeated operator recovery without reacquiring its own live lease', async () => {
+  const f = await fixture()
+  await f.update()
+  const before = await f.status()
+  for (let attempt = 0; attempt < 2; attempt++)
+    expect(
+      await f.control.request({ method: 'tempad/runtime-recover' }, ResultSchema)
+    ).toMatchObject({ status: 'recovered', version: f.b.version })
+  expect(await f.status()).toMatchObject({
+    active: f.b,
+    hubId: before.hubId,
+    gated: false
+  })
+  expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b])
+})
 
-it.skipIf(process.platform === 'win32')(
-  'recovers a journal commit reported as failed after rename without restoring old data',
-  async () => {
-    const f = await fixture()
-    const write = journalState.writeJournal
-    let failed = false
-    vi.spyOn(journalState, 'writeJournal').mockImplementation((root, journal) => {
-      write(root, journal)
-      if (!failed && journal.phase === 'preparing') {
-        failed = true
-        throw new Error('EIO after rename')
-      }
-    })
-    expect(await f.update()).toMatchObject({ status: 'rolled-back' })
-    expect(readJournal(f.root)).toMatchObject({
-      active: f.a,
-      phase: 'committed',
-      failedBundles: [f.b.bundle]
-    })
-  }
-)
+it('recovers a journal commit reported as failed after rename without restoring old data', async () => {
+  const f = await fixture()
+  const write = journalState.writeJournal
+  let failed = false
+  vi.spyOn(journalState, 'writeJournal').mockImplementation((root, journal) => {
+    write(root, journal)
+    if (!failed && journal.phase === 'preparing') {
+      failed = true
+      throw new Error('EIO after rename')
+    }
+  })
+  expect(await f.update()).toMatchObject({ status: 'rolled-back' })
+  expect(readJournal(f.root)).toMatchObject({
+    active: f.a,
+    phase: 'committed',
+    failedBundles: [f.b.bundle]
+  })
+})
 
-it.skipIf(process.platform === 'win32')(
-  'rolls back a candidate refused by an initialized edge',
-  async () => {
-    const f = await fixture()
-    f.rejectCandidate()
-    expect(await f.update()).toMatchObject({ status: 'rolled-back' })
-    expect(await f.status()).toMatchObject({ active: f.a, gated: false })
-    expect(readJournal(f.root)?.failedBundles).toContain(f.b.bundle)
-  }
-)
+it('rolls back a candidate refused by an initialized edge', async () => {
+  const f = await fixture()
+  f.rejectCandidate()
+  expect(await f.update()).toMatchObject({ status: 'rolled-back' })
+  expect(await f.status()).toMatchObject({ active: f.a, gated: false })
+  expect(readJournal(f.root)?.failedBundles).toContain(f.b.bundle)
+})
 
-it.skipIf(process.platform === 'win32')(
-  'cannot finish a pending update after releasing supervisor ownership',
-  async () => {
-    const f = await fixture()
-    const before = readJournal(f.root)
-    let release!: () => void
-    fake.probe.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          release = () => resolve({ artifact: f.b, contract: 'identical' })
-        })
-    )
-    const update = f.update()
-    const rejected = expect(update).rejects.toThrow('Connection closed')
-    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
-    f.shutdown()
-    await rejected
-    release()
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(readJournal(f.root)).toEqual(before)
-    expect(fake.launch).not.toHaveBeenCalled()
-  }
-)
+it('cannot finish a pending update after releasing supervisor ownership', async () => {
+  const f = await fixture()
+  const before = readJournal(f.root)
+  let release!: () => void
+  fake.probe.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({ artifact: f.b, contract: 'identical' })
+      })
+  )
+  const update = f.update()
+  const rejected = expect(update).rejects.toThrow('Connection closed')
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+  f.shutdown()
+  await rejected
+  release()
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  expect(readJournal(f.root)).toEqual(before)
+  expect(fake.launch).not.toHaveBeenCalled()
+})

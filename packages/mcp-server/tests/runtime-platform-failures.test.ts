@@ -1,0 +1,111 @@
+import { execFileSync } from 'node:child_process'
+import { lstatSync, realpathSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+
+vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }))
+vi.mock('node:fs', () => ({
+  lstatSync: vi.fn(),
+  realpathSync: vi.fn(),
+  mkdirSync: vi.fn(),
+  rmSync: vi.fn()
+}))
+
+import {
+  assertPrivateEndpoint,
+  assertPrivatePath,
+  ensurePrivateDirectory,
+  protectPipe
+} from '../src/runtime-platform'
+
+let revision = 0n
+const path = resolve('private-runtime-fixture')
+beforeEach(() => {
+  vi.resetAllMocks()
+  revision++
+  vi.stubGlobal('process', {
+    ...process,
+    platform: 'win32',
+    env: { ...process.env, SystemRoot: resolve('Windows') }
+  })
+  vi.mocked(realpathSync).mockImplementation((path) => resolve(String(path)))
+  vi.mocked(lstatSync).mockImplementation(
+    () =>
+      ({
+        dev: 1n,
+        ino: 1n,
+        birthtimeNs: 1n,
+        ctimeNs: revision,
+        isSymbolicLink: () => false,
+        isDirectory: () => true,
+        isFile: () => false
+      }) as ReturnType<typeof lstatSync>
+  )
+})
+afterEach(() => vi.unstubAllGlobals())
+
+it('caches unchanged ACLs but rechecks a changed security descriptor', () => {
+  assertPrivatePath(path, 'directory')
+  assertPrivatePath(path, 'directory')
+  expect(execFileSync).toHaveBeenCalledOnce()
+  revision++
+  assertPrivatePath(path, 'directory')
+  expect(execFileSync).toHaveBeenCalledTimes(2)
+  expect(vi.mocked(execFileSync).mock.calls[0]?.[2]).toMatchObject({
+    input: JSON.stringify({ action: 'inspect', path, kind: 'directory' }),
+    timeout: 15_000,
+    windowsHide: true
+  })
+})
+
+it('creates missing directories through the ACL helper, without repairing unsafe ones', () => {
+  vi.mocked(lstatSync).mockImplementationOnce(() => {
+    throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+  })
+  ensurePrivateDirectory(path)
+  expect(vi.mocked(execFileSync).mock.calls[0]?.[2]).toMatchObject({
+    input: JSON.stringify({ action: 'ensure', path, kind: 'directory' })
+  })
+  revision++
+  vi.mocked(execFileSync).mockImplementation(() => {
+    throw { stderr: JSON.stringify({ message: 'Unexpected owner', code: 5 }) }
+  })
+  expect(() => ensurePrivateDirectory(path)).toThrow('Unexpected owner')
+  expect(execFileSync).toHaveBeenCalledTimes(2)
+})
+
+it('rejects paths replaced during ACL inspection', () => {
+  vi.mocked(execFileSync).mockImplementation(() => {
+    revision++
+    return ''
+  })
+  expect(() => assertPrivatePath(path, 'directory')).toThrow('changed during its permission check')
+})
+
+it.each([
+  [2, 'ENOENT'],
+  [3, 'ENOENT'],
+  [231, 'EBUSY'],
+  ['EPIPEUNPROTECTED', 'EPIPEUNPROTECTED'],
+  [5, undefined]
+])('classifies Windows pipe failure %s without accepting it', (nativeCode, code) => {
+  vi.mocked(execFileSync).mockImplementation(() => {
+    throw { stderr: JSON.stringify({ message: 'denied', code: nativeCode }) }
+  })
+  expect(() => assertPrivateEndpoint('\\\\.\\pipe\\test')).toThrow('denied')
+  try {
+    assertPrivateEndpoint('\\\\.\\pipe\\test')
+  } catch (error) {
+    expect((error as NodeJS.ErrnoException).code).toBe(code)
+  }
+})
+
+it('fails closed for helper startup, timeout and configuration failures', () => {
+  vi.mocked(execFileSync).mockImplementation(() => {
+    throw Object.assign(new Error('timed out'), { stderr: 'helper timed out' })
+  })
+  expect(() => protectPipe('\\\\.\\pipe\\test')).toThrow('helper timed out')
+  expect(() => protectPipe(path)).toThrow('Expected a Windows runtime pipe')
+  process.env.SystemRoot = ''
+  expect(() => assertPrivatePath(path, 'directory')).toThrow('SystemRoot')
+})

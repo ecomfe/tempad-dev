@@ -2,7 +2,7 @@ import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { CLIENT_HOOK_RETENTION_MS, type ClientHook } from '@tempad-dev/shared'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { connect, createServer, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -12,6 +12,7 @@ import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
 import { writeDurableJson } from '../src/durable-json'
 import { HOOK_RECEIPT_LIMIT } from '../src/hook-receipts'
+import { createPrivateTempDirectory } from '../src/runtime-platform'
 import { startHookGateway } from '../src/runtime-prototype/hooks'
 import { HubControl, LeaseSchema } from '../src/runtime-prototype/hub-control'
 import { connectSocket, listenPrivate } from '../src/runtime-prototype/processes'
@@ -30,7 +31,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 function directory() {
-  const root = mkdtempSync('/tmp/tp-handoff-')
+  const root = createPrivateTempDirectory('tp-handoff-')
   mkdirSync(join(root, 'run'), { mode: 0o700 })
   cleanup.push(() => rmSync(root, { recursive: true, force: true }))
   return root
@@ -193,8 +194,8 @@ it('keeps version, endpoint capabilities and journal ownership across restart', 
     version: 1 as const,
     revision: 1,
     phase: 'preparing' as const,
-    active: { entry: '/tmp/a/runtime.mjs', bundle: 'a'.repeat(64), version: '0.11.0' },
-    candidate: { entry: '/tmp/b/runtime.mjs', bundle: 'b'.repeat(64), version: '0.11.1' },
+    active: { entry: join(root, 'a/runtime.mjs'), bundle: 'a'.repeat(64), version: '0.11.0' },
+    candidate: { entry: join(root, 'b/runtime.mjs'), bundle: 'b'.repeat(64), version: '0.11.1' },
     failedBundles: []
   }
   writeJournal(root, journal)
@@ -210,8 +211,10 @@ it('keeps version, endpoint capabilities and journal ownership across restart', 
   expect(newerVersion('0.11.1', '0.11.0')).toBe(true)
   expect(newerVersion('0.10.9', '0.11.0')).toBe(false)
   expect(newerVersion('0.11.0', '0.11.0')).toBe(false)
-  chmodSync(join(root, 'switch.json'), 0o644)
-  expect(() => readJournal(root)).toThrow('untrusted')
+  if (process.platform !== 'win32') {
+    chmodSync(join(root, 'switch.json'), 0o644)
+    expect(() => readJournal(root)).toThrow('untrusted')
+  }
 })
 
 it('never repeats a lifecycle effect that threw after changing state', () => {

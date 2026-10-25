@@ -72,7 +72,7 @@ describe('runtime profiles', () => {
     expect(runtimeDirectories({ ...env, TEMPAD_MCP_RUNTIME_DIR: root }).state).toBe(
       join(root, `checkout-${profile.id}/state`)
     )
-    expect(runtimeSocketPath('/tmp/short', profile, 'darwin')).toBe('/tmp/short/mcp.sock')
+    expect(runtimeSocketPath('/tmp/short', profile, 'darwin')).toBe(join('/tmp/short', 'mcp.sock'))
     expect(() => runtimeSocketPath('/' + '界'.repeat(40), profile, 'darwin')).toThrow(
       'shorter TEMPAD_MCP_RUNTIME_DIR'
     )

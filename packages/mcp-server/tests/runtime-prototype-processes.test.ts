@@ -88,6 +88,7 @@ describe.skipIf(process.platform === 'win32')('isolated prototype processes', ()
         [config.entry, '--root', config.root, '--role', 'hub'],
         {
           detached: true,
+          windowsHide: true,
           stdio: 'ignore',
           env: expect.not.objectContaining({
             CODEX_THREAD_ID: expect.anything(),

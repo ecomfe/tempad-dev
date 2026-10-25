@@ -1,5 +1,5 @@
 import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
-import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -7,6 +7,7 @@ import lockfile from 'proper-lockfile'
 import { z } from 'zod'
 
 import { parseHubRuntimeIdentity } from '../runtime-identity'
+import { cleanupEndpoint, runtimeEndpoint } from '../runtime-platform'
 import { releaseManifest, verifyReleaseArtifact } from '../runtime-update/artifact'
 import { pruneCache } from '../runtime-update/cache'
 import { acquireRelease, ReleaseUpdates } from '../runtime-update/manager'
@@ -15,7 +16,7 @@ import {
   coldCompatibilityReasons,
   compatibilityReasons
 } from '../runtime-update/manifest'
-import { ensureDir, ensureFile, HUB_LOCK_STALE_MS, PACKAGE_VERSION } from '../shared'
+import { ensureDir, ensureFile, HUB_LOCK_STALE_MS, PACKAGE_VERSION, SOCK_PATH } from '../shared'
 import { startHookGateway } from './hooks'
 import { AUTOMATIC_IDLE_MS, LeaseSchema } from './hub-control'
 import { probeArtifact } from './probe'
@@ -289,7 +290,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         hookFault = error === undefined ? undefined : String(error)
         if (hookFault || (recovering && !transitioning)) void gate(!!hookFault).catch(() => {})
       },
-      join(paths.runtime, 'mcp.sock')
+      config.directories ? SOCK_PATH : runtimeEndpoint(paths.runtime, 'mcp.sock')
     )
     hooks.setReceiver(lease!.hubId)
   }
@@ -897,7 +898,7 @@ export async function startSupervisor(config: PrototypeConfig) {
     await Promise.allSettled([...peers].map((peer) => peer.close()))
     await hooks?.close()
     await hub?.close()
-    rmSync(socketPath, { force: true })
+    cleanupEndpoint(socketPath)
     rmSync(join(config.root, 'supervisor.json'), { force: true })
     await unlock()
   }
@@ -905,9 +906,8 @@ export async function startSupervisor(config: PrototypeConfig) {
     persist(journal)
     ensureDir(paths.runtime)
     await recover()
-    rmSync(socketPath, { force: true })
+    cleanupEndpoint(socketPath)
     await listenPrivate(server, socketPath)
-    chmodSync(socketPath, 0o600)
     publish()
     process.once('SIGTERM', stop)
     process.once('SIGINT', stop)

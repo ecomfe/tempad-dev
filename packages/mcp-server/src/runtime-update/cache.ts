@@ -2,35 +2,25 @@ import {
   closeSync,
   fsyncSync,
   lstatSync,
-  mkdirSync,
   mkdtempSync,
   openSync,
   readFileSync,
   readdirSync,
-  realpathSync,
   renameSync,
   rmSync,
   writeFileSync
 } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, sep } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 
 import type { Artifact } from '../runtime-prototype/state'
 
+import { ensurePrivateDirectory } from '../runtime-platform'
 import { IntegritySchema, MANIFEST_PATH } from './manifest'
 import { readInstalledPackage, sha256, verifyArchive, verifyPackage } from './package'
 
 export function privateDirectory(path: string) {
-  if (!isAbsolute(path)) throw new Error('Runtime cache path must be absolute.')
-  mkdirSync(path, { recursive: true, mode: 0o700 })
-  const stat = lstatSync(path)
-  if (
-    !stat.isDirectory() ||
-    realpathSync(path) !== path ||
-    stat.uid !== process.getuid?.() ||
-    stat.mode & 0o077
-  )
-    throw new Error('Runtime cache must be a canonical private directory owned by this user.')
+  ensurePrivateDirectory(path)
 }
 
 export function cacheDirectory(cache: string, integrity: string) {
@@ -101,6 +91,9 @@ export async function writePackageFiles(directory: string, files: ReadonlyMap<st
 
 export function publishDirectory(staging: string, destination: string) {
   renameSync(staging, destination)
+  // Windows cannot open directories for fsync; payload files were flushed above,
+  // and every startup revalidates the complete published closure.
+  if (process.platform === 'win32') return
   const fd = openSync(dirname(destination), 'r')
   try {
     fsyncSync(fd)

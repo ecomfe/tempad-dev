@@ -1,7 +1,7 @@
 import { CLIENT_HOOK_RETENTION_MS, type ClientHook } from '@tempad-dev/shared'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { connect } from 'node:net'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -11,6 +11,7 @@ import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
 import { writeDurableJson } from '../src/durable-json'
 import { EXPIRED_HOOK_RESULT, HOOK_RECEIPT_LIMIT } from '../src/hook-receipts'
+import { createPrivateTempDirectory } from '../src/runtime-platform'
 import { startHookGateway } from '../src/runtime-prototype/hooks'
 
 const cleanup: (() => unknown | Promise<unknown>)[] = []
@@ -26,7 +27,7 @@ const session = {
   busy: false
 }
 function directory() {
-  const root = mkdtempSync('/tmp/tp-hook-expiry-')
+  const root = createPrivateTempDirectory('tp-hook-expiry-')
   mkdirSync(join(root, 'run'), { mode: 0o700 })
   cleanup.push(() => rmSync(root, { force: true, recursive: true }))
   return root

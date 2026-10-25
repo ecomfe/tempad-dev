@@ -76,22 +76,6 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
   )
   if (RUNTIME_PROFILE.kind === 'checkout') return false
   if (args.includes('--recover-task-storage')) return false
-  if (process.platform === 'win32') {
-    const reason =
-      'Managed runtime updates are not supported on Windows; using the bundled runtime.'
-    if (intent.command === '--runtime-update-status') {
-      process.stdout.write(
-        JSON.stringify({ managed: false, automaticActivation: false, reason }) + '\n'
-      )
-      process.stdin.destroy()
-      endLogging()
-      return true
-    }
-    if (intent.command || intent.policy === 'pinned' || args.includes('--recover-runtime'))
-      throw new Error(reason)
-    if (intent.policy === 'stable') process.stderr.write(`TemPad: ${reason}\n`)
-    return false
-  }
   const root = join(resolveStateDir(), 'runtime')
   const path = join(root, 'prototype.json')
   if (!existsSync(path) && intent.command === '--runtime-update-status') {

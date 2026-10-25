@@ -1,6 +1,6 @@
-import { lstatSync, realpathSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 
+import { assertPrivatePath } from '../runtime-platform'
 import { ConfigSchema, readPrivateJson } from './state'
 
 export async function runRuntime(entry: string) {
@@ -26,11 +26,7 @@ export async function runRuntime(entry: string) {
     throw new Error(
       'Use runtime-prototype.mjs --root <private-isolated-directory> without checkout overrides.'
     )
-  if (process.platform === 'win32' || realpathSync(root) !== root)
-    throw new Error('An isolated canonical Unix root is required.')
-  const stat = lstatSync(root)
-  if (!stat.isDirectory() || stat.uid !== process.getuid?.() || stat.mode & 0o077)
-    throw new Error('The isolated prototype root must be owned by this user and private (0700).')
+  assertPrivatePath(root, 'directory')
   const saved = readPrivateJson(join(root, 'prototype.json'), ConfigSchema)
   for (const [key, directory] of Object.entries({
     TEMPAD_MCP_RUNTIME_DIR: saved?.directories?.runtime ?? join(root, 'run'),

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { rmSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -43,13 +43,14 @@ vi.mock('../src/stable-edge', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/stable-edge')>()),
   readRuntimeContract: fake.contract
 }))
+import { createPrivateTempDirectory } from '../src/runtime-platform'
 import { probeArtifact } from '../src/runtime-prototype/probe'
 
 let root: string
 let entry: string
 beforeEach(() => {
   vi.clearAllMocks()
-  root = mkdtempSync('/tmp/tp-artifact-')
+  root = createPrivateTempDirectory('tp-artifact-')
   entry = join(root, 'runtime.mjs')
   writeFileSync(entry, 'export {}')
   fake.version = '0.11.1'

@@ -13,9 +13,16 @@ export function safePath(path: string): boolean {
   return (
     path.length > 0 &&
     path.length <= 1024 &&
-    !/[\\:]/.test(path) &&
+    !/[\\:*?"<>|]/.test(path) &&
     [...path].every((character) => character.charCodeAt(0) >= 32 && character !== '\x7f') &&
-    path.split('/').every((part) => part.length > 0 && part !== '.' && part !== '..')
+    path
+      .split('/')
+      .every(
+        (part) =>
+          part.length > 0 &&
+          !/[. ]$/.test(part) &&
+          !/^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(part)
+      )
   )
 }
 
@@ -53,7 +60,7 @@ export const ManifestSchema = PolicySchema.extend({
   packageVersion: VersionSchema,
   entry: z.literal('dist/managed-runtime.mjs'),
   node: z.string().min(1),
-  platforms: z.array(z.enum(['darwin', 'linux'])).min(1),
+  platforms: z.array(z.enum(['darwin', 'linux', 'win32'])).min(1),
   wireHash: HashSchema,
   presentationHash: HashSchema,
   lockHash: HashSchema,
@@ -91,7 +98,7 @@ export function compatibilityReasons(active: RuntimeManifest, next: RuntimeManif
   } catch {
     reasons.push('Node engine policy requires a newer runtime checker')
   }
-  if (!next.platforms.includes(process.platform as 'darwin' | 'linux'))
+  if (!next.platforms.includes(process.platform as 'darwin' | 'linux' | 'win32'))
     reasons.push('Unsupported platform')
   if (active.wireHash !== next.wireHash) reasons.push('MCP contract changed; restart MCP')
   if (active.guidanceEpoch !== next.guidanceEpoch)

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { join, posix, relative, resolve } from 'node:path'
 import { z } from 'zod'
 
 import { readArchive, verifyIntegrity } from './archive'
@@ -41,7 +41,7 @@ export function verifyPackage(files: ReadonlyMap<string, Buffer>, expectedVersio
     throw new Error('Runtime package identity disagrees with its manifest.')
   if (
     !supportsNode(manifest.node) ||
-    !manifest.platforms.includes(process.platform as 'darwin' | 'linux')
+    !manifest.platforms.includes(process.platform as 'darwin' | 'linux' | 'win32')
   )
     throw new Error('This runtime cannot run on the current Node version/platform.')
   if (Object.keys(manifest.files).length !== files.size - 1 || manifest.files[MANIFEST_PATH])
@@ -75,7 +75,7 @@ export function verifyPackage(files: ReadonlyMap<string, Buffer>, expectedVersio
       if (Object.hasOwn(dependencyPackage.optionalDependencies ?? {}, name)) continue
       if (!/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i.test(name))
         throw new Error('Invalid dependency name.')
-      let directory = dirname(path)
+      let directory = posix.dirname(path)
       let found = false
       while (true) {
         const candidate =
@@ -87,7 +87,7 @@ export function verifyPackage(files: ReadonlyMap<string, Buffer>, expectedVersio
           break
         }
         if (directory === '.') break
-        directory = dirname(directory)
+        directory = posix.dirname(directory)
       }
       if (!found) throw new Error(`Unbundled runtime dependency ${name} from ${path}.`)
     }

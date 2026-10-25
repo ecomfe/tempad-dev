@@ -1,19 +1,10 @@
 import { createHash } from 'node:crypto'
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync
-} from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { describe, expect, it, vi } from 'vitest'
 
+import { createPrivateTempDirectory } from '../src/runtime-platform'
 import { readArchive, verifyIntegrity } from '../src/runtime-update/archive'
 import { retainBundledPackage, verifyReleaseArtifact } from '../src/runtime-update/artifact'
 import {
@@ -72,7 +63,7 @@ function fixture() {
     packageVersion: '0.12.0',
     entry: 'dist/managed-runtime.mjs',
     node: '^22 || ^24 || >=26',
-    platforms: ['darwin', 'linux'],
+    platforms: ['darwin', 'linux', 'win32'],
     guidanceEpoch: 1,
     guidanceReview: {
       version: '0.12.0',
@@ -102,12 +93,24 @@ describe('release archives', () => {
     expect(() => verifyIntegrity(bytes, baselineIntegrity)).toThrow('integrity')
     expect(() => readArchive(bytes.subarray(0, bytes.length - 6))).toThrow()
   })
-  it.each(['../escape', 'a/../../escape', '/absolute', 'a\\b', 'C:/outside', 'a//b', 'a/./b'])(
-    'rejects path %s',
-    (path) => {
-      expect(() => readArchive(tar([{ path: `package/${path}`, data: 'x' }]))).toThrow()
-    }
-  )
+  it.each([
+    '../escape',
+    'a/../../escape',
+    '/absolute',
+    'a\\b',
+    'C:/outside',
+    'a//b',
+    'a/./b',
+    'a/NUL.txt',
+    'COM1',
+    'lpt².txt',
+    'a/file.',
+    'a/file ',
+    'a/file:stream',
+    'a/*.mjs'
+  ])('rejects path %s', (path) => {
+    expect(() => readArchive(tar([{ path: `package/${path}`, data: 'x' }]))).toThrow()
+  })
   it.each(['1', '2', '3', '4', '6', 'g'])('rejects non-file tar type %s', (type) => {
     expect(() => readArchive(tar([{ path: 'package/link', type }]))).toThrow()
   })
@@ -162,6 +165,24 @@ describe('release manifest and dependency closure', () => {
     files.set('dist/runtime-manifest.json', Buffer.from(JSON.stringify(manifest)))
     expect(() => verifyPackage(files, '0.12.0')).toThrow('Unbundled runtime dependency absent')
   })
+  it('resolves nested archive dependencies with portable slash-separated keys', () => {
+    const { files, manifest } = fixture()
+    files.set(
+      'node_modules/test/package.json',
+      Buffer.from(JSON.stringify({ dependencies: { nested: '1.0.0' } }))
+    )
+    files.set(
+      'node_modules/test/node_modules/nested/package.json',
+      Buffer.from(JSON.stringify({ dependencies: { test: '1.0.0' } }))
+    )
+    manifest.files = Object.fromEntries(
+      [...files]
+        .filter(([path]) => path !== 'dist/runtime-manifest.json')
+        .map(([path, bytes]) => [path, sha256(bytes)])
+    )
+    files.set('dist/runtime-manifest.json', Buffer.from(JSON.stringify(manifest)))
+    expect(verifyPackage(files, '0.12.0')).toEqual(manifest)
+  })
   it('allows a presentation correction but blocks reverted text across epochs', () => {
     const { manifest: first } = fixture()
     const third = {
@@ -211,13 +232,13 @@ describe('release manifest and dependency closure', () => {
 
 describe('private release cache', () => {
   it('retains an immutable bootstrap closure independently of npm cache cleanup', async () => {
-    const root = realpathSync(mkdtempSync(join(tmpdir(), 'tp-cache-')))
+    const root = createPrivateTempDirectory('tp-cache-')
     try {
       const source = join(root, 'source')
       const { files } = fixture()
       for (const [path, bytes] of files) {
         const target = join(source, path)
-        mkdirSync(target.slice(0, target.lastIndexOf('/')), { recursive: true, mode: 0o700 })
+        mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
         writeFileSync(target, bytes)
       }
       const cache = join(root, 'cache')
@@ -227,7 +248,7 @@ describe('private release cache', () => {
       expect(verifyReleaseArtifact(artifact).packageVersion).toBe('0.12.0')
       const unused = join(cache, 'b'.repeat(64))
       mkdirSync(unused)
-      symlinkSync(root, join(cache, 'c'.repeat(64)))
+      symlinkSync(root, join(cache, 'c'.repeat(64)), 'junction')
       pruneCache(cache, [artifact])
       expect(existsSync(unused)).toBe(false)
       expect(existsSync(artifact.entry)).toBe(true)
@@ -239,7 +260,7 @@ describe('private release cache', () => {
     }
   })
   it('publishes a complete package and rechecks corrupted cache bytes', async () => {
-    const root = realpathSync(mkdtempSync(join(tmpdir(), 'tp-cache-')))
+    const root = createPrivateTempDirectory('tp-cache-')
     try {
       const { files } = fixture()
       const archive = tar(
@@ -259,10 +280,10 @@ describe('private release cache', () => {
     }
   })
   it('never follows a cached package symlink', () => {
-    const root = realpathSync(mkdtempSync(join(tmpdir(), 'tp-cache-')))
+    const root = createPrivateTempDirectory('tp-cache-')
     try {
-      symlinkSync(root, cacheDirectory(root, baselineIntegrity))
-      expect(() => verifyCached(root, '0.12.0', baselineIntegrity)).toThrow('canonical private')
+      symlinkSync(root, cacheDirectory(root, baselineIntegrity), 'junction')
+      expect(() => verifyCached(root, '0.12.0', baselineIntegrity)).toThrow('untrusted runtime')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

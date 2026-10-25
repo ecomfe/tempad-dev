@@ -2,13 +2,12 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { realpathSync, rmSync } from 'node:fs'
 import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
 
 import { hubEnvironment } from '../process-environment'
+import { createPrivateTempDirectory, runtimeEndpoint } from '../runtime-platform'
 import { contractHashes, readRuntimeContract } from '../stable-edge'
 import { connectSocket, fingerprintBundle } from './processes'
 import { ControlPeer, SocketTransport } from './protocol'
@@ -18,7 +17,7 @@ import { ArtifactSchema } from './state'
 export async function probeArtifact(entry: string) {
   entry = realpathSync(entry)
   const bundle = fingerprintBundle(entry)
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'tp-probe-')))
+  const root = createPrivateTempDirectory('tp-probe-')
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [entry, '--root', root],
@@ -44,7 +43,9 @@ export async function probeArtifact(entry: string) {
   let failure: unknown
   try {
     await client.connect(transport, { timeout: 15_000 })
-    await control.connect(new SocketTransport(await connectSocket(join(root, 'supervisor.sock'))))
+    await control.connect(
+      new SocketTransport(await connectSocket(runtimeEndpoint(root, 'supervisor.sock')))
+    )
     const state = await control.request(
       { method: 'tempad/runtime-status' },
       ResultSchema.extend({

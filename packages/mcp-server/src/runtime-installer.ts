@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
+
+import { createPrivateTempDirectory } from './runtime-platform'
 
 const [
   flag,
@@ -19,7 +20,6 @@ const [
 ] = process.argv.slice(2)
 if (
   process.env.TEMPAD_MCP_DEV_CHECKOUT ||
-  process.platform === 'win32' ||
   flag !== '--cache' ||
   !cache ||
   !isAbsolute(cache) ||
@@ -37,7 +37,7 @@ if (
   throw new Error(
     'Release acquisition requires an explicit private release cache and version; checkout acquisition is forbidden.'
   )
-const isolation = realpathSync(mkdtempSync(join(tmpdir(), 'tp-acquire-')))
+const isolation = createPrivateTempDirectory('tp-acquire-')
 for (const [key, directory] of Object.entries({
   TEMPAD_MCP_RUNTIME_DIR: 'run',
   TEMPAD_MCP_STATE_DIR: 'state',

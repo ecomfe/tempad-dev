@@ -1,14 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import lockfile from 'proper-lockfile'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -25,6 +16,7 @@ vi.mock('../src/runtime-prototype/processes', async (original) => ({
 }))
 
 import { writeDurableJson } from '../src/durable-json'
+import { createPrivateTempDirectory } from '../src/runtime-platform'
 import { fingerprintBundle, withStartupLock } from '../src/runtime-prototype/processes'
 import {
   ConfigSchema,
@@ -67,7 +59,7 @@ function release(version: string, name: string, overrides: Partial<RuntimeManife
     extension: { protocols: [13, 15], legacy: true },
     hookProtocol: 2,
     node: '^22 || ^24 || >=26',
-    platforms: ['darwin', 'linux'],
+    platforms: ['darwin', 'linux', 'win32'],
     wireHash: 'b'.repeat(64),
     presentationHash: 'c'.repeat(64),
     lockHash: 'd'.repeat(64),
@@ -124,7 +116,7 @@ function intent() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'tp-cold-')))
+  root = createPrivateTempDirectory('tp-cold-')
   const control = release('0.12.0', 'a')
   const active = release('0.12.1', 'b')
   candidate = release('0.12.2', 'c', {

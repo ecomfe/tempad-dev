@@ -38,7 +38,7 @@ import {
   type TempadMcpErrorCode
 } from '@tempad-dev/shared'
 import { randomUUID } from 'node:crypto'
-import { existsSync, rmSync, chmodSync, mkdirSync, realpathSync } from 'node:fs'
+import { existsSync, rmSync, mkdirSync, realpathSync } from 'node:fs'
 import { connect, createServer, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -76,6 +76,7 @@ import {
   type HubRuntimeIdentity
 } from './runtime-identity'
 import { HubControl } from './runtime-prototype/hub-control'
+import { listenPrivate } from './runtime-prototype/processes'
 import {
   IdSchema,
   RECOVER_MS,
@@ -1729,43 +1730,9 @@ export async function startHub(
     scheduleAssetCleanup()
   }
 
-  function listenConsumerSocket(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const cleanup = () => {
-        netServer.off('error', onError)
-        netServer.off('listening', onListening)
-      }
-      const onError = (err: Error) => {
-        cleanup()
-        reject(err)
-      }
-      const onListening = () => {
-        cleanup()
-        try {
-          if (process.platform !== 'win32') chmodSync(SOCK_PATH, 0o600)
-        } catch (err) {
-          netServer.close()
-          reject(err)
-          return
-        }
-        log.info({ sock: SOCK_PATH }, 'Hub socket ready.')
-        resolve()
-      }
-      netServer.once('error', onError)
-      netServer.once('listening', onListening)
-      if (process.platform === 'win32') {
-        netServer.listen(SOCK_PATH)
-        return
-      }
-      // Unix bind creates the inode synchronously, before the listening event.
-      // It must already be private when another process first checks the path.
-      const previousMask = process.umask(0o177)
-      try {
-        netServer.listen(SOCK_PATH)
-      } finally {
-        process.umask(previousMask)
-      }
-    })
+  async function listenConsumerSocket(): Promise<void> {
+    await listenPrivate(netServer, SOCK_PATH)
+    log.info({ sock: SOCK_PATH }, 'Hub socket ready.')
   }
 
   async function startWebSocketServer(): Promise<{ server: WebSocketServer; port: number }> {

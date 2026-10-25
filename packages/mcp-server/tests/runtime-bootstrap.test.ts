@@ -71,7 +71,7 @@ const manifest = {
   packageVersion: '0.12.0',
   entry: 'dist/managed-runtime.mjs',
   node: '^22 || ^24 || >=26',
-  platforms: ['darwin', 'linux'],
+  platforms: ['darwin', 'linux', 'win32'],
   wireHash: 'b'.repeat(64),
   presentationHash: 'c'.repeat(64),
   lockHash: 'd'.repeat(64),
@@ -129,24 +129,6 @@ it('automatically enrolls verified releases but never guesses an unverified loca
   expect(fake.edge).toHaveBeenCalledWith(
     expect.anything(),
     expect.objectContaining({ policy: 'stable' })
-  )
-})
-
-it('keeps standard Windows launches usable without creating an update owner', async () => {
-  vi.stubGlobal('process', { ...process, platform: 'win32' })
-  expect(await maybeManagedRuntime([], packageDir)).toBe(false)
-  expect(await maybeManagedRuntime(['--runtime-updates=stable'], packageDir)).toBe(false)
-  expect(await maybeManagedRuntime(['--runtime-updates=off'], packageDir)).toBe(false)
-  expect(await maybeManagedRuntime(['--runtime-update-status'], packageDir)).toBe(true)
-  expect(process.stdout.write).toHaveBeenCalledWith(expect.stringContaining('"managed":false'))
-  expect(fake.connect).not.toHaveBeenCalled()
-  expect(fake.retain).not.toHaveBeenCalled()
-  expect(existsSync(configPath)).toBe(false)
-  await expect(maybeManagedRuntime(['--check-runtime-update'], packageDir)).rejects.toThrow(
-    'Windows'
-  )
-  await expect(maybeManagedRuntime(['--runtime-updates=pinned'], packageDir)).rejects.toThrow(
-    'Windows'
   )
 })
 
