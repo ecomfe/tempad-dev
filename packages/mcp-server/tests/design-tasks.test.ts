@@ -250,6 +250,23 @@ describe('design task leases', () => {
     expect(() => f.tasks.owned(task.taskId, 'different-owner')).toThrow('another MCP caller')
   })
 
+  it.each(['active', 'stopping'] as const)(
+    'does not transfer a %s task to another transport for the same conversation',
+    (status) => {
+      const f = fixture()
+      const task = f.begin()
+      const client = { kind: 'codex' as const, name: 'Codex', sessionId: 'thread-a' }
+      task.client = client
+      if (status === 'stopping') {
+        f.call('pending-write', task.taskId)
+        f.tasks.stop(task.taskId, 'cancelled')
+      }
+      f.tasks.attachClient('different-owner', client)
+      expect(f.tasks.owned(task.taskId, 'caller-a').task.status).toBe(status)
+      expect(() => f.tasks.owned(task.taskId, 'different-owner')).toThrow('another MCP caller')
+    }
+  )
+
   it.each(['paused', 'completed'] as const)(
     'resumes the same %s task with a new lease and requires a fresh canvas read',
     (status) => {

@@ -285,11 +285,8 @@ export class DesignTasks {
     for (const record of this.records.values()) {
       const verified = getVerifiedTaskClient(record)
       if (verified?.kind !== client.kind || verified.sessionId !== client.sessionId) continue
-      if (
-        !RESUMABLE_DESIGN_TASK_STATUSES.includes(record.task.status) &&
-        record.ownerId !== ownerId
-      )
-        continue
+      // Cancelled history remains readable; only an in-flight lease keeps its transport owner.
+      if (RUNNING_STATUSES.includes(record.task.status) && record.ownerId !== ownerId) continue
       if (
         nativeFeedback(client) &&
         record.hostContext &&

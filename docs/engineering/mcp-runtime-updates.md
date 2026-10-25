@@ -1,6 +1,6 @@
 # Updating a running MCP runtime
 
-Status: Phases 0–3 are implemented; Phase 4 native acceptance and automatic activation remain pending.
+Status: Phases 0–3 are implemented. Codex native switching is verified; Claude native acceptance and automatic activation remain pending.
 The default CLI keeps the existing bridge until explicit enrollment. Acquisition is opt-in and
 activation always requires confirmation. Design baseline: `74ed70c9`.
 
@@ -808,6 +808,13 @@ Automatic activation remains disabled. Use the isolated
 [native fixture](../../TESTING.md#native-runtime-switch-acceptance) to exercise local packaged
 candidates through installed hosts; changing the registry origin for this probe does not
 establish official-registry provenance or compatibility with every host version.
+
+Codex App acceptance covers Queue/Steer before and after an explicit Hub switch, resumed
+canvas reads/writes and screenshots, native Stop interruption, and cancelled-task read-back
+after both switching and crash rollback. The existing MCP edge processes remain alive.
+Claude installation, initialization and `/clear` hook delivery have been exercised, but its
+model-driven tool calls and Stop across a switch still need native acceptance. These results
+do not enable automatic activation.
 
 - Run the full preceding matrix and frozen released-extension compatibility checks against
   the packaged candidate. Measure switch latency and deferral rates before promising a target.
