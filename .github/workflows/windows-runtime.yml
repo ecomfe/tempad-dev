@@ -37,18 +37,26 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Record runtime environment
         env:
           EXPECTED_NODE: ${{ matrix.node }}
         run: |
           New-Item -ItemType Directory runtime-ci-logs | Out-Null
           node -p 'JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,execPath:process.execPath})' | Tee-Object runtime-ci-logs/environment.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm --version | Tee-Object -Append runtime-ci-logs/environment.log
-          pnpm exec node -e 'if (process.platform !== "win32" || process.versions.node.split(".")[0] !== process.env.EXPECTED_NODE.split(".")[0]) throw new Error("Unexpected test runtime"); console.log(process.version)' | Tee-Object -Append runtime-ci-logs/environment.log
-          exit $LASTEXITCODE
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $runtimePlatform = pnpm exec node -p process.platform
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $runtimeVersion = pnpm exec node -p process.versions.node
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "pnpm runtime: $runtimePlatform $runtimeVersion" | Tee-Object -Append runtime-ci-logs/environment.log
+          if ($runtimePlatform -ne 'win32' -or $runtimeVersion.Split('.')[0] -ne $env:EXPECTED_NODE.Split('.')[0]) {
+            throw 'Unexpected test runtime'
+          }
 
       - name: Build runtime packages
         run: |
