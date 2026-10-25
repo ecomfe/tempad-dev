@@ -7,7 +7,7 @@ import {
 import { randomUUID } from 'node:crypto'
 import { EventEmitter, once } from 'node:events'
 import { mkdir, writeFile, rm } from 'node:fs/promises'
-import { createServer, type Socket } from 'node:net'
+import { connect, createServer, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -50,23 +50,33 @@ import { PACKAGE_VERSION } from '../src/shared'
 const platformModule = '../scripts/runtime-test-platform.mjs'
 const { fixtureRoot } = await import(platformModule)
 
-async function endpointClosed(path: string) {
-  try {
-    const socket = await connectSocket(path)
-    socket.destroy()
-    return false
-  } catch (error) {
-    if (['ENOENT', 'ECONNREFUSED'].includes((error as NodeJS.ErrnoException).code ?? ''))
-      return true
-    throw error
-  }
+function endpointClosed(path: string) {
+  return new Promise<boolean>((resolve, reject) => {
+    const socket = connect(path)
+    let closed = false
+    let failure: Error | undefined
+    socket.once('connect', () => socket.destroy())
+    socket.once('error', (error: NodeJS.ErrnoException) => {
+      if (['ENOENT', 'ECONNREFUSED'].includes(error.code ?? '')) closed = true
+      else if (error.code !== 'EBUSY') failure = error
+    })
+    socket.once('close', () => (failure ? reject(failure) : resolve(closed)))
+  })
 }
 
 const cleanups: (() => Promise<unknown>)[] = []
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+  const failures: unknown[] = []
+  for (const cleanup of cleanups.splice(0).reverse()) {
+    try {
+      await cleanup()
+    } catch (error) {
+      failures.push(error)
+    }
+  }
   vi.restoreAllMocks()
   vi.clearAllMocks()
+  if (failures.length) throw new AggregateError(failures, 'Runtime fixture cleanup failed.')
 })
 
 async function fixture(
@@ -130,6 +140,15 @@ async function fixture(
   let refuseStop = false
   let waitForRuntime = true
   const hubs: { pid: number; stop: (exiting?: boolean) => Promise<void>; artifact: Artifact }[] = []
+  const launches = new Set<Promise<void>>()
+  const launchFailures: unknown[] = []
+  let shutdown: (signal: NodeJS.Signals) => void = () => {}
+  cleanups.push(async () => {
+    shutdown('SIGTERM')
+    while (launches.size) await Promise.all(launches)
+    await Promise.all(hubs.map((hub) => hub.stop()))
+    expect(launchFailures).toEqual([])
+  })
   async function start(artifact: Artifact) {
     const pid = nextPid++
     const id = randomUUID()
@@ -141,14 +160,18 @@ async function fixture(
       JSON.stringify(createHubRuntimeIdentity(artifact.entry, artifact.version, { processId: pid }))
     )
     const sockets = new Set<Socket>()
-    const stop = async (socketClosesFirst = false) => {
-      live.delete(pid)
-      if (socketClosesFirst) exiting.add(pid)
-      for (const socket of sockets) socket.destroy()
-      await new Promise<void>((resolve) => server.close(() => resolve()))
-    }
+    let stopping: Promise<void> | undefined
+    const stop = (socketClosesFirst = false) =>
+      (stopping ??= (async () => {
+        for (const socket of sockets) socket.destroy()
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+        // A real exited process cannot still own its listening pipe.
+        live.delete(pid)
+        if (socketClosesFirst) exiting.add(pid)
+      })())
     const server = createServer((socket) => {
       sockets.add(socket)
+      socket.once('close', () => sockets.delete(socket))
       const peer = new ControlPeer()
       peer.onerror = () => {}
       peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-acquire') }), () => ({
@@ -196,15 +219,22 @@ async function fixture(
       peer.fallbackRequestHandler = async () => ({})
       void peer.connect(new SocketTransport(socket))
     })
-    await listenPrivate(server, hubSocketPath(root))
+    try {
+      await listenPrivate(server, hubSocketPath(root))
+    } catch (error) {
+      await stop()
+      throw error
+    }
     hubs.push({ pid, stop, artifact })
-    cleanups.push(async () => {
-      if (live.has(pid)) await stop()
-    })
   }
   fake.launch.mockImplementation((_config, role, value) => {
     if (role !== 'hub') throw new Error('Unexpected supervisor spawn')
-    void start(value)
+    const pending = start(value)
+      .catch((error: unknown) => {
+        launchFailures.push(error)
+      })
+      .finally(() => launches.delete(pending))
+    launches.add(pending)
     return Object.assign(new EventEmitter(), { unref: () => {} })
   })
   fake.probe.mockImplementation(async (entry) => ({
@@ -214,15 +244,16 @@ async function fixture(
   await start(a)
   const stops = new Set(process.listeners('SIGTERM'))
   await startSupervisor(config)
-  const shutdown = process.listeners('SIGTERM').find((listener) => !stops.has(listener))!
+  shutdown = process.listeners('SIGTERM').find((listener) => !stops.has(listener))!
   const control = new ControlPeer()
   const supervisorPath = supervisorSocketPath(config)
   await control.connect(new SocketTransport(await connectSocket(supervisorPath)))
   cleanups.push(async () => {
+    shutdown('SIGTERM')
     await control.close()
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    for (const hub of hubs) if (live.has(hub.pid)) await hub.stop()
-    await vi.waitFor(async () => expect(await endpointClosed(supervisorPath)).toBe(true))
+    await vi.waitFor(async () => expect(await endpointClosed(supervisorPath)).toBe(true), {
+      timeout: 5000
+    })
   })
   const edge = new ControlPeer()
   await edge.connect(new SocketTransport(await connectSocket(supervisorPath)))
@@ -496,13 +527,15 @@ it.each([false, true])(
     expect(readJournal(f.root)).toMatchObject({ phase: 'committed', active: f.b, previous: f.a })
     await writeFile(join(f.root, 'state-evidence'), 'Stop written by B')
     await f.hubs.at(-1)!.stop(socketClosesFirst)
-    await vi.waitFor(async () =>
-      expect(await f.status()).toMatchObject({
-        phase: 'committed',
-        active: f.a,
-        gated: false,
-        controlComponents: currentControls
-      })
+    await vi.waitFor(
+      async () =>
+        expect(await f.status()).toMatchObject({
+          phase: 'committed',
+          active: f.a,
+          gated: false,
+          controlComponents: currentControls
+        }),
+      { timeout: 5000 }
     )
     expect(readJournal(f.root)?.failedBundles).toContain(f.b.bundle)
     expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b, f.a])

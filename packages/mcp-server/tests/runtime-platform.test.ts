@@ -83,6 +83,31 @@ describe.skipIf(process.platform === 'win32')('Unix storage', () => {
 })
 
 describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
+  it('verifies storage in an isolated child environment before starting a runtime', async () => {
+    const root = fixture()
+    const { getDefaultEnvironment } = await import('@modelcontextprotocol/sdk/client/stdio.js')
+    const helperPath = '../scripts/runtime-test-platform.mjs'
+    const { fixtureEnvironment } = await import(helperPath)
+    const home = join(root, 'home')
+    ensurePrivateDirectory(home)
+    const source = `
+      process.stderr.write('permission probe: started\\n');
+      const { assertPrivatePath } = await import(${JSON.stringify(new URL('../src/runtime-platform.ts', import.meta.url).href)});
+      process.stderr.write('permission probe: imported\\n');
+      assertPrivatePath(process.argv[1], 'directory');
+      process.stdout.write('verified');
+    `
+    expect(
+      execFileSync(process.execPath, ['--input-type=module', '-e', source, root], {
+        env: { ...getDefaultEnvironment(), ...fixtureEnvironment(home, root) },
+        encoding: 'utf8',
+        timeout: 25_000,
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe']
+      })
+    ).toBe('verified')
+  }, 30_000)
+
   function powershell(source: string, input: unknown) {
     return execFileSync(
       join(process.env.SystemRoot!, 'System32/WindowsPowerShell/v1.0/powershell.exe'),

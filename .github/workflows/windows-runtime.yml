@@ -23,6 +23,7 @@ jobs:
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       TEMPAD_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/runtime-ci-logs/fixtures
+      pnpm_config_cache_dir: ${{ runner.temp }}/tempad-pnpm-cache
     steps:
       - name: Preserve reviewed source bytes
         run: git config --global core.autocrlf false
@@ -60,6 +61,12 @@ jobs:
           if ($runtimePlatform -ne 'win32' -or $runtimeVersion.Split('.')[0] -ne $env:EXPECTED_NODE.Split('.')[0]) {
             throw 'Unexpected test runtime'
           }
+          $metadataCache = pnpm config get cache-dir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "pnpm metadata cache: $metadataCache" | Tee-Object -Append runtime-ci-logs/environment.log
+          $metadataFiles = @(Get-ChildItem -LiteralPath $metadataCache -Recurse -File -Filter '*.jsonl' | Where-Object { $_.DirectoryName -match '[\\/]metadata-full[\\/]' })
+          "Full metadata files: $($metadataFiles.Count)" | Tee-Object -Append runtime-ci-logs/environment.log
+          $metadataFiles | Where-Object { $_.Name -in @('body-parser.jsonl', 'es-object-atoms.jsonl') } | ForEach-Object { $_.FullName } | Tee-Object -Append runtime-ci-logs/environment.log
 
       - name: Build runtime packages
         run: |
