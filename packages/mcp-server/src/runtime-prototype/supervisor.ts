@@ -10,10 +10,14 @@ import { parseHubRuntimeIdentity } from '../runtime-identity'
 import { releaseManifest, verifyReleaseArtifact } from '../runtime-update/artifact'
 import { pruneCache } from '../runtime-update/cache'
 import { acquireRelease, ReleaseUpdates } from '../runtime-update/manager'
-import { coldCompatibilityReasons, compatibilityReasons } from '../runtime-update/manifest'
+import {
+  automaticCompatibilityReasons,
+  coldCompatibilityReasons,
+  compatibilityReasons
+} from '../runtime-update/manifest'
 import { ensureDir, ensureFile, HUB_LOCK_STALE_MS, PACKAGE_VERSION } from '../shared'
 import { startHookGateway } from './hooks'
-import { LeaseSchema } from './hub-control'
+import { AUTOMATIC_IDLE_MS, LeaseSchema } from './hub-control'
 import { probeArtifact } from './probe'
 import {
   connectSocket,
@@ -30,6 +34,7 @@ import {
 import {
   ControlPeer,
   CONTROL_VERSIONS,
+  isRuntimeUnavailable,
   negotiate,
   RegistrationSchema,
   RENEW_MS,
@@ -46,13 +51,17 @@ const InspectionSchema = ResultSchema.extend({
   blockers: z.array(z.string()),
   version: z.string(),
   gated: z.boolean(),
-  handoffVersion: z.literal(1)
+  handoffVersion: z.literal(1),
+  autoBlockers: z.array(z.string()).optional(),
+  idleForMs: z.number().nonnegative().optional()
 })
+const AUTOMATIC_RETRY_MS = 60_000
 type Lease = z.infer<typeof LeaseSchema>
 type Edge = {
   registration: Registration
   ready: boolean
   supportsReplacement?: boolean
+  waitForRuntime?: boolean
   error?: string
 }
 
@@ -92,6 +101,9 @@ export async function startSupervisor(config: PrototypeConfig) {
   let closing = false
   let transitioning = false
   let renewing = false
+  let automaticChecking = false
+  let automaticRetryAt = 0
+  let automaticError: string | undefined
   let hookFault: string | undefined
   let timer: ReturnType<typeof setInterval> | undefined
   const lifetime = new AbortController()
@@ -143,10 +155,11 @@ export async function startSupervisor(config: PrototypeConfig) {
       })
     : undefined
 
-  function activationBlockers(candidate: Artifact) {
+  function activationBlockers(candidate: Artifact, automatic = false) {
     let reasons: string[]
     try {
-      reasons = compatibilityReasons(releaseManifest(journal.active), releaseManifest(candidate))
+      const compare = automatic ? automaticCompatibilityReasons : compatibilityReasons
+      reasons = compare(releaseManifest(journal.active), releaseManifest(candidate))
     } catch (error) {
       return [`Retained release verification failed: ${String(error)}`]
     }
@@ -161,6 +174,66 @@ export async function startSupervisor(config: PrototypeConfig) {
     if ([...edges.values()].some((edge) => !edge.supportsReplacement))
       reasons.push('An attached MCP client has not finished initialization')
     return reasons
+  }
+
+  function automaticEnabled() {
+    return (
+      !!updates &&
+      !updates.status.disabled &&
+      edges.size > 0 &&
+      [...edges.values()].every(
+        (edge) =>
+          edge.registration.updates?.policy === 'stable' && edge.waitForRuntime && edge.ready
+      )
+    )
+  }
+
+  function automaticBlockers(state: z.infer<typeof InspectionSchema>) {
+    const reasons = [...state.blockers]
+    if (!automaticEnabled())
+      reasons.push('All connected clients must opt in and support waiting through runtime switches')
+    if (hookFault || hooks?.pending) reasons.push('Lifecycle events are awaiting durable delivery')
+    if (!state.autoBlockers) reasons.push('Hub cannot verify automatic switch readiness')
+    else reasons.push(...state.autoBlockers)
+    if (state.idleForMs === undefined || state.idleForMs < AUTOMATIC_IDLE_MS)
+      reasons.push('Waiting for five seconds without active work')
+    return reasons
+  }
+
+  // Reuse the existing lease heartbeat; do no artifact or readiness work without
+  // a staged candidate. A busy Hub is never gated while waiting for an idle gap.
+  async function maybeActivateAutomatically() {
+    if (
+      automaticChecking ||
+      closing ||
+      transitioning ||
+      !automaticEnabled() ||
+      updates?.status.checking ||
+      journal.phase !== 'committed' ||
+      performance.now() < automaticRetryAt
+    )
+      return
+    const candidate = updates?.status.candidate
+    if (
+      !candidate ||
+      !newerVersion(candidate.version, journal.active.version) ||
+      journal.failedBundles.includes(candidate.bundle)
+    )
+      return
+    automaticChecking = true
+    try {
+      if (activationBlockers(candidate, true).length) return
+      const state = await inspect()
+      if (state.gated || automaticBlockers(state).length) return
+      automaticRetryAt = performance.now() + AUTOMATIC_RETRY_MS
+      const result = await update(candidate.entry, candidate, true)
+      automaticError = result.status === 'activated' ? undefined : result.reason
+    } catch (error) {
+      automaticRetryAt = performance.now() + AUTOMATIC_RETRY_MS
+      automaticError = String(error).slice(0, 2000)
+    } finally {
+      automaticChecking = false
+    }
   }
 
   function persist(next: Journal) {
@@ -332,6 +405,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         .catch(() => connection.close())
         .finally(() => {
           renewing = false
+          void maybeActivateAutomatically()
         })
     }, RENEW_MS)
   }
@@ -377,8 +451,14 @@ export async function startSupervisor(config: PrototypeConfig) {
       await pause(25)
     }
   }
-  async function drain() {
+  async function drain(automatic = false) {
     const state = await gate(true)
+    if (automatic) {
+      const reasons = automaticBlockers(state)
+      if (!state.drained || reasons.length)
+        throw new Error(`Automatic runtime switch deferred: ${reasons.join(', ')}.`)
+      return
+    }
     const deadline = Math.min(Date.now() + 330_000, state.deadline)
     let current = state
     while (!current.drained) {
@@ -391,9 +471,16 @@ export async function startSupervisor(config: PrototypeConfig) {
       current = await inspect()
     }
   }
-  async function stopHub() {
+  async function stopHub(automatic = false) {
     const current = lease!
-    await requireHub().request({ method: 'tempad/runtime-stop' }, ResultSchema, { timeout: 5000 })
+    await requireHub().request(
+      {
+        method: 'tempad/runtime-stop',
+        ...(automatic ? { params: { automatic: true } } : {})
+      },
+      ResultSchema,
+      { timeout: 5000 }
+    )
     await waitForExit(current.hubPid)
     hub = undefined
     await waitForWriters()
@@ -424,19 +511,19 @@ export async function startSupervisor(config: PrototypeConfig) {
     }
   }
 
-  async function activate(candidate: Artifact) {
+  async function activate(candidate: Artifact, automatic = false) {
     if (candidate.release) {
-      const blockers = activationBlockers(candidate)
+      const blockers = activationBlockers(candidate, automatic)
       if (blockers.length) throw new Error(blockers.join('; '))
     }
-    await drain()
+    await drain(automatic)
     persist({
       ...journal,
       phase: 'preparing',
       candidate,
       oldHub: { id: lease!.hubId, pid: lease!.hubPid }
     })
-    await stopHub()
+    await stopHub(automatic)
     persist({ ...journal, phase: 'old-stopped' })
     await connectHub(candidate)
     persist({ ...journal, phase: 'candidate-ready' })
@@ -566,7 +653,7 @@ export async function startSupervisor(config: PrototypeConfig) {
     }
   }
 
-  async function update(entry: string, released?: Artifact) {
+  async function update(entry: string, released?: Artifact, automatic = false) {
     if (transitioning) throw unavailable('Another runtime transition is in progress.')
     if (updates?.status.checking)
       throw unavailable('Wait for release acquisition to finish before activating.')
@@ -604,9 +691,19 @@ export async function startSupervisor(config: PrototypeConfig) {
       }
       persist({ ...journal, candidate: candidate.artifact, failure: undefined })
       try {
-        await activate(candidate.artifact)
+        await activate(candidate.artifact, automatic)
       } catch (error) {
         journal = readJournal(config.root) ?? journal
+        // A definite pre-shutdown refusal leaves the original writer intact.
+        // Reopen it instead of draining newly arrived work for a rollback.
+        if (
+          automatic &&
+          journal.phase === 'preparing' &&
+          isRuntimeUnavailable(error) &&
+          journal.oldHub?.id === lease?.hubId &&
+          hub?.transport
+        )
+          persist({ ...journal, phase: 'committed', oldHub: undefined })
         if (journal.phase === 'committed' && journal.candidate) {
           persist({ ...journal, failure: String(error) })
           await gate(false)
@@ -665,7 +762,11 @@ export async function startSupervisor(config: PrototypeConfig) {
     peer.setRequestHandler(
       z.object({
         method: z.literal('tempad/runtime-ready'),
-        params: z.object({ hubId: z.uuid(), error: z.string().optional() })
+        params: z.object({
+          hubId: z.uuid(),
+          error: z.string().optional(),
+          waitForRuntime: z.literal(true).optional()
+        })
       }),
       ({ params }) => {
         const edge = edges.get(peer)
@@ -674,6 +775,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         edge.error = params.error
         edge.ready = !params.error
         edge.supportsReplacement = true
+        edge.waitForRuntime = params.waitForRuntime === true
         return {}
       }
     )
@@ -684,10 +786,9 @@ export async function startSupervisor(config: PrototypeConfig) {
     })
     peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-status') }), async () => {
       clearTimeout(timeout)
+      const state = hub ? await inspect().catch(() => undefined) : undefined
       return {
-        ...(hub
-          ? await inspect().catch((error) => ({ gated: true, unavailable: String(error) }))
-          : { gated: true, unavailable: 'Hub recovery has not completed.' }),
+        ...(state ?? { gated: true, unavailable: 'Hub recovery has not completed.' }),
         ...lease,
         supervisorPid: process.pid,
         phase: journal.phase,
@@ -708,6 +809,14 @@ export async function startSupervisor(config: PrototypeConfig) {
         updates: updates
           ? {
               ...updates.status,
+              automaticActivation: automaticEnabled(),
+              automaticError,
+              automaticPendingReasons: updates.status.candidate
+                ? [
+                    ...activationBlockers(updates.status.candidate, true),
+                    ...(state ? automaticBlockers(state) : ['Hub recovery has not completed.'])
+                  ]
+                : [],
               pendingReasons: updates.status.candidate
                 ? activationBlockers(updates.status.candidate)
                 : []
@@ -728,7 +837,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         const candidate = await updates.check(params.version, true)
         return {
           candidate,
-          automaticActivation: false,
+          automaticActivation: automaticEnabled(),
           pendingReasons: candidate ? activationBlockers(candidate) : []
         }
       }

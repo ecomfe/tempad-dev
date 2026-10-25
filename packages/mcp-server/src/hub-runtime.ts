@@ -245,6 +245,10 @@ export async function startHub(
   const pendingDesignBindings = new Map<string, Promise<void>>()
   const activeCalls = new Map<symbol, number>()
   const localResults = new Set<Promise<CallToolResult>>()
+  let lastActivity = performance.now()
+  function noteActivity() {
+    lastActivity = performance.now()
+  }
   const designTaskTimer = setInterval(() => {
     if (storesOwned && !shuttingDown) designTasks.sweep()
     if (
@@ -283,6 +287,7 @@ export async function startHub(
       throw new Error('Managed lifecycle hooks must enter through the runtime gateway.')
     if (input.version === 2 && !sameRuntimeProfile(input.profile, RUNTIME_PROFILE))
       throw new Error('Lifecycle hook belongs to a different runtime profile.')
+    noteActivity()
     const result =
       durable || input.version === 2
         ? designTasks.applyHook(
@@ -315,9 +320,22 @@ export async function startHub(
     if (agentClients.hasLegacyHooks) blockers.push('Claude binding without receipt/retry hooks')
     if (pendingDesignBindings.size) blockers.push('design task binding')
     if (assetHttpServer.pendingTransfers) blockers.push('asset transfers')
+    if (blockers.length) noteActivity()
+    const autoBlockers: string[] = []
+    if (
+      !consumerSessions.size ||
+      [...consumerSessions].some(
+        (session) => session.server.getClientVersion()?.name !== 'codex-mcp-client'
+      )
+    )
+      autoBlockers.push('Automatic switching is verified only for initialized Codex clients')
+    if (agentClients.hasClaudeConnections)
+      autoBlockers.push('Claude native automatic switching acceptance is pending')
     return {
       drained: blockers.length === 0,
       blockers,
+      autoBlockers,
+      idleForMs: Math.max(0, performance.now() - Math.max(lastActivity, agentClients.lastActivity)),
       version: PACKAGE_VERSION,
       // Native adapters and downloads have no shared absolute deadline. Give
       // them the bounded drain window; expiry defers switching, never kills work.
@@ -771,6 +789,7 @@ export async function startHub(
     extension: ExtensionConnection,
     session: FigmaSession
   ): Promise<void> {
+    noteActivity()
     const epoch = task.epoch ?? 0
     const registration = register<DesignTask>(extension.id, toolTimeoutMs)
     try {
@@ -802,6 +821,8 @@ export async function startHub(
       if ((task.epoch ?? 0) === epoch && task.target.sessionId === session.sessionId)
         designTasks.stop(task.taskId, 'interrupted')
       throw error
+    } finally {
+      noteActivity()
     }
   }
 
@@ -910,6 +931,7 @@ export async function startHub(
       let readTarget: { fileKey: string; taskId?: string } | undefined
       try {
         if (runtimeControl && !runtimeControl.admitting()) throw unavailable()
+        noteActivity()
         activeCalls.set(
           activity,
           Date.now() +
@@ -1126,6 +1148,7 @@ export async function startHub(
         )
       } finally {
         activeCalls.delete(activity)
+        noteActivity()
       }
     }
 
@@ -1198,6 +1221,7 @@ export async function startHub(
       const activity = Symbol()
       try {
         if (runtimeControl && !runtimeControl.admitting()) throw unavailable()
+        noteActivity()
         activeCalls.set(activity, Date.now() + toolTimeoutMs)
         extra.signal.throwIfAborted()
         const ownerId = await agentClients.owner(
@@ -1227,6 +1251,7 @@ export async function startHub(
         return createToolErrorResponse(tool.name, error)
       } finally {
         activeCalls.delete(activity)
+        noteActivity()
       }
     }
 
@@ -1248,11 +1273,13 @@ export async function startHub(
       void result.then(
         (value) => {
           localResults.delete(result)
+          noteActivity()
           signal.removeEventListener('abort', abort)
           resolve(value)
         },
         (error: unknown) => {
           localResults.delete(result)
+          noteActivity()
           signal.removeEventListener('abort', abort)
           reject(error)
         }
@@ -1503,6 +1530,7 @@ export async function startHub(
     }
     const mcp = createMcpServer(ownerId)
     consumerSessions.add(mcp)
+    noteActivity()
     consumerCount++
     hadConsumer = true
     log.info(`Consumer connected. Total: ${consumerCount}`)
@@ -1537,6 +1565,7 @@ export async function startHub(
         .catch((closeErr) => log.warn({ err: closeErr }, 'MCP session close failed.'))
       consumerSessions.delete(mcp)
       consumerCount--
+      noteActivity()
       log.info(`Consumer disconnected. Remaining: ${consumerCount}`)
       if (consumerCount === 0 && recoveryConnections === 0 && !runtimeControl) {
         log.info('Last consumer disconnected. Shutting down.')
@@ -1678,6 +1707,7 @@ export async function startHub(
     await acquireStoreLocks()
     assetStore = createAssetStore()
     assetHttpServer = createAssetHttpServer(assetStore, {
+      onActivity: noteActivity,
       ...(runtimeControl
         ? { admit: () => runtimeControl.admitting(), ...endpointTokens, port: endpoints?.httpPort }
         : {}),

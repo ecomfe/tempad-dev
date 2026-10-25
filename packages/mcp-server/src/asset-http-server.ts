@@ -47,6 +47,7 @@ export interface AssetHttpServerOptions {
   maxConcurrentUploads?: number
   authorizeExtensionOrigin?: (origin: string) => boolean
   admit?: () => boolean
+  onActivity?: () => void
 }
 
 export interface AssetHttpServer {
@@ -247,11 +248,13 @@ export function createAssetHttpServer(
     }
 
     activeDownloads += 1
+    options.onActivity?.()
     let released = false
     const release = () => {
       if (released) return
       released = true
       activeDownloads -= 1
+      options.onActivity?.()
     }
     res.once('finish', release)
     res.once('close', release)
@@ -352,6 +355,7 @@ export function createAssetHttpServer(
     const hasher = createHash('sha256')
     let size = 0
     activeUploads += 1
+    options.onActivity?.()
     reservedUploadBytes += reservationBytes
 
     const cleanup = () => {
@@ -378,6 +382,7 @@ export function createAssetHttpServer(
 
     pipeline(req, monitor, writeStream, (err) => {
       activeUploads -= 1
+      options.onActivity?.()
       reservedUploadBytes -= reservationBytes
       if (err) {
         cleanup()

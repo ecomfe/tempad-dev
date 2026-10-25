@@ -108,6 +108,16 @@ export function compatibilityReasons(active: RuntimeManifest, next: RuntimeManif
   return reasons
 }
 
+/** Automatic consent never crosses a breaking-release boundary. */
+export function automaticCompatibilityReasons(active: RuntimeManifest, next: RuntimeManifest) {
+  const reasons = compatibilityReasons(active, next)
+  const [major, minor] = active.packageVersion.split('.').map(Number)
+  const [nextMajor, nextMinor] = next.packageVersion.split('.').map(Number)
+  if (major !== nextMajor || (major === 0 && minor !== nextMinor))
+    reasons.push('Breaking release boundary; explicit update required')
+  return reasons
+}
+
 /** Cold replacement has no frozen MCP sessions, but must retain safe state/rollback access. */
 export function coldCompatibilityReasons(active: RuntimeManifest, next: RuntimeManifest) {
   const reasons = compatibilityReasons(active, next).filter(

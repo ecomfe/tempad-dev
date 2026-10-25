@@ -1,8 +1,8 @@
 # Updating a running MCP runtime
 
-Status: Phases 0–3 are implemented. Codex native switching is verified; Claude native acceptance and automatic activation remain pending.
+Status: Phases 0–3 are implemented. Codex native switching is verified and compatible automatic activation is implemented for enrolled Codex-only sessions; Claude native acceptance remains pending.
 The default CLI keeps the existing bridge until explicit enrollment. Acquisition is opt-in and
-activation always requires confirmation. Design baseline: `74ed70c9`.
+incompatible or breaking-boundary updates require an explicit decision or restart. Design baseline: `74ed70c9`.
 
 This design is for maintainers implementing runtime updates and preparing compatible
 releases. It owns the proposed process boundary, update transaction, and acceptance
@@ -153,7 +153,9 @@ Automatic activation requires all of the following, checked again at commit time
   Fixing a typo need not force a restart; changing required workflow or safety guidance does.
 - Its extension protocol adapters support the promised released-extension range,
   including connected peers. An offline older extension must not lose a promised adapter.
-- Attached Claude bindings satisfy the verified receipt/retry hook requirement in
+- The initialized host set contains only Codex clients and each edge acknowledges bounded
+  pre-dispatch waiting. Claude and unknown hosts currently defer automatic activation.
+  Future Claude enablement also requires native acceptance and the receipt/retry requirement in
   [Appendix B](#appendix-b-installed-hooks-and-delivery-evidence); legacy or unknown
   capability defers automatic switching, without disabling ordinary MCP use.
 - It runs on the current Node executable and platform, and preserves the current
@@ -217,8 +219,9 @@ From MCP 0.12.0, offer enrollment as
 MCP restart. Keep both root and MCP README languages and the shared installation snippets
 in sync; do not document this as a working command before it ships. Adding the argument
 to the authored plugin manifest requires a stable plugin version increase and regenerated
-targets. Phase 3 leaves existing generated plugin and manual setup arguments unchanged: enrollment
-is an explicit host-configuration choice using the same argument, and automatic activation is disabled.
+targets. Existing generated plugin and manual setup arguments remain unchanged: enrollment
+is an explicit host-configuration choice using the same argument. It enables compatible automatic
+Hub switching for the accepted Codex path; checkout builds never enroll.
 
 Namespace IPC endpoints, locks, state, assets, activation records, and caches by user
 and profile. Checkout profiles also include a stable hash of the real checkout path.
@@ -334,8 +337,11 @@ running -> checking -> staged -> draining -> switching -> verifying -> running
 2. **Close admission globally.** Acquire the update lock, pin the connected-client
    compatibility set, and fence new work in the supervisor and old Hub. Newly connecting
    edges join this gate. MCP ping and cached tool listing remain available. New business
-   calls receive a bounded, retryable unavailable result stating that they were not
-   dispatched; there is no hidden queue or automatic replay of canvas writes.
+   calls wait in a bounded edge buffer for at most ten seconds, within the original request
+   deadline. Only explicit pre-dispatch rejection can be retried; unknown outcomes and socket
+   failures are not replayed. Host cancellation and closure discard waiting requests. Each edge
+   retains at most 64 requests and the SDK byte limit. Exhaustion returns an unavailable result
+   stating that no call was dispatched; the frozen tool catalog remains available.
    The Hub also gates direct HTTP uploads/downloads and browser feedback actions;
    gating only the CLI path would leave an admission race. Keep registration, completion
    receipts, cancellation, and Stop available.
@@ -348,6 +354,11 @@ running -> checking -> staged -> draining -> switching -> verifying -> running
    deadline of admitted work plus a bounded flush allowance, subject to the maximum
    admission-pause policy below. If work is still active, reopen old admission and retry
    later. Do not cancel a canvas transaction or feedback submission merely to update.
+   Automatic activation first requires five continuous idle seconds, tracked across tools,
+   transfers, bindings, hooks and native actions, including work between inspection polls.
+   It rechecks immediately after closing admission and at shutdown: newly arrived work reopens
+   the original Hub instead of entering the long manual drain. The existing lease heartbeat
+   schedules checks only with an eligible staged candidate; failed attempts back off for a minute.
 5. **Prepare durable handoff.** Flush current task, fence, feedback, and asset state.
    Save the update phase, active/candidate artifact identities, state revision, endpoint
    configuration, and next generation in the supervisor's activation journal. Journal
@@ -822,9 +833,9 @@ Windows enrollment is disabled. The remaining rollout requirements are:
   Hub with no enrolled edge makes no background requests; a mixed-policy release Hub may
   stage for an enrolled edge but cannot activate while a non-opt-in edge remains attached.
 
-### Phase 4 — native acceptance before automatic activation
+### Phase 4 — native acceptance and compatible automatic activation
 
-Automatic activation remains disabled. Use the isolated
+Automatic activation is limited to enrolled, initialized, wait-capable Codex clients. Use the isolated
 [native fixture](../../TESTING.md#native-runtime-switch-acceptance) to exercise local packaged
 candidates through installed hosts; changing the registry origin for this probe does not
 establish official-registry provenance or compatibility with every host version.
@@ -833,8 +844,13 @@ Codex App acceptance covers Queue/Steer before and after an explicit Hub switch,
 canvas reads/writes and screenshots, native Stop interruption, and cancelled-task read-back
 after both switching and crash rollback. The existing MCP edge processes remain alive.
 Claude installation, initialization and `/clear` hook delivery have been exercised, but its
-model-driven tool calls and Stop across a switch still need native acceptance. These results
-do not enable automatic activation.
+model-driven tool calls and Stop across a switch still need native acceptance; any Claude or
+unknown host connection blocks automatic activation while ordinary tools and staging remain usable.
+The process fixture additionally checks idle automatic switching and requests arriving during
+handoff. It measures the actual pause without treating it as a zero-downtime guarantee: a lost
+reply at socket closure can still surface an error because uncertain writes cannot be retried.
+The updater considers npm's latest stable candidate; an incompatible latest stays staged rather
+than searching release history or relaxing compatibility checks.
 
 - Run the full preceding matrix and frozen released-extension compatibility checks against
   the packaged candidate. Measure switch latency and deferral rates before promising a target.
@@ -1009,4 +1025,5 @@ binding and tool-boundary Stop notices, not Codex-only comment delivery.
 
 The implemented publication gates, cumulative guidance review, release boundaries, and hook
 rollout are maintained in [Releasing](../releasing.md#runtime-release-policy). Automatic activation
-remains disabled until Phase 4 acceptance; passing artifact checks alone does not enable it.
+also requires the accepted host path, edge waiting support, unanimous enrollment and an idle Hub;
+passing artifact checks alone does not enable it.

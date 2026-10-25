@@ -33,6 +33,19 @@ function soleActiveTurn(state?: CodexLifecycleState): string | undefined {
 
 /** Conversation bindings and native delivery stay outside shared task lifecycle logic. */
 export class AgentClients {
+  get hasClaudeConnections(): boolean {
+    return (
+      this.pendingClaudeBindings.size > 0 ||
+      [...this.connections.values()].some((binding) => binding.client.kind === 'claude')
+    )
+  }
+
+  get lastActivity(): number {
+    return this.activityAt
+  }
+
+  private activityAt = performance.now()
+
   get hasLegacyHooks(): boolean {
     return [...this.connections.values()].some(
       (binding) =>
@@ -103,6 +116,7 @@ export class AgentClients {
     state?: CodexLifecycleState,
     context?: HostContext
   ): void {
+    this.activityAt = performance.now()
     for (const [ownerId, binding] of this.bindings) {
       if (nativeConversation(binding.client) !== conversationId) continue
       if (hostContextKey(binding.hostContext) !== hostContextKey(context)) continue
@@ -407,6 +421,7 @@ export class AgentClients {
   }
 
   async action(action: DesignAction, onAccepted?: () => void): Promise<DesignActionResult> {
+    this.activityAt = performance.now()
     this.pruneActions()
     const record = this.tasks.find(action.taskId)
     const client = record?.task.client
@@ -447,20 +462,24 @@ export class AgentClients {
     let dispatched = false
     const pending = this.perform(action, onAccepted, () => {
       dispatched = true
-    }).then((result) => {
-      const entry = this.actions.get(key)
-      if (entry) entry.settledAt = Date.now()
-      // A rejection before host dispatch is safe to retry with the same delivery
-      // identity. Queue retries re-enter the adapter's durable receipt reconciliation;
-      // they cannot replay an uncertain native write.
-      if (
-        result.status === 'failed' &&
-        (!dispatched ||
-          (action.action === 'feedback' && action.feedback?.mode === 'queue' && this.codex))
-      )
-        this.actions.delete(key)
-      return result
     })
+      .then((result) => {
+        const entry = this.actions.get(key)
+        if (entry) entry.settledAt = Date.now()
+        // A rejection before host dispatch is safe to retry with the same delivery
+        // identity. Queue retries re-enter the adapter's durable receipt reconciliation;
+        // they cannot replay an uncertain native write.
+        if (
+          result.status === 'failed' &&
+          (!dispatched ||
+            (action.action === 'feedback' && action.feedback?.mode === 'queue' && this.codex))
+        )
+          this.actions.delete(key)
+        return result
+      })
+      .finally(() => {
+        this.activityAt = performance.now()
+      })
     this.actions.set(key, { signature, pending })
     return pending
   }
@@ -668,10 +687,14 @@ export class AgentClients {
   }
 
   cancelFeedback(taskId: string): Promise<void> {
+    this.activityAt = performance.now()
     this.abortFeedback(taskId)
     const pending = this.codex?.cancelQueued(taskId) ?? Promise.resolve()
     this.pendingRemovals.add(pending)
-    return pending.finally(() => this.pendingRemovals.delete(pending))
+    return pending.finally(() => {
+      this.pendingRemovals.delete(pending)
+      this.activityAt = performance.now()
+    })
   }
 
   disconnect(connectionId: string): void {

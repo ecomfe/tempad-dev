@@ -57,7 +57,7 @@ it.each([
   expect(acquire).toHaveBeenCalledTimes(stage === 'attempt' ? 0 : 1)
   expect(updates.status).toMatchObject({
     checking: false,
-    automaticActivation: false,
+    disabled: true,
     error: expect.stringContaining(code)
   })
   expect(updates.status.error).toContain('disabled')
@@ -113,7 +113,7 @@ it('does no background work without an enrolled edge and never activates', async
   expect(acquire).not.toHaveBeenCalled()
   await updates.check('0.12.1', true)
   expect(acquire).toHaveBeenCalledOnce()
-  expect(updates.status).toMatchObject({ automaticActivation: false, candidate })
+  expect(updates.status).toMatchObject({ disabled: false, candidate })
   expect(existsSync(join(directory, 'switch.json'))).toBe(false)
 })
 

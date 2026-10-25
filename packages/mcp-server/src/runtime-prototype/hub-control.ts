@@ -16,6 +16,8 @@ import {
   unavailable
 } from './protocol'
 
+export const AUTOMATIC_IDLE_MS = 5000
+
 export class HubControl {
   readonly hubId = randomUUID()
   private generation = 0
@@ -34,7 +36,14 @@ export class HubControl {
     private readonly now = () => performance.now(),
     private readonly handoff?: {
       paused?: boolean
-      inspect: () => { drained: boolean; deadline: number; blockers: string[]; version: string }
+      inspect: () => {
+        drained: boolean
+        deadline: number
+        blockers: string[]
+        version: string
+        autoBlockers?: string[]
+        idleForMs?: number
+      }
       flush: () => void
       stop: () => Promise<void>
       hook: (
@@ -159,17 +168,35 @@ export class HubControl {
         return { ...this.handoff.inspect(), gated: this.gated, handoffVersion: 1 }
       }
     )
-    peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-stop') }), () => {
-      requireLease()
-      if (!this.gated || !this.handoff?.inspect().drained)
-        throw unavailable('Runtime has not drained; shutdown was not admitted.')
-      this.handoff.flush()
-      this.stopping = true
-      // Return an acknowledgment before closing its control socket. The
-      // supervisor still waits for process exit and writer-lock release.
-      setTimeout(() => void this.handoff!.stop().catch((error: Error) => peer.onerror?.(error)), 25)
-      return { stopping: this.hubId }
-    })
+    peer.setRequestHandler(
+      z.object({
+        method: z.literal('tempad/runtime-stop'),
+        params: z
+          .object({ automatic: z.literal(true) })
+          .strict()
+          .optional()
+      }),
+      ({ params }) => {
+        requireLease()
+        const handoff = this.handoff
+        const state = handoff?.inspect()
+        if (!this.gated || !handoff || !state?.drained)
+          throw unavailable('Runtime has not drained; shutdown was not admitted.')
+        if (
+          params?.automatic &&
+          (!state.autoBlockers ||
+            state.autoBlockers.length ||
+            (state.idleForMs ?? 0) < AUTOMATIC_IDLE_MS)
+        )
+          throw unavailable('Runtime is no longer idle or eligible for automatic replacement.')
+        handoff.flush()
+        this.stopping = true
+        // Return an acknowledgment before closing its control socket. The
+        // supervisor still waits for process exit and writer-lock release.
+        setTimeout(() => void handoff.stop().catch((error: Error) => peer.onerror?.(error)), 25)
+        return { stopping: this.hubId }
+      }
+    )
     peer.setRequestHandler(
       z.object({ method: z.literal('tempad/runtime-register'), params: RegistrationSchema }),
       ({ params }) => {

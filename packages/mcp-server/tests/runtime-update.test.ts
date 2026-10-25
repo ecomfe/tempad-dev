@@ -23,6 +23,7 @@ import {
   verifyCached
 } from '../src/runtime-update/cache'
 import {
+  automaticCompatibilityReasons,
   compatibilityReasons,
   supportsNode,
   validatePolicyBaseline,
@@ -122,6 +123,24 @@ describe('release archives', () => {
 })
 
 describe('release manifest and dependency closure', () => {
+  it.each([
+    ['0.12.0', '0.12.9', false],
+    ['0.12.0', '0.13.0', true],
+    ['0.12.0', '1.0.0', true],
+    ['1.0.0', '1.8.0', false],
+    ['1.8.0', '2.0.0', true]
+  ])('checks automatic release boundaries %s → %s', (active, next, blocked) => {
+    const { manifest } = fixture()
+    const before = { ...manifest, packageVersion: active }
+    const after = { ...manifest, packageVersion: next }
+    expect(compatibilityReasons(before, after)).toEqual([])
+    expect(automaticCompatibilityReasons(before, after)).toEqual(
+      blocked ? ['Breaking release boundary; explicit update required'] : []
+    )
+    expect(automaticCompatibilityReasons(before, { ...after, guidanceEpoch: 2 })).toContain(
+      'Guidance epoch changed; restart MCP'
+    )
+  })
   it('accepts the exact inventoried package', () => {
     const { files, manifest } = fixture()
     expect(verifyPackage(files, '0.12.0')).toEqual(manifest)

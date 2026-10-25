@@ -201,9 +201,13 @@ of a released protocol is blocked by the packager and needs a separate migration
 review: retain the current and previous stable generations and at least 90 days after a successor
 becomes stable. Breaking boundaries are 0.x minor changes, 1.0, and later major changes.
 
-All Phase 3 switches require interactive `--update-runtime <exact-version>` confirmation of that
-artifact's version and integrity; approval never covers future releases or bypasses compatibility
-or attached-client policy. No timer activates a downloaded artifact. Existing and plugin-managed
+Explicit switches require interactive `--update-runtime <exact-version>` confirmation of that
+artifact's version and integrity; approval never bypasses compatibility or attached-client policy.
+Enrolled Codex-only sessions may automatically activate a compatible stable candidate within the
+same breaking-release boundary after five idle seconds. All edges must acknowledge bounded
+pre-dispatch waiting; old edges, Claude and unknown hosts keep candidates staged. Automatic
+shutdown rechecks readiness and defers immediately if work arrives, without waiting through a
+long drain or killing work. Existing and plugin-managed
 configurations use the same optional `--runtime-updates=stable` argument. Keep generated plugin
 arguments and shared installation snippets unenrolled until a separately reviewed default change;
 checkout configurations must never carry release enrollment. Publish runtime support before its

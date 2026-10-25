@@ -20,7 +20,7 @@ const StateSchema = z
   .strict()
 const INTERVAL = 6 * 60 * 60 * 1000
 
-/** One owner schedules acquisition. Neither timers nor completion can activate it. */
+/** Acquisition owns downloads; only the supervisor can activate a committed candidate. */
 export class ReleaseUpdates {
   private state: z.infer<typeof StateSchema>
   private timer?: ReturnType<typeof setTimeout>
@@ -51,7 +51,7 @@ export class ReleaseUpdates {
   }
 
   get status() {
-    return { ...this.state, checking: !!this.pending, automaticActivation: false as const }
+    return { ...this.state, checking: !!this.pending, disabled: this.disabled }
   }
   private now() {
     return this.options.now?.() ?? Date.now()

@@ -3,10 +3,19 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import console from 'node:console'
-import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile
+} from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { createServer as createSocketServer } from 'node:net'
-import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import process from 'node:process'
@@ -26,13 +35,15 @@ const exec = promisify(execFile)
 const source = fileURLToPath(new URL('..', import.meta.url))
 const repo = join(source, '../..')
 const sourceHash = runtimeSourceHash(repo)
-const root = await realpath(await mkdtemp(join(tmpdir(), 'tp-release-test-')))
+// macOS TMPDIR can exceed sockaddr_un's limit after nested runtime/cache paths.
+const root = await realpath(await mkdtemp('/tmp/tp-release-test-'))
 const packaged = join(root, 'source.tgz')
 const clients = []
 const transports = []
 let control
 let succeeded = false
 let runtimePids = []
+const automaticPids = new Set()
 const releases = new Map()
 const requests = []
 let online = true
@@ -86,8 +97,10 @@ for (const key of [
   'CODEX_HOME',
   'CODEX_SQLITE_HOME',
   'CODEX_THREAD_ID',
+  'CODEX_SESSION_ID',
   'CODEX_APP_TOOLS_PIPE_PATH',
   'CLAUDECODE',
+  'CLAUDE_CODE',
   'CLAUDE_CODE_SESSION_ID'
 ])
   delete isolationEnv[key]
@@ -153,6 +166,15 @@ async function makeArtifact(version, base, epoch) {
                 "title: 'TemPad Dev'",
                 "title: 'TemPad Dev compatible correction'"
               )
+            const localRead = "case 'list_design_sessions':"
+            const readStart = code.indexOf(localRead)
+            assert.ok(readStart >= 0)
+            const handler = 'handler: async () => {'
+            const handlerStart = code.indexOf(handler, readStart) + handler.length
+            assert.ok(handlerStart >= readStart + handler.length)
+            // A real admitted local request stays pending long enough to observe
+            // drain status; no native host or Figma execution is simulated here.
+            code = `${code.slice(0, handlerStart)}\n            await new Promise((resolve) => setTimeout(resolve, 150))${code.slice(handlerStart)}`
             return code
           }
         }
@@ -218,7 +240,7 @@ async function makeArtifact(version, base, epoch) {
   releases.set(version, release)
   return release
 }
-async function client(release, policy = 'off', env = isolationEnv) {
+async function client(release, policy = 'off', env = isolationEnv, name = 'release-acceptance') {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [
@@ -233,7 +255,7 @@ async function client(release, policy = 'off', env = isolationEnv) {
     diagnostic = (diagnostic + bytes).slice(-10_000)
   })
   transports.push(transport)
-  const client = new Client({ name: 'release-acceptance', version: '1' })
+  const client = new Client({ name, version: '1' })
   clients.push(client)
   try {
     await client.connect(transport, { timeout: 60_000 })
@@ -249,6 +271,170 @@ function exited(pid) {
   } catch (error) {
     if (error.code === 'ESRCH') return true
     throw error
+  }
+}
+
+async function stopFixture(directory) {
+  const runtimeRoot = join(directory, 'state/runtime')
+  for (const [role, path] of [
+    ['supervisor', join(runtimeRoot, 'supervisor.json')],
+    ['hub', join(directory, 'run/hub-runtime.json')]
+  ]) {
+    let record
+    try {
+      const stat = await lstat(path)
+      assert.ok(stat.isFile() && !stat.isSymbolicLink() && stat.uid === process.getuid())
+      record = JSON.parse(await readFile(path, 'utf8'))
+    } catch (error) {
+      if (error.code === 'ENOENT') continue
+      throw error
+    }
+    const pid = role === 'supervisor' ? record.pid : record.processId
+    const entry = role === 'supervisor' ? record.entry : record.entryPath
+    assert.ok(Number.isInteger(pid) && pid > 0 && entry.startsWith(`${root}/`))
+    if (exited(pid)) continue
+    let command
+    try {
+      command = (await exec('ps', ['-p', String(pid), '-o', 'command='])).stdout.trim()
+    } catch (error) {
+      if (exited(pid)) continue
+      throw error
+    }
+    assert.deepEqual(command.split(/\s+/).slice(-5), [entry, '--root', runtimeRoot, '--role', role])
+    try {
+      process.kill(pid, 'SIGTERM')
+    } catch (error) {
+      if (error.code !== 'ESRCH') throw error
+    }
+    await until(() => exited(pid), `${role} fixture cleanup`, 15_000)
+  }
+}
+
+async function automaticAcceptance(a, b) {
+  const directory = join(root, 'auto')
+  const env = { ...isolationEnv }
+  for (const [key, name] of Object.entries({
+    TEMPAD_MCP_RUNTIME_DIR: 'run',
+    TEMPAD_MCP_STATE_DIR: 'state',
+    TEMPAD_MCP_ASSET_DIR: 'assets',
+    TEMPAD_MCP_LOG_DIR: 'logs'
+  })) {
+    env[key] = join(directory, name)
+    await mkdir(env[key], { recursive: true, mode: 0o700 })
+  }
+  // These are SDK clients with host identity fixtures, not installed-host
+  // acceptance. The unknown client keeps B staged while blockers are exercised.
+  const firstClient = clients.length
+  const firstTransport = transports.length
+  const owner = new ControlPeer()
+  try {
+    const unknown = await client(a, 'stable', env)
+    const codexEnv = { ...env, CODEX_THREAD_ID: 'automatic-release-fixture' }
+    const codex = await client(a, 'stable', codexEnv, 'codex-mcp-client')
+    const catalog = await codex.listTools()
+    await owner.connect(
+      new SocketTransport(await connectSocket(join(directory, 'run/supervisor.sock')))
+    )
+    const status = async () => {
+      const state = await owner.request({ method: 'tempad/runtime-status' }, ResultSchema)
+      for (const pid of [state.supervisorPid, state.hubPid]) if (pid) automaticPids.add(pid)
+      return state
+    }
+    const staged = await until(async () => {
+      const state = await status()
+      if (state.updates.error) throw new Error(state.updates.error)
+      return state.updates.candidate?.version === b.version && state
+    }, 'automatic fixture staging')
+    assert.equal(staged.active.version, a.version)
+    assert.equal(staged.updates.automaticActivation, true)
+    assert.ok(staged.autoBlockers.length > 0, 'unknown hosts must defer automatic switching')
+    const oldPid = staged.hubPid
+    const remainsStaged = async (reason) => {
+      const deadline = performance.now() + 8000
+      await until(async () => {
+        const state = await status()
+        assert.equal(state.hubPid, oldPid, reason)
+        return performance.now() >= deadline
+      }, reason)
+    }
+    await remainsStaged('unknown hosts must keep the candidate staged')
+    const claude = await client(a, 'stable', { ...env, CLAUDECODE: '1' })
+    await unknown.close()
+    const claudeBlocked = await until(async () => {
+      const state = await status()
+      return state.autoBlockers.some((reason) => reason.includes('Claude')) && state
+    }, 'Claude automatic acceptance blocker')
+    assert.equal(claudeBlocked.hubPid, oldPid)
+    await remainsStaged('Claude native acceptance must remain deferred')
+    const off = await client(a, 'off', codexEnv, 'codex-mcp-client')
+    await claude.close()
+    const policyBlocked = await until(async () => {
+      const state = await status()
+      return state.autoBlockers.length === 0 && state
+    }, 'only Codex clients remain')
+    assert.ok(
+      policyBlocked.updates.pendingReasons.some((reason) => reason.includes('not opted in'))
+    )
+    assert.equal(policyBlocked.updates.automaticActivation, false)
+    assert.equal(policyBlocked.hubPid, oldPid)
+    await remainsStaged('a non-opt-in peer must keep the candidate staged')
+
+    // Every completed call resets the quiet window. Keep sending actual tool
+    // calls longer than that window, including while the non-opt-in peer exits.
+    const workUntil = performance.now() + 6500
+    let calls = 0
+    let workError
+    const work = (async () => {
+      do {
+        const result = await codex.callTool({ name: 'list_design_sessions', arguments: {} })
+        assert.notEqual(result.isError, true)
+        calls++
+      } while (performance.now() < workUntil)
+    })().catch((error) => {
+      workError = error
+    })
+    await until(async () => {
+      const state = await status()
+      return state.blockers.includes('admitted MCP calls')
+    }, 'actual admitted tool work')
+    await off.close()
+    while (performance.now() < workUntil) {
+      assert.equal((await status()).hubPid, oldPid, 'busy work must not be interrupted to update')
+      await delay(100)
+    }
+    await work
+    if (workError) throw workError
+    assert.ok(calls > 1)
+
+    let gateStarted
+    let waitingCall
+    const changed = await until(async () => {
+      const state = await status()
+      if (state.gated && !gateStarted) {
+        gateStarted = performance.now()
+        waitingCall = codex.callTool({ name: 'list_design_sessions', arguments: {} })
+        // Observe failures immediately even while the status loop is pending.
+        void waitingCall.catch(() => {})
+      }
+      return state.active.version === b.version && !state.gated && state
+    }, 'automatic compatible activation')
+    assert.ok(gateStarted, 'the real admission pause must be observed')
+    const admissionPauseMs = Math.round(performance.now() - gateStarted)
+    assert.notEqual((await waitingCall).isError, true, 'a call arriving during handoff must wait')
+    assert.notEqual(changed.hubPid, oldPid)
+    assert.equal(changed.supervisorPid, staged.supervisorPid)
+    assert.deepEqual(await codex.listTools(), catalog, 'automatic switching preserves the catalog')
+    await codex.ping()
+    await codex.close()
+    await until(() => [...automaticPids].every(exited), 'automatic fixture shutdown', 15_000)
+    return { admissionPauseMs, uninterruptedCalls: calls }
+  } finally {
+    await owner.close()
+    await Promise.allSettled(clients.slice(firstClient).map((client) => client.close()))
+    await Promise.allSettled(transports.slice(firstTransport).map((transport) => transport.close()))
+    // A failed initialize can leave an owner before status ever records its PID.
+    // Only stop processes whose private records and live argv match this fixture.
+    await stopFixture(directory)
   }
 }
 try {
@@ -342,7 +528,8 @@ try {
     return value.updates?.candidate?.version === b.version && value
   }, 'verified candidate staging')
   assert.equal(staged.active.version, a.version)
-  assert.equal(staged.updates.automaticActivation, false)
+  assert.equal(staged.updates.automaticActivation, true)
+  assert.ok(staged.autoBlockers.length > 0, 'unknown clients retain explicit activation')
   runtimePids = [staged.supervisorPid, staged.hubPid]
   const oldPid = staged.hubPid
   const second = await client(a)
@@ -380,6 +567,8 @@ try {
   await unpinned.close()
   await assert.rejects(client(a, 'pinned'), /pinned client requests a different runtime/)
   assert.equal(await readFile(join(root, 'assets/preserved.txt'), 'utf8'), 'pre-enrollment asset')
+
+  const automatic = await automaticAcceptance(a, b)
 
   const c = await makeArtifact(versions[2], base, policy.guidanceEpoch + 1)
   const incompatible = await request('tempad/runtime-check', { version: c.version })
@@ -465,6 +654,7 @@ try {
       node: process.version,
       versions,
       firstInitializeMs,
+      automatic,
       cases: [
         'verified-download',
         'stage-only',
@@ -483,7 +673,13 @@ try {
         'cold-guidance-upgrade',
         'concurrent-cold-upgrade',
         'cold-upgrade-offline',
-        'old-cli-no-downgrade'
+        'old-cli-no-downgrade',
+        'automatic-compatible-activation',
+        'automatic-unknown-host-block',
+        'automatic-claude-block',
+        'automatic-non-opt-in-block',
+        'automatic-busy-work-deferral',
+        'automatic-handoff-request-wait'
       ]
     })
   )
@@ -496,6 +692,8 @@ try {
   verify.endLogging()
   if (runtimePids.length)
     await until(() => runtimePids.every(exited), 'release runtime shutdown', 15_000)
+  if (automaticPids.size)
+    await until(() => [...automaticPids].every(exited), 'automatic fixture shutdown', 15_000)
   // The worker/probe must close its own processes. Keep failed evidence intact.
   if (succeeded && !process.env.TEMPAD_KEEP_PROTOTYPE)
     await rm(root, { recursive: true, force: true })

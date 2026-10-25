@@ -230,6 +230,8 @@ it.skipIf(process.platform === 'win32')(
   async () => {
     const root = directory()
     let drained = false
+    let autoBlockers: string[] | undefined
+    let idleForMs = 0
     const flush = vi.fn()
     const stop = vi.fn(async () => {})
     const control = new HubControl('secret', undefined, {
@@ -237,7 +239,9 @@ it.skipIf(process.platform === 'win32')(
         drained,
         deadline: Date.now() + 10000,
         blockers: drained ? [] : ['work'],
-        version: '1'
+        version: '1',
+        autoBlockers,
+        idleForMs
       }),
       flush,
       stop,
@@ -277,6 +281,16 @@ it.skipIf(process.platform === 'win32')(
       'not drained'
     )
     drained = true
+    const automaticStop = () =>
+      peer.request({ method: 'tempad/runtime-stop', params: { automatic: true } }, ResultSchema)
+    await expect(automaticStop()).rejects.toThrow('no longer idle or eligible')
+    autoBlockers = ['Claude acceptance pending']
+    idleForMs = 5000
+    await expect(automaticStop()).rejects.toThrow('no longer idle or eligible')
+    autoBlockers = []
+    idleForMs = 4999
+    await expect(automaticStop()).rejects.toThrow('no longer idle or eligible')
+    expect(stop).not.toHaveBeenCalled()
     flush.mockImplementationOnce(() => {
       throw new Error('ENOSPC')
     })
@@ -284,7 +298,8 @@ it.skipIf(process.platform === 'win32')(
       peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)
     ).rejects.toThrow('ENOSPC')
     expect(control.admitting()).toBe(false)
-    await peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)
+    idleForMs = 5000
+    await automaticStop()
     await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce())
     await expect(
       peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)

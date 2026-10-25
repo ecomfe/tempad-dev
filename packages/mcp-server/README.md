@@ -25,7 +25,7 @@ For agent-specific setup, open TemPad Dev's **Preferences → Agent integration 
 
 Default installations do not check for or activate runtime updates. On macOS/Linux, add
 `--runtime-updates=stable` after the package argument in your host's MCP configuration to
-enable verified background downloads. The same option applies to plugin-managed and manual
+enable verified background downloads and compatible automatic Hub updates. The same option applies to plugin-managed and manual
 configurations; checkout builds reject it and never fetch release runtimes. First enrollment
 requires closing all existing TemPad MCP connections once, then restarting them. It preserves
 the release task and asset stores.
@@ -38,8 +38,13 @@ In a terminal using the same runtime configuration:
   and integrity before switching. Incompatible tool contracts/guidance, unfinished operations,
   legacy Claude hooks, and attached clients without opt-in prevent activation.
 
-**Automatic activation is disabled.** Downloads and network failures do not replace or stop
-the active Hub. Existing MCP sessions retain their tool descriptions through a compatible switch;
+Automatic activation currently requires only initialized Codex clients, all opted in and capable
+of waiting through a switch. Claude and unknown hosts keep updates staged pending native acceptance.
+After five seconds without calls, transfers or native actions, the supervisor rechecks eligibility
+and switches locally. New, undispatched requests wait up to ten seconds; dispatched writes are
+never replayed. Busy work defers the update, and downloads or network failures leave the Hub serving.
+Breaking release boundaries, incompatible contracts and guidance require an explicit update or restart.
+Existing MCP sessions retain their tool descriptions through a compatible switch;
 Figma reconnects and design tasks may require resume/read-back. The running edge and supervisor,
 Node, browser extension, and installed plugin still require their normal upgrade/restart.
 Use `--runtime-updates=off` (or omit the option) to stop background checks when no enrolled

@@ -127,7 +127,8 @@ describe('asset-http-server', () => {
     const body = Buffer.from('icon bytes')
     const hash = createHash('sha256').update(body).digest('hex')
     const filename = buildAssetFilename(hash, 'image/x-icon')
-    const server = createAssetHttpServer(store)
+    const activity = vi.fn()
+    const server = createAssetHttpServer(store, { onActivity: activity })
     await server.start()
     const url = `${server.getBaseUrl()}/assets/${filename}`
     createdPaths.push(join(ASSET_DIR, filename))
@@ -138,10 +139,12 @@ describe('asset-http-server', () => {
         body
       })
       expect(uploaded.status).toBe(201)
+      await vi.waitFor(() => expect(activity).toHaveBeenCalledTimes(2))
       const downloaded = await fetch(url)
       expect(downloaded.status).toBe(200)
       expect(downloaded.headers.get('content-type')).toBe('image/x-icon')
       expect(Buffer.from(await downloaded.arrayBuffer())).toEqual(body)
+      await vi.waitFor(() => expect(activity).toHaveBeenCalledTimes(4))
     } finally {
       server.stop()
     }

@@ -12,6 +12,8 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import type { RuntimeManifest } from '../src/runtime-update/manifest'
+
 const fake = vi.hoisted(() => ({ launch: vi.fn(), probe: vi.fn() }))
 vi.mock('../src/runtime-prototype/probe', () => ({ probeArtifact: fake.probe }))
 vi.mock('../src/runtime-prototype/processes', async (load) => ({
@@ -30,10 +32,17 @@ import {
   listenPrivate,
   prototypeConfig
 } from '../src/runtime-prototype/processes'
-import { ControlPeer, GrantSchema, SocketTransport } from '../src/runtime-prototype/protocol'
+import {
+  ControlPeer,
+  GrantSchema,
+  SocketTransport,
+  unavailable
+} from '../src/runtime-prototype/protocol'
 import { readJournal, type Artifact } from '../src/runtime-prototype/state'
 import * as journalState from '../src/runtime-prototype/state'
 import { startSupervisor } from '../src/runtime-prototype/supervisor'
+import * as releaseArtifacts from '../src/runtime-update/artifact'
+import * as releaseAcquisition from '../src/runtime-update/manager'
 import { PACKAGE_VERSION } from '../src/shared'
 
 const cleanups: (() => Promise<unknown>)[] = []
@@ -43,7 +52,10 @@ afterEach(async () => {
   vi.clearAllMocks()
 })
 
-async function fixture(hook?: (input: ClientHook, fresh: boolean) => Record<string, unknown>) {
+async function fixture(
+  hook?: (input: ClientHook, fresh: boolean) => Record<string, unknown>,
+  automatic = false
+) {
   const root = await realpath(await mkdtemp('/tmp/tp-switch-test-'))
   await mkdir(join(root, 'run'), { mode: 0o700 })
   cleanups.push(() => rm(root, { recursive: true, force: true }))
@@ -58,6 +70,28 @@ async function fixture(hook?: (input: ClientHook, fresh: boolean) => Record<stri
   const [major, minor, patch] = PACKAGE_VERSION.split('.').map(Number)
   const b = await artifact(`${major}.${minor}.${patch! + 1}`)
   const config = prototypeConfig(root, a.entry)
+  if (automatic) {
+    a.release = { directory: root, manifestHash: 'a'.repeat(64) }
+    b.release = { directory: root, manifestHash: 'b'.repeat(64), integrity: 'verified' }
+    config.release = a.release
+    vi.spyOn(releaseAcquisition, 'acquireRelease').mockResolvedValue(b)
+    vi.spyOn(releaseArtifacts, 'verifyReleaseArtifact').mockImplementation((artifact) =>
+      releaseArtifacts.releaseManifest(artifact)
+    )
+    vi.spyOn(releaseArtifacts, 'releaseManifest').mockImplementation(
+      (artifact) =>
+        ({
+          packageVersion: artifact.version,
+          wireHash: 'a'.repeat(64),
+          guidanceEpoch: 1,
+          node: '>=22',
+          platforms: ['darwin', 'linux'],
+          controlProtocols: [2],
+          state: { family: 'test', reads: [1], writes: 1 },
+          extension: { legacy: true, protocols: [1] }
+        }) as RuntimeManifest
+    )
+  }
   const live = new Set<number>()
   const exiting = new Set<number>()
   const originalKill = process.kill.bind(process)
@@ -73,6 +107,11 @@ async function fixture(hook?: (input: ClientHook, fresh: boolean) => Record<stri
   let drained = true
   let blocker = 'work'
   let peerFailure = false
+  let autoBlockers: string[] | undefined = ['Acceptance not ready']
+  let idleForMs = 5000
+  let busyOnGate = false
+  let refuseStop = false
+  let waitForRuntime = true
   const hubs: { pid: number; stop: (exiting?: boolean) => Promise<void>; artifact: Artifact }[] = []
   async function start(artifact: Artifact) {
     const pid = nextPid++
@@ -107,7 +146,8 @@ async function fixture(hook?: (input: ClientHook, fresh: boolean) => Record<stri
         blockers: drained ? [] : [blocker],
         version: artifact.version,
         gated,
-        handoffVersion: 1
+        handoffVersion: 1,
+        ...(automatic ? { autoBlockers, idleForMs } : {})
       })
       peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-inspect') }), () => {
         return status()
@@ -119,10 +159,12 @@ async function fixture(hook?: (input: ClientHook, fresh: boolean) => Record<stri
         }),
         ({ params }) => {
           gated = params.closed
+          if (gated && busyOnGate) drained = false
           return status()
         }
       )
       peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-stop') }), () => {
+        if (refuseStop) throw unavailable('Late activity; shutdown was not admitted.')
         setTimeout(() => void stop(), 5)
         return {}
       })
@@ -175,7 +217,11 @@ async function fixture(hook?: (input: ClientHook, fresh: boolean) => Record<stri
     edge.request(
       {
         method: 'tempad/runtime-ready',
-        params: { hubId, ...(peerFailure ? { error: 'Frozen contract mismatch' } : {}) }
+        params: {
+          hubId,
+          ...(waitForRuntime ? { waitForRuntime: true } : {}),
+          ...(peerFailure ? { error: 'Frozen contract mismatch' } : {})
+        }
       },
       ResultSchema
     )
@@ -221,9 +267,106 @@ async function fixture(hook?: (input: ClientHook, fresh: boolean) => Record<stri
     },
     rejectCandidate: () => {
       peerFailure = true
+    },
+    auto: {
+      allow: () => {
+        autoBlockers = []
+      },
+      legacyHub: () => {
+        autoBlockers = undefined
+      },
+      recentWork: () => {
+        idleForMs = 0
+      },
+      raceGate: () => {
+        busyOnGate = true
+      },
+      refuseStop: () => {
+        refuseStop = true
+      },
+      oldEdge: async () => {
+        waitForRuntime = false
+        await ready(grant.hubId)
+      },
+      unready: async () => {
+        peerFailure = true
+        await ready(grant.hubId)
+      }
     }
   }
 }
+
+it.skipIf(process.platform === 'win32')(
+  'automatically replaces a compatible idle runtime once',
+  async () => {
+    const f = await fixture(undefined, true)
+    f.auto.allow()
+    await vi.waitFor(
+      async () => expect(await f.status()).toMatchObject({ active: f.b, gated: false }),
+      { timeout: 5000 }
+    )
+    expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b])
+    expect(readJournal(f.root)).toMatchObject({ phase: 'committed', previous: f.a })
+  }
+)
+
+it
+  .skipIf(process.platform === 'win32')
+  .each(['oldEdge', 'unready', 'legacyHub', 'recentWork'] as const)(
+  'keeps serving when automatic readiness is missing: %s',
+  async (scenario) => {
+    const f = await fixture(undefined, true)
+    f.auto.allow()
+    await f.auto[scenario]()
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    expect(await f.status()).toMatchObject({ active: f.a, gated: false })
+    expect(f.hubs).toHaveLength(1)
+  }
+)
+
+it.skipIf(process.platform === 'win32').each(['raceGate', 'refuseStop'] as const)(
+  'reopens the original Hub when work races automatic shutdown: %s',
+  async (scenario) => {
+    const f = await fixture(undefined, true)
+    f.auto.allow()
+    f.auto[scenario]()
+    await vi.waitFor(
+      async () =>
+        expect(await f.status()).toMatchObject({
+          active: f.a,
+          gated: false,
+          phase: 'committed',
+          failure: expect.any(String)
+        }),
+      { timeout: 5000 }
+    )
+    expect(f.hubs).toHaveLength(1)
+    expect(readJournal(f.root)?.failedBundles).toEqual([])
+  }
+)
+
+it.skipIf(process.platform === 'win32')(
+  'isolates and backs off automatic verification failures',
+  async () => {
+    const f = await fixture(undefined, true)
+    const verify = vi.spyOn(releaseArtifacts, 'verifyReleaseArtifact').mockImplementation(() => {
+      throw new Error('damaged archive')
+    })
+    f.auto.allow()
+    await vi.waitFor(
+      async () =>
+        expect(await f.status()).toMatchObject({
+          active: f.a,
+          gated: false,
+          updates: { automaticError: expect.stringContaining('damaged archive') }
+        }),
+      { timeout: 5000 }
+    )
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    expect(verify).toHaveBeenCalledOnce()
+    expect(f.hubs).toHaveLength(1)
+  }
+)
 
 it.skipIf(process.platform === 'win32')(
   'recovers a supervisor with an expired admitted hook without replay or loss of Stop',

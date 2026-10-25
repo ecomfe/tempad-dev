@@ -78,7 +78,9 @@ Root:
   registry requests from checkout builds. A real metadata write failure must leave the supervisor
   and MCP service alive without starting acquisition. After all owners exit, concurrent installed-release
   launches upgrade both control and Hub across an epoch boundary without registry access or
-  allowing an older CLI to downgrade them. Automatic activation stays disabled. CI runs this on
+  allowing an older CLI to downgrade them. A separate simulated Codex namespace checks idle
+  automatic activation, unknown/Claude/off-policy deferral, continuous tool work, bounded request
+  waiting and measured admission pause. This is process evidence, not new native acceptance. CI runs this on
   Node 22/24; Windows and native host acceptance remain outside this fixture. No installed
   runtime or public registry is used by the acquisition test.
 - `pnpm mcp:prepare-release --output <absolute-new.tgz> --verify-baseline` builds and verifies
@@ -136,7 +138,9 @@ After replacing the plugin and reloading the extension, require preflight and a 
 Observe staged-only behavior before explicitly invoking the initial package's CLI with
 `--update-runtime <candidate-version>` and the descriptor's four `TEMPAD_MCP_*_DIR` values.
 Confirm the exact version in its TTY. Record stable host/edge identities, changed Hub identity,
-native feedback/lifecycle/Stop, subsequent canvas work, and `automaticActivation: false`.
+native feedback/lifecycle/Stop and subsequent canvas work. Enrolled, wait-capable Codex-only
+clients can now activate after five idle seconds; retain an off-policy observer during staged-only
+observation, then close it to verify automatic activation. Claude bindings must remain staged.
 The registry request log records only local acquisition. This establishes installed-host behavior
 for the local candidate; official-registry provenance and cross-version release compatibility
 remain separate checks. Do not count synthetic SDK clients as native-host acceptance.

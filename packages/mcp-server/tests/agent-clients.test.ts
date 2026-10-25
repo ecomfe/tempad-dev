@@ -89,6 +89,57 @@ async function fixture(connected = true) {
 }
 
 describe('client identity and capabilities', () => {
+  it('keeps unbound and pending Claude connections visible to automatic-update admission', () => {
+    const clients = new AgentClients(new DesignTasks({ createId: () => 'unused' }))
+    expect(clients.hasClaudeConnections).toBe(false)
+    clients.event('codex', {
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'codex-app' }
+    })
+    expect(clients.hasClaudeConnections).toBe(false)
+    clients.subscribeBinding('pending', () => {}, 'session-hint')
+    expect(clients.hasClaudeConnections).toBe(true)
+    clients.disconnect('pending')
+    expect(clients.hasClaudeConnections).toBe(false)
+    clients.event('claude', {
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'claude' }
+    })
+    expect(clients.hasClaudeConnections).toBe(true)
+    clients.disconnect('claude')
+    expect(clients.hasClaudeConnections).toBe(false)
+    clients.close()
+  })
+
+  it('records the end of native queue work even when it completes between inspections', async () => {
+    let now = 100
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now)
+    const native = new CodexAppFeedback('/unused')
+    let finish!: () => void
+    const cancel = vi.spyOn(native, 'cancelQueued').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        })
+    )
+    const clients = new AgentClients(new DesignTasks({ createId: () => 'unused' }), native)
+    try {
+      now = 200
+      const pending = clients.cancelFeedback('task')
+      expect(clients.hasPendingActions).toBe(true)
+      expect(clients.lastActivity).toBe(200)
+      now = 300
+      finish()
+      await pending
+      expect(clients.hasPendingActions).toBe(false)
+      expect(clients.lastActivity).toBe(300)
+    } finally {
+      clients.close()
+      cancel.mockRestore()
+      clock.mockRestore()
+    }
+  })
+
   it.each([false, true])(
     'does not trust a browser-only review destination after restart=%s or an ordinary owner read',
     async (restart) => {

@@ -1,3 +1,4 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { CallToolResultSchema, ResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import {
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
@@ -5,6 +6,7 @@ import {
   type DesignTask,
   type ToolCallMessage
 } from '@tempad-dev/shared'
+import { randomUUID } from 'node:crypto'
 import { EventEmitter, once } from 'node:events'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer as createHttpServer } from 'node:http'
@@ -80,7 +82,11 @@ import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
 import { removeHubRuntimeIdentityIfOwned, writeHubRuntimeIdentity } from '../src/runtime-identity'
 import { LeaseSchema } from '../src/runtime-prototype/hub-control'
-import { ControlPeer, SocketTransport } from '../src/runtime-prototype/protocol'
+import {
+  ControlPeer,
+  RuntimeDataTransport,
+  SocketTransport
+} from '../src/runtime-prototype/protocol'
 import { runRuntimeRecovery } from '../src/runtime-recovery'
 import { log, resolveStateDir } from '../src/shared'
 import { startExtensionWebSocketServer } from '../src/websocket-server'
@@ -254,6 +260,99 @@ it('includes pending native actions and transfers in the runtime drain boundary'
     Object.assign(assets, { pendingTransfers: 0 })
     expect(await inspect()).toMatchObject({ drained: true })
   } finally {
+    await peer.close()
+  }
+})
+
+it('requires initialized Codex clients for automatic switches and records activity between inspections', async () => {
+  let now = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  const { startHub } = await loadRuntime()
+  await startHub({ prototype: { secret: 'isolated' } })
+  const socket = connect(fixture.socketPath)
+  consumerSockets.push(socket)
+  await once(socket, 'connect')
+  const peer = new ControlPeer()
+  await peer.connect(new SocketTransport(socket))
+  const clients: Client[] = []
+  try {
+    const grant = await peer.request(
+      { method: 'tempad/runtime-acquire', params: { secret: 'isolated', versions: [2] } },
+      LeaseSchema
+    )
+    const inspect = () => peer.request({ method: 'tempad/runtime-inspect' }, ResultSchema)
+    const attach = async (name: string) => {
+      const sessionId = randomUUID()
+      const token = randomUUID()
+      await peer.request(
+        {
+          method: 'tempad/runtime-register',
+          params: { sessionId, token, context: captureHostContext({}), versions: [2] }
+        },
+        ResultSchema
+      )
+      const data = connect(fixture.socketPath)
+      consumerSockets.push(data)
+      await once(data, 'connect')
+      const attached = once(data, 'data')
+      data.write(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tempad/runtime-attach',
+          params: { sessionId, token }
+        }) + '\n'
+      )
+      await attached
+      expect((await inspect()).autoBlockers).not.toEqual([])
+      const client = new Client({ name, version: '1' })
+      clients.push(client)
+      await client.connect(
+        new RuntimeDataTransport(new SocketTransport(data), {
+          generation: () => grant.generation,
+          admit: () => true,
+          role: 'edge'
+        })
+      )
+      return client
+    }
+    expect((await inspect()).autoBlockers).not.toEqual([])
+    const codex = await attach('codex-mcp-client')
+    now = 6000
+    expect(await inspect()).toMatchObject({ drained: true, autoBlockers: [], idleForMs: 6000 })
+    // A complete call between two inspections still restarts the quiet interval.
+    await codex.callTool({ name: 'list_design_sessions', arguments: {} })
+    expect(await inspect()).toMatchObject({ drained: true, autoBlockers: [], idleForMs: 0 })
+    now = 7000
+    const assetOptions = vi.mocked(createAssetHttpServer).mock.calls.at(-1)![1]!
+    assetOptions.onActivity?.()
+    now = 7500
+    expect((await inspect()).idleForMs).toBe(500)
+    // Reading status and changing the gate do not themselves count as activity.
+    await peer.request({ method: 'tempad/runtime-gate', params: { closed: true } }, ResultSchema)
+    expect((await inspect()).idleForMs).toBe(500)
+    await peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)
+
+    const unknown = await attach('unknown-host')
+    expect((await inspect()).autoBlockers).not.toEqual([])
+    await unknown.close()
+    await vi.waitFor(async () => expect((await inspect()).autoBlockers).toEqual([]))
+    const claude = await attach('claude-code')
+    expect(await inspect()).toMatchObject({ drained: true })
+    expect((await inspect()).autoBlockers).not.toEqual([])
+    await claude.close()
+    await vi.waitFor(async () => expect((await inspect()).autoBlockers).toEqual([]))
+    // An inherited Codex environment cannot overrule a pending Claude identity.
+    await codex.notification({
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'claude', sessionId: 'unverified-session' }
+    })
+    await codex.ping()
+    expect((await inspect()).autoBlockers).toContain(
+      'Claude native automatic switching acceptance is pending'
+    )
+  } finally {
+    await Promise.all(clients.map((client) => client.close()))
     await peer.close()
   }
 })
