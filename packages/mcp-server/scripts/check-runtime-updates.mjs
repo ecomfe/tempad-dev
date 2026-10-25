@@ -4,20 +4,10 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
 import console from 'node:console'
-import {
-  chmod,
-  cp,
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  writeFile
-} from 'node:fs/promises'
+import { chmod, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { createServer as createSocketServer } from 'node:net'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -25,19 +15,24 @@ import { fileURLToPath, URL } from 'node:url'
 import { promisify } from 'node:util'
 import { build } from 'tsdown'
 
+import { assertPrivatePath, protectPipe, runtimeEndpoint } from '../src/runtime-platform.ts'
 import config from '../tsdown.config.ts'
+import { runPackageManager } from './package-manager.mjs'
 import { runtimeSourceHash } from './runtime-source-hash.mjs'
+import {
+  commandArguments,
+  fixtureEnvironment,
+  fixtureRoot,
+  processInventory
+} from './runtime-test-platform.mjs'
 
-if (process.platform === 'win32' || process.env.TEMPAD_MCP_DEV_CHECKOUT)
-  throw new Error(
-    'Runtime acquisition acceptance requires an isolated Unix release-test environment.'
-  )
+if (process.env.TEMPAD_MCP_DEV_CHECKOUT)
+  throw new Error('Runtime acquisition acceptance requires an isolated release-test environment.')
 const exec = promisify(execFile)
 const source = fileURLToPath(new URL('..', import.meta.url))
 const repo = join(source, '../..')
 const sourceHash = runtimeSourceHash(repo)
-// macOS TMPDIR can exceed sockaddr_un's limit after nested runtime/cache paths.
-const root = await realpath(await mkdtemp('/tmp/tp-release-test-'))
+const root = await fixtureRoot('tp-release-test-')
 const packaged = join(root, 'source.tgz')
 const clients = []
 const transports = []
@@ -101,7 +96,7 @@ await new Promise((resolve) => registry.listen(0, '127.0.0.1', resolve))
 const registryUrl = `http://127.0.0.1:${registry.address().port}`
 const isolationEnv = {
   ...process.env,
-  HOME: join(root, 'home'),
+  ...fixtureEnvironment(join(root, 'home'), root),
   TEMPAD_MCP_RUNTIME_DIR: join(root, 'run'),
   TEMPAD_MCP_STATE_DIR: join(root, 'state'),
   TEMPAD_MCP_ASSET_DIR: join(root, 'assets'),
@@ -160,17 +155,26 @@ async function makeArtifact(version, base, epoch) {
       {
         name: 'isolated-release-fixture',
         load(id) {
-          if (id === join(source, 'package.json')) return JSON.stringify({ ...pkg, version })
+          if (resolve(id) === join(source, 'package.json'))
+            return JSON.stringify({ ...pkg, version })
         },
         transform(code, id) {
-          if (id === join(source, 'src/runtime-update/registry.ts')) {
+          if (process.platform === 'win32' && resolve(id) === join(source, 'src/shared.ts')) {
+            const boundary = 'export const SOCK_PATH = resolveSockPath()'
+            assert.ok(code.includes(boundary), 'fixture public endpoint boundary changed')
+            return code.replace(
+              boundary,
+              `import { runtimeEndpoint as fixtureRuntimeEndpoint } from './runtime-platform'\nexport const SOCK_PATH = fixtureRuntimeEndpoint(RUNTIME_DIR, 'mcp.sock')`
+            )
+          }
+          if (resolve(id) === join(source, 'src/runtime-update/registry.ts')) {
             assert.ok(code.includes("const REGISTRY = 'https://registry.npmjs.org'"))
             return code.replace(
               "const REGISTRY = 'https://registry.npmjs.org'",
               `const REGISTRY = ${JSON.stringify(registryUrl)}`
             )
           }
-          if (id === join(source, 'src/hub-runtime.ts')) {
+          if (resolve(id) === join(source, 'src/hub-runtime.ts')) {
             const boundary = 'const runtimeDataSockets = new Map<string, Socket>()'
             assert.ok(code.includes(boundary))
             code = code.replace(
@@ -200,10 +204,14 @@ async function makeArtifact(version, base, epoch) {
   await rm(join(directory, 'dist/runtime-manifest.json'), { force: true })
   const packed = JSON.parse(
     (
-      await exec('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', root], {
-        cwd: directory,
-        maxBuffer: 8 * 1024 * 1024
-      })
+      await runPackageManager(
+        'npm',
+        ['pack', '--ignore-scripts', '--json', '--pack-destination', root],
+        {
+          cwd: directory,
+          maxBuffer: 8 * 1024 * 1024
+        }
+      )
     ).stdout
   )[0]
   const files = verify.readArchive(await readFile(join(root, packed.filename)))
@@ -226,7 +234,7 @@ async function makeArtifact(version, base, epoch) {
     name: pkg.name,
     entry: 'dist/managed-runtime.mjs',
     node: pkg.engines.node,
-    platforms: ['darwin', 'linux'],
+    platforms: ['darwin', 'linux', 'win32'],
     wireHash: probe.wireHash,
     presentationHash: probe.presentationHash,
     lockHash: 'a'.repeat(64),
@@ -237,10 +245,14 @@ async function makeArtifact(version, base, epoch) {
   await rm(join(root, packed.filename))
   const final = JSON.parse(
     (
-      await exec('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', root], {
-        cwd: directory,
-        maxBuffer: 8 * 1024 * 1024
-      })
+      await runPackageManager(
+        'npm',
+        ['pack', '--ignore-scripts', '--json', '--pack-destination', root],
+        {
+          cwd: directory,
+          maxBuffer: 8 * 1024 * 1024
+        }
+      )
     ).stdout
   )[0]
   const bytes = await readFile(join(root, final.filename))
@@ -299,8 +311,7 @@ async function stopFixture(directory) {
   ]) {
     let record
     try {
-      const stat = await lstat(path)
-      assert.ok(stat.isFile() && !stat.isSymbolicLink() && stat.uid === process.getuid())
+      assertPrivatePath(path, 'file')
       record = JSON.parse(await readFile(path, 'utf8'))
     } catch (error) {
       if (error.code === 'ENOENT') continue
@@ -308,16 +319,24 @@ async function stopFixture(directory) {
     }
     const pid = role === 'supervisor' ? record.pid : record.processId
     const entry = role === 'supervisor' ? record.entry : record.entryPath
-    assert.ok(Number.isInteger(pid) && pid > 0 && entry.startsWith(`${root}/`))
+    assert.ok(Number.isInteger(pid) && pid > 0 && entry.startsWith(`${root}${sep}`))
     if (exited(pid)) continue
     let command
     try {
-      command = (await exec('ps', ['-p', String(pid), '-o', 'command='])).stdout.trim()
+      command = processInventory().find((value) => value.pid === pid)?.command
+      if (!command && exited(pid)) continue
+      assert.ok(command, 'fixture process command must be inspectable before cleanup')
     } catch (error) {
       if (exited(pid)) continue
       throw error
     }
-    assert.deepEqual(command.split(/\s+/).slice(-5), [entry, '--root', runtimeRoot, '--role', role])
+    assert.deepEqual(commandArguments(command).slice(-5), [
+      entry,
+      '--root',
+      runtimeRoot,
+      '--role',
+      role
+    ])
     try {
       process.kill(pid, 'SIGTERM')
     } catch (error) {
@@ -354,7 +373,9 @@ async function automaticAcceptance(a, b) {
     const genericCatalog = await generic.listTools()
     const observer = await client(a, 'off', env)
     await owner.connect(
-      new SocketTransport(await connectSocket(join(directory, 'run/supervisor.sock')))
+      new SocketTransport(
+        await connectSocket(runtimeEndpoint(join(directory, 'run'), 'supervisor.sock'))
+      )
     )
     const status = async () => {
       const state = await owner.request({ method: 'tempad/runtime-status' }, ResultSchema)
@@ -516,8 +537,10 @@ try {
   assert.equal(requests.length, 0)
   await assert.rejects(readFile(join(root, 'state/runtime/prototype.json')))
   const legacy = createSocketServer((socket) => socket.end())
-  await new Promise((resolve) => legacy.listen(join(root, 'run/mcp.sock'), resolve))
-  await chmod(join(root, 'run/mcp.sock'), 0o600)
+  const legacyPath = runtimeEndpoint(join(root, 'run'), 'mcp.sock')
+  await new Promise((resolve) => legacy.listen(legacyPath, resolve))
+  if (process.platform === 'win32') protectPipe(legacyPath)
+  else await chmod(legacyPath, 0o600)
   const before = requests.length
   await assert.rejects(
     exec(process.execPath, [join(a.directory, 'dist/cli.mjs'), '--check-runtime-update'], {
@@ -548,14 +571,16 @@ try {
   const storageFailureClient = await client(a, 'stable', storageFailureEnv)
   control = new ControlPeer()
   await control.connect(
-    new SocketTransport(await connectSocket(join(storageFailureRoot, 'run/supervisor.sock')))
+    new SocketTransport(
+      await connectSocket(runtimeEndpoint(join(storageFailureRoot, 'run'), 'supervisor.sock'))
+    )
   )
   const storageFailure = await until(async () => {
     const value = await control.request({ method: 'tempad/runtime-status' }, ResultSchema)
     return value.updates.error?.includes('could not be saved') && value
   }, 'isolated update metadata failure')
   runtimePids = [storageFailure.supervisorPid, storageFailure.hubPid]
-  assert.match(storageFailure.updates.error, /EISDIR/)
+  assert.match(storageFailure.updates.error, /EISDIR|EPERM|EACCES/)
   assert.equal(storageFailure.updates.checking, false)
   assert.equal(requests.length, before, 'failed attempt must not query the registry')
   await storageFailureClient.ping()
@@ -576,7 +601,9 @@ try {
   const catalog = await first.listTools()
   const second = await client(a, 'off')
   control = new ControlPeer()
-  await control.connect(new SocketTransport(await connectSocket(join(root, 'run/supervisor.sock'))))
+  await control.connect(
+    new SocketTransport(await connectSocket(runtimeEndpoint(join(root, 'run'), 'supervisor.sock')))
+  )
   const request = (method, params) =>
     control.request({ method, ...(params ? { params } : {}) }, ResultSchema, { timeout: 180_000 })
   const status = () => request('tempad/runtime-status')
@@ -716,7 +743,9 @@ try {
   const networkBeforeRestart = requests.length
   const [restarted, concurrent] = await Promise.all([client(c, 'pinned'), client(c, 'pinned')])
   control = new ControlPeer()
-  await control.connect(new SocketTransport(await connectSocket(join(root, 'run/supervisor.sock'))))
+  await control.connect(
+    new SocketTransport(await connectSocket(runtimeEndpoint(join(root, 'run'), 'supervisor.sock')))
+  )
   const cold = await status()
   runtimePids = [cold.supervisorPid, cold.hubPid]
   assert.equal(cold.active.version, c.version)

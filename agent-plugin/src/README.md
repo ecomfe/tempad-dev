@@ -90,9 +90,9 @@ MCP 0.10.0 and later use `manage_design_task` in place of the older lifecycle to
    setup, update both `figma-design-to-code` and `design-in-figma`.
 3. Keep the release MCP configuration on `@tempad-dev/mcp@latest`; replace any previous
    `@alpha` or fixed alpha version. Plugin 0.5.10 enables verified runtime downloads with MCP
-   0.12.0 or later on macOS/Linux. Compatible Hub updates switch automatically during idle MCP
-   sessions with waiting support; Claude keeps candidates staged pending native lifecycle acceptance. Windows
-   keeps the bundled runtime. When upgrading from an unmanaged Hub, disconnect all TemPad MCP
+   0.12.0 or later on macOS, Linux and Windows. Compatible Hub updates switch automatically during idle MCP
+   sessions with waiting support; Claude keeps candidates staged pending native lifecycle acceptance.
+   When upgrading from an unmanaged Hub, disconnect all TemPad MCP
    clients once, then restart their MCP servers. Edge processes, installed plugins and incompatible
    runtime changes still require their normal update/restart. See the
    [runtime update controls](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/README.md#runtime-updates-0120).

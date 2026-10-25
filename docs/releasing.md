@@ -73,11 +73,10 @@ using its byte bridge; ordinary MCP startup must not fail merely because older w
 The extension separately waits for Chrome Web Store review and staged rollout. Neither npm nor
 store publication establishes that users are running the update or have reloaded Figma.
 
-Verified MCP 0.12.0 releases default to stable runtime updates on macOS/Linux. Agent Plugin
+Verified MCP 0.12.0 releases default to stable runtime updates on macOS, Linux and Windows. Agent Plugin
 0.5.10 and shared installation snippets also select `--runtime-updates=stable` explicitly.
 Publish the verified MCP release before shipping these plugin targets or setup instructions.
-Windows accepts the same setup but keeps its bundled runtime; checkout and unverified builds
-never acquire release updates. Compatible Hub updates activate for initialized MCP sessions
+Checkout and unverified builds never acquire release updates. Compatible Hub updates activate for initialized MCP sessions
 with negotiated waiting support at an idle boundary. Claude keeps candidates staged; `off` and
 `pinned` policies remain available. See the [runtime design](engineering/mcp-runtime-updates.md).
 
@@ -223,3 +222,8 @@ bindings must demonstrate v2 capability; plugin version or elapsed rollout time 
 Legacy/unknown Claude bindings defer switching. Retain the legacy 750 ms hook path and downgrade
 only on an explicit unsupported-version reply. The acquisition fixture and Phase 2 fault matrix
 are publication checks, but do not replace Phase 4 installed Codex/Claude acceptance.
+
+Require the [Windows runtime workflow](../.github/workflows/windows-runtime.yml) to pass for the
+candidate on Node 22 and 24 before publishing a manifest that includes `win32`. It exercises real
+ACL checks, named pipes and processes across acquisition, switching and recovery; it does not
+establish Windows desktop-host acceptance. Preserve its logs with the release evidence.

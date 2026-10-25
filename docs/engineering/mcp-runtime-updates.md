@@ -218,8 +218,8 @@ from semver, the current directory, or whether `.git` happens to exist.
 
 MCP 0.12.0 defaults to stable updates only when a verified release manifest is present.
 Unverified local builds retain the bundled path with no registry requests; explicit release
-enrollment fails rather than falling back online. Windows accepts the stable setup but keeps
-the bundled runtime without downloading or switching. `--runtime-updates=off` opts out, while
+enrollment fails rather than falling back online. macOS, Linux and Windows share the managed
+update policy. `--runtime-updates=off` opts out, while
 `pinned` requires the launch artifact's exact version.
 Agent Plugin 0.5.10 and the shared manual setup snippets specify the same stable policy.
 Keep both root and MCP README languages aligned; publish the compatible runtime before these
@@ -233,8 +233,11 @@ Namespace IPC endpoints, locks, state, assets, activation records, and caches by
 and profile. Checkout profiles also include a stable hash of the real checkout path.
 The [release Windows pipe](../../packages/mcp-server/src/shared.ts) retains its existing name
 and ignores runtime-directory overrides; the Phase 0a checkout pipe includes user and checkout
-hashes. Pipe naming does not establish cross-user access control. Unsupported platforms keep
-updates disabled rather than sharing an unsafe fallback endpoint.
+hashes. Managed Windows control/data pipe names also incorporate the canonical runtime directory
+and user, so test and explicit runtime overrides cannot collide. Their private storage and pipe
+ACLs are checked through the Windows security APIs; Unix ownership/mode checks are not used as
+Windows evidence. Untrusted paths and endpoints fail closed. The compatibility pipe retains its
+released name. Naming alone does not establish cross-user access control.
 
 ### Checkout discovery and installed hooks
 
@@ -687,7 +690,7 @@ The isolated `runtime-prototype.mjs` entry implements this topology with control
 Protocol 1 was an unpublished prototype without hook admission provenance; its isolated
 fixtures require a new runtime root. Incompatible control components fail during negotiation,
 before handoff or rollback, rather than interpreting historical hooks as fresh evidence.
-It requires a private Unix root, pins the built `.mjs` files, and allocates ephemeral ports;
+It requires a private runtime root, pins the built `.mjs` files, and allocates ephemeral ports;
 the normal CLI does not select it. `pnpm mcp:check-runtime-prototype` exercises it with real
 processes and a synthetic extension, without touching installed hosts or downloading packages.
 
@@ -736,7 +739,7 @@ The extra process and roughly 116 MiB RSS cost need to be considered before prod
 The isolated prototype implements local switching. The installed CLI still uses its normal
 bridge; no release or checkout is enrolled, and no online version lookup or download runs.
 Build the prototype separately as in Phase 1. Keep the initial entry available for supervisor
-recovery and issue operator commands against that entry and the same private, canonical Unix root:
+recovery and issue operator commands against that entry and the same private, canonical root:
 
 ```sh
 node <initial-entry>/runtime-prototype.mjs --root <root> --status
@@ -787,8 +790,9 @@ environment, confirming the exact block interactively, and then reading the canv
 remain cancelled. No extension recovery dialog is exposed in this phase.
 
 `pnpm mcp:check-runtime-switch` owns the repeatable process/fault matrix; unit tests cover durable
-commit failures, stale confirmations, lifecycle deduplication and admission boundaries. Windows
-process switching and native Codex/Claude acceptance are not claimed by these isolated checks.
+commit failures, stale confirmations, lifecycle deduplication and admission boundaries. The
+Windows CI job runs this matrix against real named pipes and child processes; installed
+Codex/Claude behavior remains a separate acceptance requirement.
 
 - In isolated release-test profiles, switch compatible A to B with two clients still
   initialized; idle clients do not block. The operator offers a newer local build;
@@ -827,7 +831,10 @@ active Hub available. The release policy is now maintained in [Releasing](../rel
 `mcp:check-runtime-updates` covers real downloads from an isolated local registry, shared ownership,
 explicit activation, preserved session presentation, incompatible epochs, offline operation,
 corrupt caches, and checkout refusal. These process tests do not establish native host acceptance.
-Windows uses the bundled bridge even with the stable flag; managed switching is unavailable.
+Windows runs the same acquisition and switch transaction with private named pipes, ACL-checked
+storage and platform-specific child-process cleanup. The [Windows runtime CI](../../TESTING.md#windows-runtime-ci)
+matrix must pass for the candidate before release; adding a platform to the manifest alone is
+not acceptance. This does not establish Windows desktop-host behavior.
 The remaining rollout requirements are:
 
 - Before this phase, publish the backward-compatible hook receiver, then a versioned plugin

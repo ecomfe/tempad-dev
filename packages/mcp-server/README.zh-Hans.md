@@ -21,12 +21,11 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 
 ### 运行时更新（0.12.0+）
 
-经过校验的正式包在 macOS/Linux 上默认启用后台下载与兼容 Hub 自动更新，既有 `npx @latest` 配置
+经过校验的正式包在 macOS、Linux 和 Windows 上默认启用后台下载与兼容 Hub 自动更新，既有 `npx @latest` 配置
 重启到 0.12.0 或更高版本后也会启用。上述配置和 Agent Plugin 0.5.10 通过
 `--runtime-updates=stable` 明确选择此策略。首次启用需关闭所有现有 TemPad MCP 连接，再重新启动；
 已有 release 任务和资源存储保持不变。
 在这次重启之前，新客户端继续使用仍在运行的旧 Hub，不会中断它。
-Windows 可使用相同配置，但仍运行随包版本，不会后台下载或切换。
 Checkout 开发构建使用独立的本地配置，始终不会获取线上运行时。
 
 在使用相同运行配置的终端中：
@@ -48,7 +47,8 @@ supervisor、Node、浏览器扩展和已安装插件仍需按原方式升级或
 若必须严格使用启动包的版本，请在固定 npm 版本的配置中加 `--runtime-updates=pinned`；
 与当前 Hub 冲突时会提示重启，不会另起一个 Hub。
 未经校验的本地构建继续运行随包版本，不下载线上版本，且会拒绝显式启用更新。
-Windows 不支持运行时下载、切换或 `pinned` 参数；需要固定版本时，请固定 npm 包版本并省略更新参数。
+Windows 的托管更新使用命名管道和经过 ACL 校验的私有存储；
+[进程级 CI](../../TESTING.md#windows-runtime-ci) 与已安装桌面宿主的交互验收分别进行。
 
 ### 工具和资源
 
@@ -144,8 +144,9 @@ Linux 上，运行时会以 `0700` 权限创建 `<系统临时目录>/tempad-dev
 一旦已有私有 UID 目录，旧目录消失或后来出现空目录都不会切回；两个目录同时存在 socket 或 Hub
 锁，或当前用户目录中的这些文件权限不安全时，会拒绝自动迁移。请先关闭既有运行时并修正所有者和权限。
 其他平台仍使用 `<系统临时目录>/tempad-dev`；显式目录覆盖优先。Unix 客户端与生命周期 hooks
-连接前会检查 socket 类型、所有者和私有权限，不可信时直接拒绝，不另启 Hub。Windows 仍保留已发布的
-固定命名管道路径，尚未实现逐用户管道隔离。
+连接前会检查 socket 类型、所有者和私有权限，不可信时直接拒绝，不另启 Hub。Windows 保留已发布的
+兼容管道名，托管运行时的控制与数据管道按用户和运行目录隔离。Windows 使用实际 ACL 校验，将托管
+存储和端点的访问限制为当前用户、SYSTEM 与 Administrators，不依赖 Unix 权限位；路径或权限不可信时拒绝启动。
 
 Hub 仅接受来自 Chrome 扩展 Origin、且目标为根路径的 WebSocket 握手。如需收紧安装环境，请将浏览器中显示的 TemPad Dev 扩展 Origin 写入 `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS`。Origin 校验与每次进程启动生成的 asset capability 可以降低跨 Origin 的 loopback 滥用，但不能认证本机进程，包括先占用端口的其他操作系统用户进程；详见[本地 MCP 威胁模型](../../docs/security/local-mcp-threat-model.md)。
 

@@ -55,12 +55,13 @@ Root:
   CI runs it alongside profile isolation.
   It refuses Windows for the same fixed-pipe constraint; it does not connect to installed hosts.
   Native adapter and real Hub socket tests separately cover routing and persisted host contexts.
-- `pnpm mcp:check-runtime-prototype` builds a bundled-only prototype in a private Unix root,
+- `pnpm mcp:check-runtime-prototype` builds a bundled-only prototype in a private runtime root,
   using ephemeral WebSocket/HTTP ports and a synthetic extension. It checks two initialized
   edges, supervisor crash recovery without replacing the Hub or replaying a write, admission
   fencing, Stop, host-context isolation, legacy hook routing, and last-client shutdown. It
   reports startup/recovery timings and process RSS. The installed CLI and live runtimes are
-  unchanged; this harness does not download or switch versions. Windows is not supported.
+  unchanged; this harness does not download or switch versions. Windows uses named pipes and
+  checks actual directory and pipe ACLs rather than Unix permission bits.
 - `pnpm mcp:check-runtime-switch` builds trusted local A/B fixtures from source in an ignored
   directory, then exercises manual switching with two initialized SDK clients and a synthetic
   extension. It checks draining, fixed asset endpoints, a disconnected write and late receipt,
@@ -69,8 +70,8 @@ Root:
   New edges also attach during a delayed handoff and after real stale writer leases expire;
   the fixture's initialization deadline exceeds the edge's 90-second recovery bound.
   `TEMPAD_SWITCH_CASES` selects comma-separated cases for diagnosis; `TEMPAD_KEEP_PROTOTYPE=1`
-  retains isolated evidence. It never downloads or updates installed runtimes. Windows and native
-  host behavior are outside this harness; CI runs the full matrix on Node 22 and 24.
+  retains isolated evidence. It never downloads or updates installed runtimes. CI runs the full
+  matrix on Linux and Windows with Node 22 and 24; native host behavior remains outside this harness.
 - `pnpm mcp:check-runtime-updates` builds complete release archives from the frozen local store,
   serves them from an isolated loopback registry, and exercises default release enrollment, staging and explicit
   activation through real CLI/Hub processes. It checks mixed policies sharing one Hub, exact
@@ -83,7 +84,7 @@ Root:
   allowing an older CLI to downgrade them. A separate simulated Codex namespace checks idle
   automatic activation, generic MCP clients, Claude/off-policy deferral, continuous tool work, bounded request
   waiting and measured admission pause. This is process evidence, not new native acceptance. CI runs this on
-  Node 22/24; Windows and native host acceptance remain outside this fixture. No installed
+  Node 22/24 on Linux and Windows; native host acceptance remains outside this fixture. No installed
   runtime or public registry is used by the acquisition test.
 - `pnpm mcp:prepare-release --output <absolute-new.tgz> --verify-baseline` builds and verifies
   the publishable dependency closure and checks the current stable npm baseline. See
@@ -112,6 +113,19 @@ Root:
 - `pnpm agent-eval:skills <rollout.jsonl>` (fingerprint the presented skill catalog)
 - `pnpm agent-eval:log <start|finish|abandon|check|summary>` (retain the small amount
   of provenance needed to trust a live authoring run)
+
+### Windows runtime CI
+
+The [Windows runtime workflow](.github/workflows/windows-runtime.yml) runs the runtime unit
+tests and all three supervisor/switch/acquisition process harnesses on Node 22 and 24. It
+preserves LF source bytes for the reviewed manifest hash, asserts the selected Node version,
+and uploads per-step logs. Push a validation branch under `ci/` to run it without publishing
+`main`; it also runs for `main`, pull requests and manual dispatch.
+
+Both Windows jobs must pass on the candidate before release. These checks exercise real
+named pipes, ACLs, child processes, downloads, concurrent edges, in-flight requests, automatic
+activation, crashes and rollback. They do not establish installed Codex/Claude desktop behavior,
+and do not change the Windows limitations of the separate profile/host-context/bridge harnesses.
 
 ### Native runtime switch acceptance
 

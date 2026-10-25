@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import console from 'node:console'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,6 +7,7 @@ import process from 'node:process'
 import { fileURLToPath, URL } from 'node:url'
 import { parseArgs } from 'node:util'
 
+import { runPackageManagerSync } from './package-manager.mjs'
 import { runtimeSourceHash } from './runtime-source-hash.mjs'
 
 const repo = fileURLToPath(new URL('../../..', import.meta.url))
@@ -24,8 +24,8 @@ if (values['source-hash']) {
   console.log(sourceHash)
   process.exit(0)
 }
-if (process.env.TEMPAD_MCP_DEV_CHECKOUT || process.platform === 'win32')
-  throw new Error('Prepare release artifacts in a release environment on macOS or Linux.')
+if (process.env.TEMPAD_MCP_DEV_CHECKOUT)
+  throw new Error('Prepare release artifacts in a release environment, not a checkout profile.')
 if (!values.output || !isAbsolute(values.output))
   throw new Error('Use --output <absolute-new.tgz> [--verify-baseline].')
 
@@ -67,7 +67,7 @@ try {
   const deploy = join(root, 'deploy')
   // A hoisted, offline deploy from the frozen workspace lock avoids pnpm store
   // symlinks escaping the npm tarball. No installation or lifecycle scripts run.
-  execFileSync(
+  runPackageManagerSync(
     'pnpm',
     [
       '--filter',
@@ -84,10 +84,11 @@ try {
   )
   rmSync(join(deploy, MANIFEST_PATH), { force: true })
   const packed = JSON.parse(
-    execFileSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', root], {
-      cwd: deploy,
-      encoding: 'utf8'
-    })
+    runPackageManagerSync(
+      'npm',
+      ['pack', '--ignore-scripts', '--json', '--pack-destination', root],
+      { cwd: deploy, encoding: 'utf8' }
+    )
   )[0]
   const files = readArchive(readFileSync(join(root, packed.filename)))
   const unpacked = join(root, 'unpacked')
@@ -105,7 +106,7 @@ try {
     packageVersion: pkg.version,
     entry: 'dist/managed-runtime.mjs',
     node: pkg.engines.node,
-    platforms: ['darwin', 'linux'],
+    platforms: ['darwin', 'linux', 'win32'],
     wireHash: probe.wireHash,
     presentationHash: probe.presentationHash,
     lockHash: sha256(readFileSync(join(repo, 'pnpm-lock.yaml'))),
@@ -130,10 +131,11 @@ try {
   writeFileSync(join(deploy, MANIFEST_PATH), JSON.stringify(manifest, null, 2) + '\n')
   rmSync(join(root, packed.filename))
   const final = JSON.parse(
-    execFileSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', root], {
-      cwd: deploy,
-      encoding: 'utf8'
-    })
+    runPackageManagerSync(
+      'npm',
+      ['pack', '--ignore-scripts', '--json', '--pack-destination', root],
+      { cwd: deploy, encoding: 'utf8' }
+    )
   )[0]
   const bytes = readFileSync(join(root, final.filename))
   verifyArchive(bytes, pkg.version, final.integrity)

@@ -1,0 +1,86 @@
+name: Windows runtime
+
+on:
+  push:
+    branches: [main, 'ci/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.x', '24.x']
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - name: Preserve reviewed source bytes
+        run: git config --global core.autocrlf false
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Record runtime environment
+        env:
+          EXPECTED_NODE: ${{ matrix.node }}
+        run: |
+          New-Item -ItemType Directory runtime-ci-logs | Out-Null
+          node -p 'JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,execPath:process.execPath})' | Tee-Object runtime-ci-logs/environment.log
+          pnpm --version | Tee-Object -Append runtime-ci-logs/environment.log
+          pnpm exec node -e 'if (process.platform !== "win32" || process.versions.node.split(".")[0] !== process.env.EXPECTED_NODE.split(".")[0]) throw new Error("Unexpected test runtime"); console.log(process.version)' | Tee-Object -Append runtime-ci-logs/environment.log
+          exit $LASTEXITCODE
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build runtime packages
+        run: |
+          pnpm --filter @tempad-dev/shared build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm build:mcp
+
+      - name: Test runtime contracts and platform boundaries
+        run: |
+          pnpm --filter @tempad-dev/mcp exec vitest run --config vitest.config.ts tests/runtime- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000 2>&1 | Tee-Object runtime-ci-logs/unit.log
+          exit $LASTEXITCODE
+
+      - name: Check supervisor recovery and concurrent edges
+        run: |
+          pnpm mcp:check-runtime-prototype 2>&1 | Tee-Object runtime-ci-logs/prototype.log
+          exit $LASTEXITCODE
+
+      - name: Check switching, in-flight requests, crashes and rollback
+        run: |
+          pnpm mcp:check-runtime-switch 2>&1 | Tee-Object runtime-ci-logs/switch.log
+          exit $LASTEXITCODE
+
+      - name: Check verified downloads and automatic activation
+        run: |
+          pnpm mcp:check-runtime-updates 2>&1 | Tee-Object runtime-ci-logs/updates.log
+          exit $LASTEXITCODE
+
+      - name: Preserve runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-runtime-node-${{ matrix.node }}
+          path: runtime-ci-logs
+          retention-days: 14
+          if-no-files-found: warn

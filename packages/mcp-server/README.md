@@ -24,14 +24,12 @@ For agent-specific setup, open TemPad Dev's **Preferences → Agent integration 
 ### Runtime updates (0.12.0+)
 
 Verified releases enable background downloads and compatible automatic Hub updates on
-macOS/Linux by default, including existing `npx @latest` configurations after they restart onto
+macOS, Linux and Windows by default, including existing `npx @latest` configurations after they restart onto
 0.12.0 or later. The configuration above and Agent Plugin 0.5.10 select this policy explicitly
 with `--runtime-updates=stable`. First enrollment requires closing all existing TemPad MCP
 connections once, then restarting them. It preserves the release task and asset stores.
 Until that restart, new clients keep using an existing legacy Hub without interrupting it.
-Windows accepts this configuration and continues using the bundled runtime without background
-downloads or switching. Checkout development builds use a separate local configuration and never
-fetch release runtimes.
+Checkout development builds use a separate local configuration and never fetch release runtimes.
 
 In a terminal using the same runtime configuration:
 
@@ -56,8 +54,8 @@ Use `--runtime-updates=off` to stop background checks when no enrolled
 client remains. To enforce the launch package's exact version, use `--runtime-updates=pinned`
 with a fixed npm version; a conflict reports a restart requirement instead of creating another Hub.
 Unverified local builds keep their bundled runtime and never download releases; explicit enrollment
-is rejected. Runtime download, switching and `pinned` enrollment are unavailable on Windows;
-pin the npm package version without update flags if needed.
+is rejected. Windows uses named pipes and ACL-checked private storage for managed updates. Its
+[process CI](../../TESTING.md#windows-runtime-ci) is separate from installed desktop-host acceptance.
 
 ### Tools and resources
 
@@ -171,8 +169,10 @@ existing runtimes and correct ownership/permissions before reconnecting. Other p
 `<system temp>/tempad-dev`. Explicit directory overrides take precedence. Unix clients and lifecycle
 hooks check the socket inode, ownership, and private permissions before connecting; an untrusted
 socket is rejected without launching a replacement Hub. Correct its ownership/permissions or shut
-down the old runtime before reconnecting. Windows retains the released fixed named-pipe path;
-per-user pipe isolation is not yet implemented.
+down the old runtime before reconnecting. Windows retains the released compatibility pipe name;
+managed control/data pipes are scoped by user and runtime directory. Windows ACL checks restrict
+managed storage and endpoints to the current user, SYSTEM and Administrators rather than relying
+on Unix permission bits. Untrusted paths or permissions fail startup.
 
 The hub accepts WebSocket handshakes only from Chrome extension origins on its root path. For a locked-down installation, configure `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS` with the TemPad Dev extension origin shown by the browser. This origin check and the per-process asset capability reduce cross-origin loopback abuse, but do not authenticate local processes, including another OS user's process that binds the port first; see the [local MCP threat model](../../docs/security/local-mcp-threat-model.md).
 

@@ -2,11 +2,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { TEMPAD_MCP_BRIDGE_SUBPROTOCOL } from '@tempad-dev/shared'
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import console from 'node:console'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import { mkdir, readFile, rm } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -15,16 +14,22 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath, URL } from 'node:url'
 import { WebSocket } from 'ws'
 
-if (process.platform === 'win32')
-  throw new Error('The isolated runtime prototype requires Unix sockets.')
-const root = await realpath(await mkdtemp('/tmp/tp-p-'))
+import { runtimeEndpoint } from '../src/runtime-platform.ts'
+import {
+  fixtureEnvironment,
+  fixtureProcesses as processes,
+  fixtureRoot,
+  processMemory
+} from './runtime-test-platform.mjs'
+
+const root = await fixtureRoot('tp-p-')
 const origin = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const clients = []
-const knownProcesses = new Set()
 const entry = fileURLToPath(new URL('../dist/prototype/runtime-prototype.mjs', import.meta.url))
 const failures = []
 let extension
 let stderr = ''
+let passed = false
 const started = performance.now()
 async function until(check, description, timeout = 15000) {
   const deadline = performance.now() + timeout
@@ -55,18 +60,10 @@ function live(pid) {
 }
 function owned(pid) {
   if (!Number.isSafeInteger(pid) || pid <= 1 || !live(pid)) return false
-  try {
-    const command = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' })
-    return command.includes(`${entry} --root ${root}`)
-  } catch {
-    return false
-  }
+  return fixtureProcesses().some((value) => value.pid === pid)
 }
 function fixtureProcesses() {
-  return execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' })
-    .split('\n')
-    .filter((line) => line.includes(`${entry} --root ${root}`))
-    .map((line) => ({ pid: Number(line.trim().split(/\s+/)[0]), command: line }))
+  return processes(root, entry)
 }
 function call(client, name, args = {}, options = {}) {
   return client.callTool({ name, arguments: args }, undefined, { timeout: 20000, ...options })
@@ -79,9 +76,7 @@ async function launch(label) {
     args: [entry, '--root', root],
     stderr: 'pipe',
     env: {
-      PATH: process.env.PATH,
-      HOME: home,
-      TMPDIR: root,
+      ...fixtureEnvironment(home, root),
       CODEX_HOME: join(home, 'codex'),
       CODEX_SQLITE_HOME: join(home, 'sqlite'),
       TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS: origin,
@@ -98,15 +93,6 @@ async function launch(label) {
 }
 function send(message) {
   extension.send(JSON.stringify(message))
-}
-function memory(pids) {
-  return execFileSync('ps', ['-o', 'pid=,rss=', '-p', pids.join(',')], { encoding: 'utf8' })
-    .trim()
-    .split('\n')
-    .map((line) => {
-      const [pid, rssKiB] = line.trim().split(/\s+/).map(Number)
-      return { pid, rssKiB }
-    })
 }
 async function probe(path, message) {
   const socket = connect(path)
@@ -130,11 +116,9 @@ try {
     const value = await record('run/hub-runtime.json')
     return value?.wsPort && value
   }, 'Hub identity and private WebSocket port')
-  knownProcesses.add(initial.pid)
-  knownProcesses.add(hub.processId)
   assert.equal(initial.hubPid, hub.processId)
   await delay(250)
-  const twoClientsMemory = memory([
+  const twoClientsMemory = processMemory([
     first.transport.pid,
     second.transport.pid,
     initial.pid,
@@ -226,6 +210,8 @@ try {
     taskId,
     taskEpoch: epoch
   })
+  // Observe an early disconnect immediately; the assertion below still awaits the result.
+  void write.catch(() => {})
   await until(() => held, 'write admitted once')
   const recovering = performance.now()
   assert.ok(owned(initial.pid), 'only terminate this fixture supervisor')
@@ -235,11 +221,15 @@ try {
     'asset admission closes after control loss'
   )
   const before = calls.length
-  await assert.rejects(
-    call(second.client, 'get_structure', { nodeId: '1:2' }),
-    (error) => error.data?.dispatched === false && error.data?.code === 'MCP_RUNTIME_UNAVAILABLE'
+  const queuedRead = call(second.client, 'get_structure', { nodeId: '1:2' })
+  void queuedRead.catch(() => {})
+  await delay(100)
+  assert.equal(
+    (await globalThis.fetch(`${assetUrl}/assets/${'a'.repeat(64)}`)).status,
+    503,
+    'control admission remains closed during the queued read'
   )
-  assert.equal(calls.length, before)
+  assert.equal(calls.length, before, 'the queued read is not dispatched during control loss')
   // The data connection remains valid while its independent control owner recovers.
   send({ type: 'toolResult', id: held.id, payload: written })
   assert.equal((await write).isError, undefined)
@@ -270,8 +260,9 @@ try {
     'one successor supervisor',
     20000
   )
-  knownProcesses.add(recovered.pid)
   const recoverMs = performance.now() - recovering
+  assert.equal((await queuedRead).isError, undefined)
+  assert.equal(calls.length, before + 1, 'the waiting read is dispatched exactly once')
   assert.equal(recovered.hubPid, hub.processId)
   assert.equal(recovered.hubId, initial.hubId)
   await until(async () => {
@@ -311,7 +302,7 @@ try {
   )
 
   // Hooks retain the public endpoint; a legacy byte bridge gets restart guidance.
-  const path = join(root, 'run/mcp.sock')
+  const path = runtimeEndpoint(join(root, 'run'), 'mcp.sock')
   assert.match(
     (await probe(path, { jsonrpc: '2.0', id: 0, method: 'initialize', params: {} })).error.message,
     /MCP_RUNTIME_RESTART_REQUIRED/
@@ -329,7 +320,7 @@ try {
     }
   })
   assert.deepEqual(hook.result, {})
-  const incompatible = await probe(join(root, 'supervisor.sock'), {
+  const incompatible = await probe(runtimeEndpoint(root, 'supervisor.sock'), {
     jsonrpc: '2.0',
     id: 2,
     method: 'tempad/runtime-hello',
@@ -364,35 +355,34 @@ try {
       2
     )
   )
+  passed = true
+} catch (error) {
+  throw new Error(`${error.message}\n${stderr}\nRoot: ${root}`, { cause: error })
 } finally {
   await Promise.allSettled(clients.map((client) => client.close()))
   extension?.terminate()
-  for (const name of ['supervisor.json', 'run/hub-runtime.json']) {
-    const value = await record(name).catch(() => undefined)
-    if (value) knownProcesses.add(value.pid ?? value.processId)
-  }
   let cleanupReliable = true
   for (const signal of ['SIGTERM', 'SIGKILL']) {
     try {
       // Include children that failed before publishing their runtime record.
-      for (const { pid } of fixtureProcesses()) knownProcesses.add(pid)
+      for (const { pid } of fixtureProcesses()) {
+        try {
+          process.kill(pid, signal)
+        } catch (error) {
+          if (error.code !== 'ESRCH')
+            console.error(`Could not stop fixture ${pid}: ${error.message}`)
+        }
+      }
+      const deadline = performance.now() + 5000
+      while (fixtureProcesses().length && performance.now() < deadline) await delay(50)
     } catch {
       cleanupReliable = false
     }
-    for (const pid of knownProcesses) {
-      if (!owned(pid)) continue
-      try {
-        process.kill(pid, signal)
-      } catch (error) {
-        if (error.code !== 'ESRCH') console.error(`Could not stop fixture ${pid}: ${error.message}`)
-      }
-    }
-    const deadline = performance.now() + 5000
-    while ([...knownProcesses].some(owned) && performance.now() < deadline) await delay(50)
   }
-  if (!cleanupReliable || [...knownProcesses].some(owned)) {
+  if (!cleanupReliable || fixtureProcesses().length) {
     console.error(`Fixture processes did not exit; preserved isolated root: ${root}`)
     process.exitCode = 1
-  } else if (!process.env.TEMPAD_KEEP_PROTOTYPE) await rm(root, { recursive: true, force: true })
+  } else if (passed && !process.env.TEMPAD_KEEP_PROTOTYPE)
+    await rm(root, { recursive: true, force: true })
   else console.log(`Preserved isolated root: ${root}`)
 }

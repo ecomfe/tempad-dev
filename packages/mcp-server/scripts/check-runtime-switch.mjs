@@ -7,14 +7,14 @@ import {
 } from '@tempad-dev/shared'
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import console from 'node:console'
 import { createHash, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { connect, createServer } from 'node:net'
-import { join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import process from 'node:process'
 import { setTimeout } from 'node:timers'
@@ -24,16 +24,21 @@ import { promisify } from 'node:util'
 import { build } from 'tsdown'
 import { WebSocket } from 'ws'
 
+import { runtimeEndpoint } from '../src/runtime-platform.ts'
 import config from '../tsdown.prototype.config.ts'
+import { fixtureEnvironment, fixtureProcesses, fixtureRoot } from './runtime-test-platform.mjs'
 
 // Build fixtures from authored source and test-only manifest inputs. Never patch
 // a generated runtime or use the user's release/checkout stores and services.
-if (process.platform === 'win32') throw new Error('Runtime switch acceptance requires Unix.')
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 const repo = join(packageRoot, '../..')
 await mkdir(join(repo, '.dev'), { recursive: true })
 const artifacts = await mkdtemp(join(repo, '.dev/runtime-switch-'))
-await symlink(join(packageRoot, 'node_modules'), join(artifacts, 'node_modules'), 'dir')
+await symlink(
+  join(packageRoot, 'node_modules'),
+  join(artifacts, 'node_modules'),
+  process.platform === 'win32' ? 'junction' : 'dir'
+)
 const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'))
 const origin = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const exec = promisify(execFile)
@@ -54,11 +59,14 @@ async function artifact(version, incompatible = false) {
       {
         name: 'local-runtime-test-input',
         load(id) {
-          if (id === join(packageRoot, 'package.json'))
+          if (resolve(id) === join(packageRoot, 'package.json'))
             return JSON.stringify({ ...manifest, version })
         },
         transform(code, id) {
-          if (version === '0.11.1' && id === join(packageRoot, 'src/runtime-prototype/run.ts')) {
+          if (
+            version === '0.11.1' &&
+            resolve(id) === join(packageRoot, 'src/runtime-prototype/run.ts')
+          ) {
             const boundary = "const { startHub } = await import('../hub-runtime')"
             assert.ok(code.includes(boundary), 'fixture Hub startup boundary changed')
             return code.replace(
@@ -69,7 +77,7 @@ async function artifact(version, incompatible = false) {
               ${boundary}`
             )
           }
-          if (id === join(packageRoot, 'src/runtime-prototype/supervisor.ts')) {
+          if (resolve(id) === join(packageRoot, 'src/runtime-prototype/supervisor.ts')) {
             const boundary = 'writeJournal(config.root, value)'
             assert.ok(code.includes(boundary), 'fixture handoff boundary changed')
             // Instrument the fixture source at the durable boundary. fs.watch
@@ -98,7 +106,7 @@ async function artifact(version, incompatible = false) {
     }`
             )
           }
-          if (incompatible && id === join(packageRoot, 'src/hub-runtime.ts'))
+          if (incompatible && resolve(id) === join(packageRoot, 'src/hub-runtime.ts'))
             return code.replace("title: 'TemPad Dev'", "title: 'Incompatible fixture'")
         }
       }
@@ -133,7 +141,7 @@ async function record(root, path) {
   }
 }
 async function rpc(root, method, params, path = 'supervisor.sock') {
-  const socket = connect(join(root, path))
+  const socket = connect(runtimeEndpoint(dirname(join(root, path)), basename(path)))
   socket.setTimeout(5000, () => socket.destroy(new Error('Runtime test RPC timed out')))
   await once(socket, 'connect')
   const reply = new Promise((resolve, reject) => {
@@ -164,10 +172,7 @@ async function applyHook(root, input) {
   }, 'durable hook application')
 }
 function ownedProcesses(root) {
-  return execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' })
-    .split('\n')
-    .filter((line) => line.includes(artifacts) && line.includes(`--root ${root}`))
-    .map((line) => Number(line.trim().split(/\s+/)[0]))
+  return fixtureProcesses(root, artifacts).map(({ pid }) => pid)
 }
 const session = {
   sessionId: 'session',
@@ -194,7 +199,7 @@ const call = (client, name, args = {}) =>
   client.callTool({ name, arguments: args }, undefined, { timeout: 30000 })
 
 async function scenario(a, b, mode, incompatible) {
-  const root = await realpath(await mkdtemp('/tmp/tp-sw-'))
+  const root = await fixtureRoot('tp-sw-')
   const clients = []
   const edgePids = []
   const claudeStop = mode === 'claude-stop' || mode === 'claude-stop-rollback'
@@ -225,9 +230,7 @@ async function scenario(a, b, mode, incompatible) {
       args: [a, '--root', root],
       stderr: 'pipe',
       env: {
-        PATH: process.env.PATH,
-        HOME: root,
-        TMPDIR: root,
+        ...fixtureEnvironment(root),
         TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS: origin,
         TEMPAD_MCP_AUTO_ACTIVATE_GRACE: '10'
       }
@@ -666,7 +669,7 @@ async function scenario(a, b, mode, incompatible) {
 }
 
 async function coldAttachment(entry) {
-  const root = await realpath(await mkdtemp('/tmp/tp-sw-cold-'))
+  const root = await fixtureRoot('tp-sw-cold-')
   const clients = []
   let passed = false
   let stderr = ''
@@ -675,7 +678,7 @@ async function coldAttachment(entry) {
       command: process.execPath,
       args: [entry, '--root', root],
       stderr: 'pipe',
-      env: { PATH: process.env.PATH, HOME: root, TMPDIR: root }
+      env: fixtureEnvironment(root)
     })
     transport.stderr.on('data', (chunk) => {
       stderr = (stderr + chunk).slice(-20000)
