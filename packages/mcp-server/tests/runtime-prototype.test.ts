@@ -89,16 +89,22 @@ describe('runtime control negotiation and admission', () => {
     )
     expect(control.pendingConnections()).toBe(0)
     expect(control.admits(registration.sessionId, lease.generation)).toBe(true)
+    const obsolete = { ...registration, sessionId: randomUUID(), token: randomUUID() }
+    await first.request({ method: 'tempad/runtime-register', params: obsolete }, ResultSchema)
     const second = await peer()
     await expect(acquire(second)).rejects.toThrow('already owned')
     now = LEASE_MS
     expect(control.available()).toBe(false)
+    // Lease expiry alone does not discard grants within the same generation.
+    expect(control.pendingConnections()).toBe(1)
     await expect(first.request({ method: 'tempad/runtime-renew' }, ResultSchema)).rejects.toThrow(
       'not dispatched'
     )
     const replacement = await acquire(second)
     expect(replacement.generation).toBe(2)
     expect(replacement.hubId).toBe(lease.hubId)
+    expect(control.pendingConnections()).toBe(0)
+    expect(() => control.claimSession(obsolete.sessionId, obsolete.token)).toThrow('no current')
     expect(control.admits(registration.sessionId, 2)).toBe(false)
     await second.request({ method: 'tempad/runtime-register', params: registration }, ResultSchema)
     expect(control.admits(registration.sessionId, 2)).toBe(true)

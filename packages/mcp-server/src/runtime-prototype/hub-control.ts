@@ -76,7 +76,8 @@ export class HubControl {
     let pending = 0
     for (const [id, session] of this.sessions) {
       if (session.attached) continue
-      if (session.expires <= this.now()) this.sessions.delete(id)
+      if (session.generation !== this.generation || session.expires <= this.now())
+        this.sessions.delete(id)
       else pending++
     }
     return pending
