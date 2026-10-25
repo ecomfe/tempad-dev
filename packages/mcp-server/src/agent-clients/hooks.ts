@@ -43,13 +43,14 @@ export class ClientHooks {
     if (session) session.active = false
   }
 
-  handle(input: ClientHook): ClientHookResult {
+  /** Undefined rejects the event; an empty result accepts it without model-facing output. */
+  handle(input: ClientHook): ClientHookResult | undefined {
     const key = scope(input.kind, input.sessionId)
     let session = this.sessions.get(key)
     if (!session) {
       if (this.sessions.size >= 256) {
         const inactive = [...this.sessions].find(([, value]) => !value.active)
-        if (!inactive) return {}
+        if (!inactive) return
         this.sessions.delete(inactive[0])
       }
       session = { active: false }
@@ -61,10 +62,10 @@ export class ClientHooks {
       session.turnId &&
       input.turnId !== session.turnId
     ) {
-      return {}
+      return
     }
     const notice = this.takeStopNotice(input)
-    if (notice.staleTurn) return {}
+    if (notice.staleTurn) return
     if (input.event === 'UserPromptSubmit' || input.turnId) session.turnId = input.turnId
     session.receiptCapable = input.version === 2
 

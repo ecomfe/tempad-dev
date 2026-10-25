@@ -125,6 +125,8 @@ export class AgentClients {
   clientHook(input: ClientHook) {
     // Older installed Codex packages may still call hooks. Native state is authoritative.
     if (input.kind === 'codex') return {}
+    const result = this.hooks.handle(input)
+    if (!result) return {}
     if (input.event === 'PostToolUse' && input.taskId) {
       this.event('hook', {
         method: 'notifications/tempad/client-event',
@@ -137,7 +139,6 @@ export class AgentClients {
         }
       })
     }
-    const result = this.hooks.handle(input)
     if (['UserPromptSubmit', 'Stop', 'Interrupt', 'SessionEnd'].includes(input.event)) {
       this.event('hook', {
         method: 'notifications/tempad/client-event',

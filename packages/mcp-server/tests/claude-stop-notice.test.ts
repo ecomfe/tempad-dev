@@ -164,6 +164,57 @@ describe('durable Claude Stop notices', () => {
     expect(f.hook(f.input('PreToolUse'))).toMatchObject({ output: expect.any(Object) })
   })
 
+  it.each([false, true])(
+    'keeps the original owner after a stale SessionEnd with restart=%s',
+    async (restart) => {
+      const f = await fixture()
+      const originalOwner = await f.owner()
+      if (restart) {
+        await f.stop()
+        await f.restart()
+      }
+      const published = vi.fn()
+      f.clients.subscribeBinding('connection', published)
+      expect(f.hook(f.input('SessionEnd', { turnId: 'old-turn' }))).toEqual({})
+      expect(published).not.toHaveBeenCalled()
+      expect(f.tasks.find('task')?.task.status).toBe(restart ? 'cancelled' : 'active')
+      expect(f.hook(f.input('PreToolUse'))).toEqual(restart ? { output: expect.any(Object) } : {})
+      const owner = await f.owner()
+      expect(owner).toBe(originalOwner)
+      expect(() => f.tasks.owned('task', owner)).not.toThrow()
+
+      expect(f.hook(f.input('SessionEnd'))).toEqual({})
+      expect(published).toHaveBeenCalledWith({ kind: 'claude' })
+      expect(await f.owner()).not.toBe(originalOwner)
+    }
+  )
+
+  it('keeps legacy hooks silent while rejecting stale lifecycle and task binding effects', async () => {
+    const f = await fixture()
+    const owner = await f.owner()
+    const hook = (event: ClientHook['event'], turnId: string, taskId?: string) =>
+      f.clients.clientHook({
+        version: 1,
+        kind: 'claude',
+        sessionId: 'claude-session',
+        turnId,
+        event,
+        invocationId: randomUUID(),
+        ...(taskId ? { taskId } : {})
+      })
+    const published = vi.fn()
+    f.clients.subscribeBinding('connection', published)
+    expect(hook('PostToolUse', 'old-turn', 'task')).toEqual({})
+    expect(hook('SessionEnd', 'old-turn')).toEqual({})
+    expect(published).not.toHaveBeenCalled()
+    expect(await f.owner()).toBe(owner)
+    expect(f.tasks.find('task')?.task.status).toBe('active')
+    expect(hook('PreToolUse', 'turn-a')).toEqual({})
+    expect(hook('SessionEnd', 'turn-a')).toEqual({})
+    expect(published).toHaveBeenCalledWith({ kind: 'claude' })
+    expect(f.tasks.find('task')?.task.status).toBe('paused')
+  })
+
   it('does not replace the authoritative turn through a stale task-bound hook', async () => {
     const f = await fixture()
     await f.stop()

@@ -63,7 +63,7 @@ describe('client lifecycle hooks', () => {
     hooks.handle(event('UserPromptSubmit', { kind }))
     stop()
     expect(hooks.handle(event('PreToolUse', { kind, sessionId: 'thread-b' }))).toEqual({})
-    expect(hooks.handle(event('PreToolUse', { kind, turnId: 'old-turn' }))).toEqual({})
+    expect(hooks.handle(event('PreToolUse', { kind, turnId: 'old-turn' }))).toBeUndefined()
     expect(hooks.handle(event('PreToolUse', { kind }))).toEqual({
       output: {
         hookSpecificOutput: {
