@@ -52,7 +52,10 @@ it('caches unchanged ACLs but rechecks a changed security descriptor', () => {
   assertPrivatePath(path, 'directory')
   expect(execFileSync).toHaveBeenCalledTimes(2)
   expect(vi.mocked(execFileSync).mock.calls[0]?.[2]).toMatchObject({
-    input: JSON.stringify({ action: 'inspect', path, kind: 'directory' }),
+    env: {
+      TEMPAD_RUNTIME_ACL_REQUEST: JSON.stringify({ action: 'inspect', path, kind: 'directory' })
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 15_000,
     windowsHide: true
   })
@@ -80,7 +83,9 @@ it('creates missing directories through the ACL helper, without repairing unsafe
   })
   ensurePrivateDirectory(path)
   expect(vi.mocked(execFileSync).mock.calls[0]?.[2]).toMatchObject({
-    input: JSON.stringify({ action: 'ensure', path, kind: 'directory' })
+    env: {
+      TEMPAD_RUNTIME_ACL_REQUEST: JSON.stringify({ action: 'ensure', path, kind: 'directory' })
+    }
   })
   revision++
   vi.mocked(execFileSync).mockImplementation(() => {
@@ -103,7 +108,7 @@ it.each([
   [3, 'ENOENT'],
   [231, 'EBUSY'],
   ['EPIPEUNPROTECTED', 'EPIPEUNPROTECTED'],
-  [5, undefined]
+  [5, 'EPIPEUNTRUSTED']
 ])('classifies Windows pipe failure %s without accepting it', (nativeCode, code) => {
   vi.mocked(execFileSync).mockImplementation(() => {
     throw { stderr: JSON.stringify({ message: 'denied', code: nativeCode }) }

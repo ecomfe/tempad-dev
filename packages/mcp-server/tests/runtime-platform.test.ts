@@ -1,4 +1,5 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
+import { once } from 'node:events'
 import {
   chmodSync,
   mkdtempSync,
@@ -83,12 +84,12 @@ describe.skipIf(process.platform === 'win32')('Unix storage', () => {
 })
 
 describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
-  it('verifies storage in an isolated child environment before starting a runtime', async () => {
+  it('verifies Unicode storage while the MCP parent keeps stdin open', async () => {
     const root = fixture()
     const { getDefaultEnvironment } = await import('@modelcontextprotocol/sdk/client/stdio.js')
     const helperPath = '../scripts/runtime-test-platform.mjs'
     const { fixtureEnvironment } = await import(helperPath)
-    const home = join(root, 'home')
+    const home = join(root, 'home-设计-é')
     ensurePrivateDirectory(home)
     const source = `
       process.stderr.write('permission probe: started\\n');
@@ -97,15 +98,30 @@ describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
       assertPrivatePath(process.argv[1], 'directory');
       process.stdout.write('verified');
     `
-    expect(
-      execFileSync(process.execPath, ['--input-type=module', '-e', source, root], {
-        env: { ...getDefaultEnvironment(), ...fixtureEnvironment(home, root) },
-        encoding: 'utf8',
-        timeout: 25_000,
-        windowsHide: true,
-        stdio: ['pipe', 'pipe', 'pipe']
-      })
-    ).toBe('verified')
+    const child = spawn(process.execPath, ['--input-type=module', '-e', source, home], {
+      env: { ...getDefaultEnvironment(), ...fixtureEnvironment(home, root) },
+      timeout: 25_000,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe']
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk
+    })
+    try {
+      // A real host keeps this pipe open for future JSON-RPC messages.
+      child.stdin.write('{"jsonrpc":"2.0","method":"initialize","id":1}\n')
+      const [code] = await once(child, 'close')
+      expect(code, stderr).toBe(0)
+      expect(stdout).toBe('verified')
+    } finally {
+      child.stdin.destroy()
+      if (child.exitCode === null) child.kill()
+    }
   }, 30_000)
 
   function powershell(source: string, input: unknown) {

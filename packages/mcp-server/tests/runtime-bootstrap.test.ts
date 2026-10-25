@@ -173,6 +173,24 @@ it('never replaces an existing legacy owner or guesses a missing release build',
   )
 })
 
+it.each(['EPIPEUNPROTECTED', 'EPIPEUNTRUSTED'])(
+  'explains the one-time Windows legacy restart for %s without trusting the pipe',
+  async (code) => {
+    const failure = Object.assign(new Error('ACL does not grant private user access'), { code })
+    fake.connect.mockRejectedValue(failure)
+    for (const args of [[], ['--check-runtime-update']]) {
+      const attempt = maybeManagedRuntime(args, packageDir)
+      await expect(attempt).rejects.toThrow(
+        'Close/restart all TemPad MCP connections once to replace a legacy Hub'
+      )
+      await expect(attempt).rejects.toMatchObject({ cause: failure })
+    }
+    expect(existsSync(configPath)).toBe(false)
+    expect(fake.retain).not.toHaveBeenCalled()
+    expect(fake.edge).not.toHaveBeenCalled()
+  }
+)
+
 it('preserves corrupt metadata and refuses changed directories rather than starting a second owner', async () => {
   await maybeManagedRuntime(['--runtime-updates=stable'], packageDir)
   const config = JSON.parse(readFileSync(configPath, 'utf8'))

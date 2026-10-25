@@ -113,7 +113,9 @@ export function windowsPowerShellEnvironment(env: NodeJS.ProcessEnv = process.en
 }
 
 // Built-in Windows PowerShell supplies the platform ACL API without an npm/native dependency.
-// Paths are JSON on stdin, never interpolated into executable source or shell arguments.
+// JSON stays in a child-only environment value, never executable source or shell arguments.
+// Ignored stdin avoids waiting for EOF from a long-lived MCP stdio session and preserves
+// Unicode paths independently of the Windows console's input code page.
 function windowsSecurity(action: 'ensure' | 'inspect' | 'protect', path: string, kind: string) {
   const systemRoot = process.env.SystemRoot
   if (!systemRoot || !isAbsolute(systemRoot))
@@ -129,21 +131,26 @@ function windowsSecurity(action: 'ensure' | 'inspect' | 'protect', path: string,
         Buffer.from(SECURITY_SCRIPT, 'utf16le').toString('base64')
       ],
       {
-        input: JSON.stringify({ action, path, kind }),
         encoding: 'utf8',
         timeout: 15_000,
         maxBuffer: 64 * 1024,
         windowsHide: true,
-        env: windowsPowerShellEnvironment(),
-        stdio: ['pipe', 'pipe', 'pipe']
+        env: {
+          ...windowsPowerShellEnvironment(),
+          TEMPAD_RUNTIME_ACL_REQUEST: JSON.stringify({ action, path, kind })
+        },
+        stdio: ['ignore', 'pipe', 'pipe']
       }
     )
   } catch (cause) {
     const error = cause as { stdout?: string; stderr?: string }
     const detail = [error.stdout, error.stderr].filter(Boolean).join('\n').trim()
     let code: number | string | undefined
+    let reportedFailure = false
     try {
-      code = JSON.parse(error.stderr ?? '{}').code
+      const report = JSON.parse(error.stderr ?? '{}')
+      code = report.code
+      reportedFailure = typeof report.message === 'string'
     } catch {
       // Startup and policy failures need not be JSON; they still fail closed.
     }
@@ -156,6 +163,7 @@ function windowsSecurity(action: 'ensure' | 'inspect' | 'protect', path: string,
     if (code === 2 || code === 3) failure.code = 'ENOENT'
     if (code === 231) failure.code = 'EBUSY'
     if (code === 'EPIPEUNPROTECTED') failure.code = code
+    if (!failure.code && kind === 'pipe' && reportedFailure) failure.code = 'EPIPEUNTRUSTED'
     throw failure
   }
 }
@@ -163,9 +171,10 @@ function windowsSecurity(action: 'ensure' | 'inspect' | 'protect', path: string,
 const SECURITY_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $failureCode = $null
 try {
-  $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+  $request = $env:TEMPAD_RUNTIME_ACL_REQUEST | ConvertFrom-Json
   $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
   $allowed = @($user.Value, 'S-1-5-18', 'S-1-5-32-544')
   if ($request.kind -eq 'pipe') {

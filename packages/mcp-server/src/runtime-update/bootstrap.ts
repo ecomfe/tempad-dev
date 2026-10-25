@@ -111,6 +111,15 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
         try {
           legacy = await connectSocket(SOCK_PATH)
         } catch (error) {
+          if (
+            ['EPIPEUNPROTECTED', 'EPIPEUNTRUSTED'].includes(
+              (error as NodeJS.ErrnoException).code ?? ''
+            )
+          )
+            throw new Error(
+              `An existing Windows Hub could not be verified. Close/restart all TemPad MCP connections once to replace a legacy Hub; runtime enrollment was not started. ${String(error)}`,
+              { cause: error }
+            )
           if (!unavailableSocket(error)) throw error
         }
         if (legacy) {

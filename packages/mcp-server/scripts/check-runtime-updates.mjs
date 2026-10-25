@@ -15,7 +15,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { promisify } from 'node:util'
 import { build } from 'tsdown'
 
-import { assertPrivatePath, protectPipe, runtimeEndpoint } from '../src/runtime-platform.ts'
+import { assertPrivatePath, runtimeEndpoint } from '../src/runtime-platform.ts'
 import config from '../tsdown.config.ts'
 import { runPackageManager } from './package-manager.mjs'
 import { runtimeSourceHash } from './runtime-source-hash.mjs'
@@ -540,19 +540,32 @@ try {
   assert.equal(JSON.parse(defaultStatus.stdout).managed, false)
   assert.equal(requests.length, 0)
   await assert.rejects(readFile(join(root, 'state/runtime/prototype.json')))
-  const legacy = createSocketServer((socket) => socket.end())
+  const legacySockets = new Set()
+  let legacyBytes = 0
+  const legacy = createSocketServer((socket) => {
+    legacySockets.add(socket)
+    socket.once('close', () => legacySockets.delete(socket))
+    socket.on('data', (chunk) => {
+      legacyBytes += chunk.length
+    })
+  })
   const legacyPath = runtimeEndpoint(join(root, 'run'), 'mcp.sock')
   await new Promise((resolve) => legacy.listen(legacyPath, resolve))
-  if (process.platform === 'win32') protectPipe(legacyPath)
-  else await chmod(legacyPath, 0o600)
+  // Released Windows Hubs used the default pipe ACL; do not upgrade the fixture's ACL.
+  if (process.platform !== 'win32') await chmod(legacyPath, 0o600)
   const before = requests.length
-  await assert.rejects(
-    exec(process.execPath, [join(a.directory, 'dist/cli.mjs'), '--check-runtime-update'], {
-      env: isolationEnv
-    }),
-    /legacy Hub/
-  )
-  await new Promise((resolve) => legacy.close(resolve))
+  try {
+    await assert.rejects(
+      exec(process.execPath, [join(a.directory, 'dist/cli.mjs'), '--check-runtime-update'], {
+        env: isolationEnv
+      }),
+      process.platform === 'win32' ? /Close\/restart all TemPad MCP connections once/ : /legacy Hub/
+    )
+    assert.equal(legacyBytes, 0)
+  } finally {
+    for (const socket of legacySockets) socket.destroy()
+    await new Promise((resolve) => legacy.close(resolve))
+  }
   assert.equal(requests.length, before)
   await assert.rejects(readFile(join(root, 'state/runtime/prototype.json')))
 
