@@ -85,7 +85,7 @@ jobs:
         if: matrix.suite == 'contracts'
         shell: cmd
         run: |
-          call pnpm --filter @tempad-dev/mcp exec vitest run --config vitest.config.ts tests/runtime- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000 > runtime-ci-logs\unit.log 2>&1
+          call pnpm --filter @tempad-dev/mcp exec vitest run --config vitest.config.ts tests/runtime- tests/stable-edge.test.ts --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000 > runtime-ci-logs\unit.log 2>&1
           set "test_exit=%errorlevel%"
           type runtime-ci-logs\unit.log
           exit /b %test_exit%
