@@ -488,6 +488,13 @@ and `--update-runtime`; they contact the supervisor and cannot bypass drain or p
 rules. A profile-level updates-off setting prevents background checks. A manual check
 on a checkout reports that it is pinned without contacting the registry.
 
+Runtime status reports `controlComponents` separately from the active Hub: the retained
+supervisor version and each attached edge's reported package version. A newer active or
+staged version remains pending with `restartRequired`; switching the Hub does not apply
+that control update. Unknown edge versions and their restart requirement remain `null`,
+and quarantined candidates do not recommend a restart. No host context or session tokens
+are included in this projection.
+
 The extension's integration status may display a concise pending-update or recovery
 message through a negotiated status capability. Older extensions keep the existing
 wire shape. Do not inject recurring upgrade reminders into model prompts or tool results.

@@ -177,6 +177,7 @@ async function fixture() {
         sessionId: randomUUID(),
         token: randomUUID(),
         context: captureHostContext({ HOME: root, TMPDIR: root }),
+        updates: { policy: 'stable', version: a.version, manifestHash: 'a'.repeat(64) },
         versions: [1]
       }
     },
@@ -211,12 +212,30 @@ it.skipIf(process.platform === 'win32').each([false, true])(
   'rolls back an active failure using current data (socket closes before exit: %s)',
   async (socketClosesFirst) => {
     const f = await fixture()
+    const currentControls = {
+      supervisor: { version: f.a.version, pendingVersion: null, restartRequired: false },
+      edges: [{ version: f.a.version, pendingVersion: null, restartRequired: false }],
+      restartRequired: false
+    }
+    expect(await f.status()).toMatchObject({ controlComponents: currentControls })
     expect(await f.update()).toMatchObject({ status: 'activated', version: f.b.version })
+    expect(await f.status()).toMatchObject({
+      controlComponents: {
+        supervisor: { version: f.a.version, pendingVersion: f.b.version, restartRequired: true },
+        edges: [{ version: f.a.version, pendingVersion: f.b.version, restartRequired: true }],
+        restartRequired: true
+      }
+    })
     expect(readJournal(f.root)).toMatchObject({ phase: 'committed', active: f.b, previous: f.a })
     await writeFile(join(f.root, 'state-evidence'), 'Stop written by B')
     await f.hubs.at(-1)!.stop(socketClosesFirst)
     await vi.waitFor(async () =>
-      expect(await f.status()).toMatchObject({ phase: 'committed', active: f.a, gated: false })
+      expect(await f.status()).toMatchObject({
+        phase: 'committed',
+        active: f.a,
+        gated: false,
+        controlComponents: currentControls
+      })
     )
     expect(readJournal(f.root)?.failedBundles).toContain(f.b.bundle)
     expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b, f.a])
@@ -238,7 +257,15 @@ it
     f.defer(reason)
     expect(await f.update()).toMatchObject({ status: 'staged' })
     expect(f.hubs).toHaveLength(1)
-    expect(await f.status()).toMatchObject({ active: f.a, candidate: f.b, gated: false })
+    expect(await f.status()).toMatchObject({
+      active: f.a,
+      candidate: f.b,
+      gated: false,
+      controlComponents: {
+        supervisor: { version: f.a.version, pendingVersion: f.b.version, restartRequired: true },
+        restartRequired: true
+      }
+    })
   }
 )
 

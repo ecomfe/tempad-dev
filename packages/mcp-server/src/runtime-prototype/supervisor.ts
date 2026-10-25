@@ -38,6 +38,7 @@ import {
   type Registration
 } from './protocol'
 import { newerVersion, readJournal, writeJournal, type Artifact, type Journal } from './state'
+import { controlComponentStatus } from './status'
 
 const InspectionSchema = ResultSchema.extend({
   drained: z.boolean(),
@@ -674,6 +675,16 @@ export async function startSupervisor(config: PrototypeConfig) {
         candidate: journal.candidate,
         failure: journal.failure,
         hookFault,
+        controlComponents: controlComponentStatus(
+          PACKAGE_VERSION,
+          [...edges.values()].map((edge) => edge.registration),
+          [journal.active, journal.candidate, updates?.status.candidate]
+            .filter(
+              (artifact): artifact is Artifact =>
+                !!artifact && !journal.failedBundles.includes(artifact.bundle)
+            )
+            .map((artifact) => artifact.version)
+        ),
         updates: updates
           ? {
               ...updates.status,
