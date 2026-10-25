@@ -72,6 +72,10 @@ Root:
   `TEMPAD_SWITCH_CASES` selects comma-separated cases for diagnosis; `TEMPAD_KEEP_PROTOTYPE=1`
   retains isolated evidence. It never downloads or updates installed runtimes. CI runs the full
   matrix on Linux and Windows with Node 22 and 24; native host behavior remains outside this harness.
+- Before runtime archive checks, run `pnpm mcp:prepare-release-dependencies` with network access.
+  It verifies and caches the exact frozen production dependency graph without package scripts;
+  use the same pnpm cache for the subsequent offline packaging step. A workspace install alone
+  may not cache all verification evidence required by the reduced production lockfile.
 - `pnpm mcp:check-runtime-updates` builds complete release archives from the frozen local store,
   serves them from an isolated loopback registry, and exercises default release enrollment, staging and explicit
   activation through real CLI/Hub processes. It checks mixed policies sharing one Hub, exact
@@ -135,6 +139,7 @@ release path without fetching or publishing a release. It requires macOS/Linux, 
 private directory, and unused release discovery ports; it never stops another port owner.
 
 ```sh
+pnpm mcp:prepare-release-dependencies
 node packages/mcp-server/scripts/native-runtime-fixture.mjs --root /tmp/tp-native-example --prepare
 node packages/mcp-server/scripts/native-runtime-fixture.mjs --root /tmp/tp-native-example --serve --hold-candidate
 # In another terminal, use the canonical descriptor path printed by --prepare:

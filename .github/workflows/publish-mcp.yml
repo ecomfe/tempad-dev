@@ -61,6 +61,9 @@ jobs:
       - name: Build package
         run: pnpm build:mcp
 
+      - name: Prepare dependency metadata for offline release packaging
+        run: pnpm mcp:prepare-release-dependencies
+
       - name: Validate package
         run: |
           pnpm --filter @tempad-dev/mcp... typecheck

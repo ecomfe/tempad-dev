@@ -46,6 +46,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare dependency metadata for offline release packaging
+        if: matrix.suite == 'updates'
+        run: pnpm mcp:prepare-release-dependencies
+
       - name: Record runtime environment
         env:
           EXPECTED_NODE: ${{ matrix.node }}

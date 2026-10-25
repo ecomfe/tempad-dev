@@ -8,6 +8,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { parseArgs } from 'node:util'
 
 import { runPackageManagerSync } from './package-manager.mjs'
+import { deployRuntimeDependencies } from './runtime-dependencies.mjs'
 import { runtimeSourceHash } from './runtime-source-hash.mjs'
 
 const repo = fileURLToPath(new URL('../../..', import.meta.url))
@@ -55,16 +56,6 @@ try {
     JSON.parse(readFileSync(join(source, 'runtime-policy.json'), 'utf8'))
   )
   const pkg = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
-  const { packageManager } = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'))
-  const selectedPnpm = runPackageManagerSync('pnpm', ['--version'], {
-    cwd: repo,
-    encoding: 'utf8'
-  }).trim()
-  assert.equal(
-    `pnpm@${selectedPnpm}`,
-    packageManager,
-    'Release packaging must use the pnpm version pinned by the workspace.'
-  )
   assert.deepEqual(policy.controlProtocols, [...verifier.CONTROL_VERSIONS])
   assert.deepEqual(policy.extension.protocols, [
     ...verifier.TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS
@@ -77,21 +68,7 @@ try {
   const deploy = join(root, 'deploy')
   // A hoisted, offline deploy from the frozen workspace lock avoids pnpm store
   // symlinks escaping the npm tarball. No registry queries or lifecycle scripts run.
-  runPackageManagerSync(
-    'pnpm',
-    [
-      '--filter',
-      '@tempad-dev/mcp',
-      'deploy',
-      '--prod',
-      '--offline',
-      '--ignore-scripts',
-      '--frozen-lockfile',
-      '--config.node-linker=hoisted',
-      deploy
-    ],
-    { cwd: repo, stdio: 'inherit' }
-  )
+  deployRuntimeDependencies(repo, deploy, { offline: true })
   rmSync(join(deploy, MANIFEST_PATH), { force: true })
   const packed = JSON.parse(
     runPackageManagerSync(

@@ -31,7 +31,11 @@ were prepared before their source changes were committed.
    written to `packages/extension/.output/` with the version from the extension package.
    ZIP packaging rejects checkout profiles; unset `TEMPAD_MCP_DEV_CHECKOUT` before packaging.
    The build log prints the selected profile.
-4. Prepare the reviewed MCP policy below, then run
+4. Run `pnpm mcp:prepare-release-dependencies` with network access to cache and verify the exact
+   frozen production dependency graph without running package scripts. A workspace install alone
+   may leave its offline verification metadata incomplete. Use the same pnpm cache for preparation
+   and packaging; the temporary deployment is removed and no release artifact is created.
+   Prepare the reviewed MCP policy below, then run
    `pnpm mcp:prepare-release --output <absolute-new.tgz> --verify-baseline`.
    It uses an offline, script-free hoisted deploy from the frozen workspace lock, verifies the
    complete dependency closure, and probes the packaged runtime outside the workspace.
