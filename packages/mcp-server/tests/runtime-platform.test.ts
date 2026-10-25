@@ -196,7 +196,11 @@ describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
         check()
         await closed
       }
-      await inspect(() => expect(() => assertPrivateEndpoint(path)).toThrow('untrusted'))
+      await inspect(() =>
+        expect(() => assertPrivateEndpoint(path)).toThrowError(
+          expect.objectContaining({ code: 'EPIPEUNPROTECTED' })
+        )
+      )
       await inspect(() => protectPipe(path))
       await inspect(() => assertPrivateEndpoint(path))
       await new Promise<void>((resolve, reject) => {
@@ -205,6 +209,39 @@ describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
           .once('close', () => resolve())
       })
       await inspect(() => assertPrivateEndpoint(path))
+      for (const [extraRule, includeUser] of [
+        ['(A;;GW;;;WD)', true],
+        ['(A;;GR;;;AU)', true],
+        ['', false]
+      ] as const) {
+        await inspect(() =>
+          powershell(
+            `
+            $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+            $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            $rights = [System.IO.Pipes.PipeAccessRights]'ReadData,ReadPermissions,ChangePermissions'
+            $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', $request.name, $rights,
+              [System.IO.Pipes.PipeOptions]::None, [System.Security.Principal.TokenImpersonationLevel]::Anonymous,
+              [System.IO.HandleInheritability]::None)
+            try {
+              $pipe.Connect(1000)
+              $security = $pipe.GetAccessControl()
+              $sddl = 'D:P(A;;GA;;;SY)(A;;GA;;;BA)'
+              if ($request.includeUser) { $sddl += '(A;;GA;;;' + $user + ')' }
+              $security.SetSecurityDescriptorSddlForm($sddl + $request.extraRule,
+                [System.Security.AccessControl.AccessControlSections]::Access)
+              $pipe.SetAccessControl($security)
+            } finally { $pipe.Dispose() }
+          `,
+            { name: path.slice('\\\\.\\pipe\\'.length), extraRule, includeUser }
+          )
+        )
+        await inspect(() =>
+          expect(() => assertPrivateEndpoint(path)).toThrowError(
+            expect.objectContaining({ code: 'EPIPEUNTRUSTED' })
+          )
+        )
+      }
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()))
     }

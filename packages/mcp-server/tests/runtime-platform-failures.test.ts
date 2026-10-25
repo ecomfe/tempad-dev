@@ -19,10 +19,12 @@ import {
 } from '../src/runtime-platform'
 
 let revision = 0n
+let inode = 1n
 const path = resolve('private-runtime-fixture')
 beforeEach(() => {
   vi.resetAllMocks()
   revision++
+  inode = 1n
   vi.stubGlobal('process', {
     ...process,
     platform: 'win32',
@@ -33,7 +35,7 @@ beforeEach(() => {
     () =>
       ({
         dev: 1n,
-        ino: 1n,
+        ino: inode,
         birthtimeNs: 1n,
         ctimeNs: revision,
         isSymbolicLink: () => false,
@@ -95,12 +97,52 @@ it('creates missing directories through the ACL helper, without repairing unsafe
   expect(execFileSync).toHaveBeenCalledTimes(2)
 })
 
-it('rejects paths replaced during ACL inspection', () => {
+it('rechecks directory changes and caches only a stable private revision', () => {
+  vi.mocked(execFileSync).mockImplementationOnce(() => {
+    revision++
+    return ''
+  })
+  expect(() => assertPrivatePath(path, 'directory')).not.toThrow()
+  expect(execFileSync).toHaveBeenCalledTimes(2)
+  assertPrivatePath(path, 'directory')
+  expect(execFileSync).toHaveBeenCalledTimes(2)
+})
+
+it('allows concurrent directory content changes without caching an unstable ACL check', () => {
   vi.mocked(execFileSync).mockImplementation(() => {
     revision++
     return ''
   })
+  expect(() => assertPrivatePath(path, 'directory')).not.toThrow()
+  expect(execFileSync).toHaveBeenCalledTimes(2)
+  expect(() => assertPrivatePath(path, 'directory')).not.toThrow()
+  expect(execFileSync).toHaveBeenCalledTimes(4)
+})
+
+it.each([1, 2])('rejects paths replaced during ACL inspection %s', (replacementCheck) => {
+  let checks = 0
+  vi.mocked(execFileSync).mockImplementation(() => {
+    revision++
+    if (++checks === replacementCheck) inode++
+    return ''
+  })
   expect(() => assertPrivatePath(path, 'directory')).toThrow('changed during its permission check')
+  expect(execFileSync).toHaveBeenCalledTimes(replacementCheck)
+})
+
+it('rejects an unsafe ACL discovered after the revision changes', () => {
+  vi.mocked(execFileSync)
+    .mockImplementationOnce(() => {
+      revision++
+      return ''
+    })
+    .mockImplementation(() => {
+      throw { stderr: JSON.stringify({ message: 'ACL grants another account access.', code: 5 }) }
+    })
+  expect(() => assertPrivatePath(path, 'directory')).toThrow('another account')
+  expect(execFileSync).toHaveBeenCalledTimes(2)
+  expect(() => assertPrivatePath(path, 'directory')).toThrow('another account')
+  expect(execFileSync).toHaveBeenCalledTimes(3)
 })
 
 it.each([

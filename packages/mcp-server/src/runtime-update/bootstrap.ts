@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
+import { setTimeout as delay } from 'node:timers/promises'
 import lockfile from 'proper-lockfile'
 
 import { writeDurableJson } from '../durable-json'
@@ -14,7 +15,7 @@ import {
   supervisorConnection,
   unavailableSocket
 } from '../runtime-prototype/processes'
-import { ControlPeer, SocketTransport } from '../runtime-prototype/protocol'
+import { ControlPeer, RECOVER_MS, SocketTransport } from '../runtime-prototype/protocol'
 import { ConfigSchema, readPrivateJson, type PrototypeConfig } from '../runtime-prototype/state'
 import {
   ASSET_DIR,
@@ -66,6 +67,21 @@ export function updateIntent(
   }
 }
 
+async function acquireEnrollmentLock() {
+  // The owner may still be flushing its verified package. Give contenders the
+  // startup recovery budget while preserving the owner's ordinary heartbeat.
+  const deadline = performance.now() + RECOVER_MS
+  for (;;) {
+    try {
+      return await lockfile.lock(LOCK_PATH, { retries: 0, stale: 10_000 })
+    } catch (error) {
+      const remaining = deadline - performance.now()
+      if ((error as NodeJS.ErrnoException).code !== 'ELOCKED' || remaining <= 0) throw error
+      await delay(Math.min(250, remaining))
+    }
+  }
+}
+
 /** Enrollment changes policy, never the release namespace or the task/asset store. */
 export async function maybeManagedRuntime(args: string[], packageDir: string): Promise<boolean> {
   const manifestPath = join(packageDir, MANIFEST_PATH)
@@ -100,10 +116,7 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
   let saved = readPrivateJson(path, ConfigSchema)
   if (!saved) {
     ensureFile(LOCK_PATH)
-    const unlock = await lockfile.lock(LOCK_PATH, {
-      retries: { retries: 120, factor: 1, minTimeout: 250, maxTimeout: 250 },
-      stale: 10_000
-    })
+    const unlock = await acquireEnrollmentLock()
     try {
       saved = readPrivateJson(path, ConfigSchema)
       if (!saved) {

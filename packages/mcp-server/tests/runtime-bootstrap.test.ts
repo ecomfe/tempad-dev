@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import lockfile from 'proper-lockfile'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const fake = vi.hoisted(() => ({
@@ -47,8 +48,9 @@ vi.mock('node:readline/promises', () => ({
 }))
 vi.mock('../src/runtime-recovery', () => ({ runRuntimeRecovery: fake.recovery }))
 
+import { RECOVER_MS } from '../src/runtime-prototype/protocol'
 import { maybeManagedRuntime } from '../src/runtime-update/bootstrap'
-import { ASSET_DIR, LOG_DIR, RUNTIME_DIR, resolveStateDir } from '../src/shared'
+import { ASSET_DIR, LOCK_PATH, LOG_DIR, RUNTIME_DIR, resolveStateDir } from '../src/shared'
 
 const root = join(resolveStateDir(), 'runtime')
 const packageDir = join(resolveStateDir(), 'package')
@@ -77,16 +79,19 @@ const manifest = {
   lockHash: 'd'.repeat(64),
   files: {}
 }
-beforeEach(() => {
-  vi.clearAllMocks()
-  fake.profile.kind = 'release'
-  fake.connect.mockRejectedValue(Object.assign(new Error('absent'), { code: 'ENOENT' }))
-  fake.retain.mockReturnValue({
+function bundledArtifact() {
+  return {
     entry: join(packageDir, manifest.entry),
     version: '0.12.0',
     bundle: '',
     release: { directory: packageDir, manifestHash: 'a'.repeat(64) }
-  })
+  }
+}
+beforeEach(() => {
+  vi.clearAllMocks()
+  fake.profile.kind = 'release'
+  fake.connect.mockRejectedValue(Object.assign(new Error('absent'), { code: 'ENOENT' }))
+  fake.retain.mockReturnValue(bundledArtifact())
   fake.request.mockResolvedValue({})
   mkdirSync(join(packageDir, 'dist'), { recursive: true, mode: 0o700 })
   writeFileSync(join(packageDir, 'dist/runtime-manifest.json'), JSON.stringify(manifest))
@@ -95,6 +100,7 @@ beforeEach(() => {
   vi.spyOn(process.stdin, 'destroy').mockReturnValue(process.stdin)
 })
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   rmSync(root, { recursive: true, force: true })
@@ -152,6 +158,63 @@ it('enrolls once and gives every subsequent policy the same directories and owne
     'pinned'
   ])
   expect(fake.edge.mock.calls.every((call) => call[0].secret === saved.secret)).toBe(true)
+})
+
+it('shares one retained package and owner across concurrent enrollment', async () => {
+  let release!: () => void
+  let retaining!: () => void
+  const held = new Promise<void>((resolve) => (release = resolve))
+  const started = new Promise<void>((resolve) => (retaining = resolve))
+  fake.retain.mockImplementationOnce(async () => {
+    retaining()
+    await held
+    return bundledArtifact()
+  })
+  const locks = vi.spyOn(lockfile, 'lock')
+  const first = maybeManagedRuntime(['--runtime-updates=stable'], packageDir)
+  await started
+  const second = maybeManagedRuntime(['--runtime-updates=stable'], packageDir)
+  try {
+    await vi.waitFor(() =>
+      expect(locks.mock.calls.filter(([path]) => path === LOCK_PATH).length).toBeGreaterThan(1)
+    )
+    expect(fake.retain).toHaveBeenCalledOnce()
+    expect(existsSync(configPath)).toBe(false)
+  } finally {
+    release()
+    await Promise.all([first, second])
+  }
+  expect(fake.retain).toHaveBeenCalledOnce()
+  const owners = fake.edge.mock.calls.map(([config]) => config.secret)
+  expect(owners).toHaveLength(2)
+  expect(new Set(owners).size).toBe(1)
+})
+
+it('waits for a busy enrollment through the bounded startup recovery budget', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+  const busy = Object.assign(new Error('another enrollment is flushing its package'), {
+    code: 'ELOCKED'
+  })
+  const acquire = vi.spyOn(lockfile, 'lock').mockRejectedValue(busy)
+  let settled = false
+  const outcome = maybeManagedRuntime(['--runtime-updates=stable'], packageDir).catch((error) => {
+    settled = true
+    return error
+  })
+  await vi.advanceTimersByTimeAsync(RECOVER_MS - 1)
+  expect(settled).toBe(false)
+  expect(fake.retain).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(await outcome).toBe(busy)
+  expect(acquire).toHaveBeenCalledWith(LOCK_PATH, { retries: 0, stale: 10_000 })
+})
+
+it.each(['EACCES', 'EIO'])('does not retry enrollment lock failures with %s', async (code) => {
+  const failure = Object.assign(new Error('runtime storage unavailable'), { code })
+  const acquire = vi.spyOn(lockfile, 'lock').mockRejectedValue(failure)
+  await expect(maybeManagedRuntime(['--runtime-updates=stable'], packageDir)).rejects.toBe(failure)
+  expect(acquire).toHaveBeenCalledOnce()
+  expect(fake.retain).not.toHaveBeenCalled()
 })
 
 it('never replaces an existing legacy owner or guesses a missing release build', async () => {

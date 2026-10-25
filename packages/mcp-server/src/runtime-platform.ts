@@ -5,7 +5,7 @@ import { tmpdir, userInfo } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 
 const PIPE_PREFIX = '\\\\.\\pipe\\'
-const checkedPermissions = new Map<string, string>()
+const checkedPermissions = new Map<string, ReturnType<typeof inspectPath>>()
 
 /** Runtime overrides must isolate pipes as well as files, including on one Windows account. */
 export function runtimeEndpoint(
@@ -48,23 +48,36 @@ function inspectPath(path: string, kind: 'file' | 'directory') {
     (process.platform !== 'win32' && (stat.uid !== BigInt(process.getuid!()) || stat.mode & 0o077n))
   )
     throw new Error(`Refusing untrusted runtime ${kind}: ${path}`)
-  return `${stat.dev}:${stat.ino}:${stat.birthtimeNs}:${stat.ctimeNs}`
+  return {
+    identity: `${stat.dev}:${stat.ino}:${stat.birthtimeNs}:${kind}`,
+    revision: stat.ctimeNs
+  }
 }
 
-function rememberPermissions(path: string, identity: string) {
+function rememberPermissions(path: string, state: ReturnType<typeof inspectPath>) {
   if (checkedPermissions.size >= 1024) checkedPermissions.clear()
-  checkedPermissions.set(path, identity)
+  checkedPermissions.set(path, state)
 }
 
 export function assertPrivatePath(path: string, kind: 'file' | 'directory') {
-  const identity = inspectPath(path, kind)
-  if (process.platform !== 'win32' || checkedPermissions.get(path) === identity) return
-  windowsSecurity('inspect', path, kind)
-  if (inspectPath(path, kind) !== identity)
-    throw new Error(`Runtime ${kind} changed during its permission check: ${path}`)
-  // Windows ChangeTime includes security descriptor changes. Content replacement, ACL edits
-  // and inode reuse all invalidate this bounded cache; unchanged reads need no helper process.
-  rememberPermissions(path, identity)
+  let state = inspectPath(path, kind)
+  if (process.platform !== 'win32') return
+  const cached = checkedPermissions.get(path)
+  if (cached?.identity === state.identity && cached.revision === state.revision) return
+  checkedPermissions.delete(path)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    windowsSecurity('inspect', path, kind)
+    const next = inspectPath(path, kind)
+    if (next.identity !== state.identity)
+      throw new Error(`Runtime ${kind} changed during its permission check: ${path}`)
+    if (next.revision === state.revision) {
+      rememberPermissions(path, next)
+      return
+    }
+    // ChangeTime covers ACL edits and ordinary child creation. Recheck once when it
+    // changes, rejecting replacement but leaving an actively changing object uncached.
+    state = next
+  }
 }
 
 export function ensurePrivateDirectory(path: string) {
@@ -258,13 +271,13 @@ public static class TempadPipeSecurity {
   }
   $ownAccess = $false
   $foreignAccess = $false
-  $pendingProtection = $request.kind -eq 'pipe' -and $request.action -eq 'inspect' -and $descriptor.Owner.Value -eq $user.Value
+  $pendingProtection = $request.kind -eq 'pipe' -and $request.action -eq 'inspect'
   foreach ($ace in $descriptor.DiscretionaryAcl) {
     if ($ace.AceType -eq 'AccessAllowed') {
       if ($allowed -notcontains $ace.SecurityIdentifier.Value) {
         $foreignAccess = $true
-        # Windows' initial pipe descriptor grants Everyone/Anonymous read. Only that
-        # same-owner startup state is retryable; it must still become private.
+        # Windows' initial pipe descriptor can be owned by Administrators and omit
+        # the user's ACE. Only its default reader grants are retryable, never trusted.
         $defaultReader = @('S-1-1-0', 'S-1-5-7') -contains $ace.SecurityIdentifier.Value
         $readOnly = ($ace.AccessMask -band 0x7fedff76) -eq 0
         $pendingProtection = $pendingProtection -and $defaultReader -and $readOnly
@@ -274,9 +287,9 @@ public static class TempadPipeSecurity {
       throw 'Unsupported ACL entry.'
     }
   }
+  if ($foreignAccess -and $pendingProtection) { $failureCode = 'EPIPEUNPROTECTED' }
   if (!$ownAccess) { throw 'ACL does not explicitly grant the current user access.' }
   if ($foreignAccess) {
-    if ($pendingProtection) { $failureCode = 'EPIPEUNPROTECTED' }
     throw 'ACL grants another account access.'
   }
 } catch {
