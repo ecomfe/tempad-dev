@@ -404,6 +404,36 @@ it('rolls back promptly after its candidate process exits before publishing', as
   expect(readJournal(f.root)?.failedBundles).toEqual([f.b.bundle])
 })
 
+it.each(['event', 'exitCode'] as const)(
+  'waits for its failed startup to exit after pipe closure (%s) before rolling back',
+  async (evidence) => {
+    const f = await fixture()
+    const launch = fake.launch.getMockImplementation()!
+    let child!: EventEmitter & { exitCode?: number }
+    fake.launch.mockImplementationOnce((...args) => (child = launch(...args)))
+    const wait = processes.waitForLaunchedSocket
+    vi.spyOn(processes, 'waitForLaunchedSocket').mockImplementationOnce(async (...args) => {
+      const socket = await wait(...args)
+      socket.destroy()
+      setTimeout(() => {
+        void f.hubs[1]!.stop().then(() => {
+          expect(fake.launch).toHaveBeenCalledOnce()
+          if (evidence === 'event') child.emit('exit', 1, null)
+          else child.exitCode = 1
+        })
+      }, 50)
+      return socket
+    })
+    expect(await f.update()).toMatchObject({
+      status: 'rolled-back',
+      reason: expect.stringContaining('Runtime socket is closed')
+    })
+    expect(fake.launch).toHaveBeenCalledTimes(2)
+    expect(await f.status()).toMatchObject({ phase: 'committed', active: f.a, gated: false })
+    expect(readJournal(f.root)?.failedBundles).toEqual([f.b.bundle])
+  }
+)
+
 it.each(['oldEdge', 'unready', 'legacyHub', 'recentWork'] as const)(
   'keeps serving when automatic readiness is missing: %s',
   async (scenario) => {

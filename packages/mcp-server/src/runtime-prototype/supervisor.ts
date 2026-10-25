@@ -433,6 +433,19 @@ export async function startSupervisor(config: PrototypeConfig) {
       }
     } catch (error) {
       await peer.close()
+      // A failed startup can close its control pipe before its process exits
+      // (for example, after WebSocket binding fails). Keep ownership until the
+      // launched child has exited, within the original startup recovery budget.
+      const starting = pendingHub
+      while (
+        starting?.artifact.bundle === artifact.bundle &&
+        !starting.exited &&
+        performance.now() < deadline
+      ) {
+        if (starting.child.exitCode != null || starting.child.signalCode != null)
+          starting.exited = true
+        else await pause(50)
+      }
       throw error
     }
   }
