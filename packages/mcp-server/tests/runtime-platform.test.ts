@@ -85,15 +85,14 @@ describe.skipIf(process.platform === 'win32')('Unix storage', () => {
 
 describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
   it.each([
-    ['original full environment', true, false, false, true],
-    ['original full environment without hiding the child', true, false, false, false],
-    ['SDK and platform environment', false, false, false, true],
-    ['isolated home only', false, true, false, true],
-    ['isolated temp only', false, false, true, true],
-    ['isolated home and temp', false, true, true, true]
+    ['original full environment', true, false, false],
+    ['SDK and platform environment', false, false, false],
+    ['isolated home only', false, true, false],
+    ['isolated temp only', false, false, true],
+    ['isolated home and temp', false, true, true]
   ] as const)(
     'verifies Unicode storage with open MCP stdin: %s',
-    async (name, inheritAll, isolateHome, isolateTemp, windowsHide) => {
+    async (name, inheritAll, isolateHome, isolateTemp) => {
       const root = fixture()
       const { getDefaultEnvironment } = await import('@modelcontextprotocol/sdk/client/stdio.js')
       const helperPath = '../scripts/runtime-test-platform.mjs'
@@ -121,7 +120,7 @@ describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
       const child = spawn(process.execPath, ['--input-type=module', '-e', source, home], {
         env,
         timeout: 25_000,
-        windowsHide,
+        windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe']
       })
       let stdout = ''

@@ -171,6 +171,11 @@ const SECURITY_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+# Module autoload can stall with a filtered host environment. Use the trusted
+# built-in modules directly, without scanning host/user module locations.
+Import-Module "$PSHOME\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1" -ErrorAction Stop
+Import-Module "$PSHOME\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1" -ErrorAction Stop
+$PSModuleAutoloadingPreference = 'None'
 $failureCode = $null
 try {
   $request = $env:TEMPAD_RUNTIME_ACL_REQUEST | ConvertFrom-Json
