@@ -28,6 +28,7 @@ const InboxSchema = z.array(
   })
 )
 const ReceiverSchema = z.object({ hubId: z.uuid(), freshAfter: z.number().optional() })
+class FutureHookError extends Error {}
 
 /** Keep the installed hook path alive while the data-plane Hub is stopped. */
 export async function startHookGateway(
@@ -65,8 +66,8 @@ export async function startHookGateway(
   const evidenceHub = (input: ClientHook) =>
     receiver &&
     (input.version !== 2 ||
-      (input.issuedAt <= Date.now() &&
-        (receiver.freshAfter === undefined || input.issuedAt > receiver.freshAfter)))
+      receiver.freshAfter === undefined ||
+      input.issuedAt > receiver.freshAfter)
       ? receiver.hubId
       : undefined
   function save(next: typeof entries, nextReceiver = receiver) {
@@ -170,13 +171,20 @@ export async function startHookGateway(
           const input = parsed.data.params
           if (input.version === 2 && input.profile.kind !== 'release')
             throw new Error('Lifecycle hook belongs to a different runtime profile.')
-          cutoff = hookCutoff(input, cutoff)
+          const admittedAt = Date.now()
+          cutoff = hookCutoff(input, cutoff, admittedAt)
           const live = entries.filter(retained)
           if (live.length !== entries.length) save(live)
           const existing = entries.find((entry) => entry.input.invocationId === input.invocationId)
           if (existing && hookSignature(existing.input) !== hookSignature(input))
             throw new Error('Lifecycle invocation identity changed.')
           if (!existing) {
+            // Cross-process wall clocks can differ slightly. Do not acknowledge
+            // a future hook as historical; its sender can retry the same ID.
+            if (input.version === 2 && input.issuedAt > admittedAt)
+              throw new FutureHookError(
+                'Lifecycle invocation is ahead of the runtime clock; retry the same invocation.'
+              )
             const error = capacityFailure()
             if (error) {
               onFault(error)
@@ -210,12 +218,18 @@ export async function startHookGateway(
             }) + '\n'
           )
         })().catch((error: unknown) => {
-          if (error instanceof ExpiredHookError)
+          if (error instanceof ExpiredHookError || error instanceof FutureHookError)
             socket.end(
               JSON.stringify({
                 jsonrpc: '2.0',
                 id: message.id,
-                error: { code: -32001, message: error.message }
+                error: {
+                  code: -32001,
+                  message: error.message,
+                  ...(error instanceof FutureHookError
+                    ? { data: { code: 'MCP_HOOK_CLOCK_AHEAD' } }
+                    : {})
+                }
               }) + '\n'
             )
           else socket.destroy()

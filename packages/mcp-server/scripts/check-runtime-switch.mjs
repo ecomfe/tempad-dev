@@ -182,7 +182,11 @@ async function rpc(root, method, params, path = 'supervisor.sock') {
   )
   try {
     const value = JSON.parse(await reply)
-    if (value.error) throw new Error(value.error.message)
+    if (value.error)
+      throw Object.assign(new Error(value.error.message), {
+        code: value.error.code,
+        data: value.error.data
+      })
     return value.result
   } finally {
     socket.destroy()
@@ -190,7 +194,14 @@ async function rpc(root, method, params, path = 'supervisor.sock') {
 }
 async function applyHook(root, input) {
   return until(async () => {
-    const result = await rpc(root, 'tempad/client-hook', input, 'run/mcp.sock')
+    let result
+    try {
+      result = await rpc(root, 'tempad/client-hook', input, 'run/mcp.sock')
+    } catch (error) {
+      // Installed hooks retry the same invocation; a future clock is not admission.
+      if (error.data?.code === 'MCP_HOOK_CLOCK_AHEAD') return false
+      throw error
+    }
     assert.equal(result.receipt?.invocationId, input.invocationId)
     return result.receipt.state === 'applied' && result
   }, 'durable hook application')

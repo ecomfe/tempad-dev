@@ -283,7 +283,7 @@ it.skipIf(process.platform === 'win32')(
 )
 
 it.skipIf(process.platform === 'win32')(
-  'does not promote a future-issued hook while it waits behind a blocked delivery',
+  'does not admit a future-issued hook behind a blocked delivery',
   async () => {
     const root = directory()
     const current = await hub(root)
@@ -307,21 +307,17 @@ it.skipIf(process.platform === 'win32')(
     gateway.setReceiver(current.control.hubId)
     expect((await request(root, blocker)).result.receipt.state).toBe('accepted')
     const future = input('UserPromptSubmit', now + 1000)
-    expect((await request(root, future)).result.receipt.state).toBe('accepted')
+    expect((await request(root, future)).error).toMatchObject({ code: -32001 })
     expect(current.effect).not.toHaveBeenCalled()
     now += 2000
     release()
     await gateway.flush()
-    expect(current.effect).toHaveBeenLastCalledWith(future, false)
+    expect(current.effect).toHaveBeenCalledExactlyOnceWith(blocker, true)
     expect(await current.owner()).toBe('edge')
     await request(root, future)
     await gateway.flush()
     expect(current.effect).toHaveBeenCalledTimes(2)
-    expect(await current.owner()).toBe('edge')
-    const fresh = input('UserPromptSubmit')
-    await request(root, fresh)
-    await gateway.flush()
-    expect(current.effect).toHaveBeenLastCalledWith(fresh, true)
+    expect(current.effect).toHaveBeenLastCalledWith(future, true)
     expect(await current.owner()).toBe('edge/claude/session')
   }
 )
