@@ -22,6 +22,7 @@ import {
 } from './processes'
 import {
   ControlPeer,
+  isRuntimeUnavailable,
   CONTROL_VERSIONS,
   GrantSchema,
   RECOVER_MS,
@@ -194,10 +195,13 @@ export async function startPrototypeEdge(
         timeout: 5000,
         signal
       })
-    const socket = await connectSocket(
-      hubSocketPath(config.root, config.directories?.runtime),
-      signal
-    )
+    let socket
+    try {
+      socket = await connectSocket(hubSocketPath(config.root, config.directories?.runtime), signal)
+    } catch (error) {
+      if (unavailableSocket(error)) throw unavailable('Runtime data endpoint is unavailable.')
+      throw error
+    }
     openingHubId = grant!.hubId
     const wire = new SocketTransport(socket)
     try {
@@ -311,13 +315,7 @@ export async function startPrototypeEdge(
           return await openTransport(signal)
         } catch (error) {
           hostSignal.throwIfAborted()
-          const transient =
-            unavailableSocket(error) ||
-            (error instanceof McpError &&
-              error.code === -32001 &&
-              (error.data as { code?: unknown } | undefined)?.code === 'MCP_RUNTIME_UNAVAILABLE' &&
-              (error.data as { dispatched?: unknown }).dispatched === false)
-          if (!startup || (!startup.aborted && !transient)) throw error
+          if (!startup || (!startup.aborted && !isRuntimeUnavailable(error))) throw error
           if (!startup.aborted) await delay(200, undefined, { signal }).catch(() => {})
           hostSignal.throwIfAborted()
           if (startup.aborted)

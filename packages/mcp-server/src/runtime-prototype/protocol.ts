@@ -28,6 +28,7 @@ export const LEASE_MS = 10_000
 export const RENEW_MS = 2_000
 export const RECOVER_MS = 90_000
 export const REQUEST_TIMEOUT_MS = 330_000
+
 export const IdSchema = z.uuid()
 export const RegistrationSchema = z
   .object({
@@ -71,6 +72,15 @@ export function unavailable(
   message = 'Runtime recovery is in progress; this call was not dispatched.'
 ) {
   return new McpError(-32001, message, { code: 'MCP_RUNTIME_UNAVAILABLE', dispatched: false })
+}
+
+export function isRuntimeUnavailable(error: unknown): boolean {
+  return (
+    error instanceof McpError &&
+    error.code === -32001 &&
+    (error.data as { code?: unknown } | undefined)?.code === 'MCP_RUNTIME_UNAVAILABLE' &&
+    (error.data as { dispatched?: unknown }).dispatched === false
+  )
 }
 
 export function negotiate(

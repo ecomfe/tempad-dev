@@ -37,6 +37,7 @@ vi.mock('../src/runtime-prototype/processes', async (load) => {
 import type { ClientBindingUpdate } from '../src/client-binding'
 
 import { startPrototypeEdge } from '../src/runtime-prototype/edge'
+import * as processes from '../src/runtime-prototype/processes'
 import {
   hubSocketPath,
   listenPrivate,
@@ -44,6 +45,7 @@ import {
 } from '../src/runtime-prototype/processes'
 import {
   ControlPeer,
+  CONTROL_VERSIONS,
   RECOVER_MS,
   RuntimeDataTransport,
   SocketTransport,
@@ -57,7 +59,9 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
-async function fixture(options: { hello?: () => void; attach?: () => void } = {}) {
+async function fixture(
+  options: { hello?: () => void; attach?: () => void; delayData?: boolean } = {}
+) {
   const exitCode = process.exitCode
   vi.spyOn(process.stdin, 'destroy').mockImplementation(() => process.stdin)
   cleanup.push(async () => {
@@ -85,7 +89,7 @@ async function fixture(options: { hello?: () => void; attach?: () => void } = {}
       return {}
     })
     peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-refresh') }), () => ({
-      version: 1,
+      version: CONTROL_VERSIONS[0],
       generation: state.generation,
       hubId: state.hubId,
       hubPid: process.pid,
@@ -100,7 +104,7 @@ async function fixture(options: { hello?: () => void; attach?: () => void } = {}
         registrations.push(params)
         options.hello?.()
         return {
-          version: 1,
+          version: CONTROL_VERSIONS[0],
           generation: ++state.generation,
           hubId: state.hubId,
           hubPid: process.pid,
@@ -163,7 +167,8 @@ async function fixture(options: { hello?: () => void; attach?: () => void } = {}
     )
   })
   await listenPrivate(controlServer, state.path)
-  await listenPrivate(dataServer, hubSocketPath(root))
+  const publishData = () => listenPrivate(dataServer, hubSocketPath(root))
+  if (!options.delayData) await publishData()
   const edge = startPrototypeEdge({ root } as PrototypeConfig)
   const client = new Client({ name: 'fixture host', version: '1' })
   cleanup.push(async () => {
@@ -178,6 +183,7 @@ async function fixture(options: { hello?: () => void; attach?: () => void } = {}
     controls,
     calls,
     notifications,
+    publishData,
     publishBinding: async (binding: ClientBindingUpdate) => {
       const runtime = runtimes.at(-1)!
       await runtime.notification({ method: 'notifications/tempad/client-binding', params: binding })
@@ -191,7 +197,7 @@ async function fixture(options: { hello?: () => void; attach?: () => void } = {}
       await controls.at(-1)!.notification({
         method: 'notifications/tempad/runtime-replaced',
         params: {
-          version: 1,
+          version: CONTROL_VERSIONS[0],
           generation: ++state.generation,
           hubId: state.hubId,
           hubPid: process.pid,
@@ -314,6 +320,36 @@ it.skipIf(process.platform === 'win32').each(['hello', 'attach'] as const)(
     expect(initialized()).toBe(1)
     await client.request({ method: 'tools/call', params: { name: 'write' } }, ResultSchema)
     expect(calls).toHaveBeenCalledOnce()
+  }
+)
+
+it.skipIf(process.platform === 'win32')(
+  'retries only the unavailable data socket before initialization',
+  async () => {
+    const connectSocket = vi.spyOn(processes, 'connectSocket')
+    const { connect, publishData, initialized } = await fixture({ delayData: true })
+    const connecting = connect()
+    void connecting.catch(() => {})
+    await vi.waitFor(() => expect(connectSocket.mock.calls.length).toBeGreaterThan(1))
+    await publishData()
+    await connecting
+    expect(initialized()).toBe(1)
+  }
+)
+
+it.skipIf(process.platform === 'win32')(
+  'does not retry filesystem ENOENT from supervisor startup',
+  async () => {
+    const error = Object.assign(new Error('Missing verified release artifact'), { code: 'ENOENT' })
+    const supervisor = vi.spyOn(processes, 'supervisorConnection').mockRejectedValue(error)
+    const timeout = AbortSignal.timeout.bind(AbortSignal)
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) =>
+      timeout(milliseconds === RECOVER_MS ? 500 : milliseconds)
+    )
+    const { connect, initialized } = await fixture()
+    await expect(connect()).rejects.toThrow(error.message)
+    expect(supervisor).toHaveBeenCalledOnce()
+    expect(initialized()).toBe(0)
   }
 )
 

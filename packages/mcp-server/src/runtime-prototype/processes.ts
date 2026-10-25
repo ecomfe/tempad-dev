@@ -18,7 +18,7 @@ import lockfile from 'proper-lockfile'
 import { hubEnvironment } from '../process-environment'
 import { verifyReleaseArtifact } from '../runtime-update/artifact'
 import { assertTrustedSocket, ensureFile, ensureDir } from '../shared'
-import { unavailable } from './protocol'
+import { isRuntimeUnavailable, RECOVER_MS, unavailable } from './protocol'
 import { ConfigSchema, readJournal, type Artifact, type PrototypeConfig } from './state'
 export type { PrototypeConfig } from './state'
 
@@ -159,6 +159,23 @@ export function unavailableSocket(error: unknown) {
 }
 
 export async function supervisorConnection(config: PrototypeConfig, signal: AbortSignal) {
+  const deadline = AbortSignal.timeout(RECOVER_MS)
+  const attemptSignal = AbortSignal.any([signal, deadline])
+  for (;;) {
+    signal.throwIfAborted()
+    if (deadline.aborted) throw unavailable('Runtime supervisor startup timed out.')
+    try {
+      return await supervisorConnectionAttempt(config, attemptSignal)
+    } catch (error) {
+      signal.throwIfAborted()
+      if (!deadline.aborted && !isRuntimeUnavailable(error)) throw error
+      await delay(200, undefined, { signal: attemptSignal }).catch(() => {})
+    }
+  }
+}
+
+// Retry only endpoint acquisition, before a control request can be dispatched.
+async function supervisorConnectionAttempt(config: PrototypeConfig, signal: AbortSignal) {
   const path = supervisorSocketPath(config)
   try {
     return await connectSocket(path, signal)

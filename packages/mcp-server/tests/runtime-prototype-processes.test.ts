@@ -5,7 +5,9 @@ import { EventEmitter } from 'node:events'
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Socket } from 'node:net'
 import { join } from 'node:path'
+import lockfile from 'proper-lockfile'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }))
 
@@ -22,7 +24,13 @@ import {
   waitForSocket,
   type PrototypeConfig
 } from '../src/runtime-prototype/processes'
-import { ControlPeer, GrantSchema, SocketTransport } from '../src/runtime-prototype/protocol'
+import {
+  ControlPeer,
+  GrantSchema,
+  RECOVER_MS,
+  SocketTransport,
+  unavailable
+} from '../src/runtime-prototype/protocol'
 import { startSupervisor } from '../src/runtime-prototype/supervisor'
 import { PACKAGE_VERSION } from '../src/shared'
 
@@ -132,6 +140,94 @@ describe.skipIf(process.platform === 'win32')('isolated prototype processes', ()
       data: { code: 'MCP_RUNTIME_UNAVAILABLE', dispatched: false }
     })
   })
+
+  it('waits past one connection attempt for an existing owner without replaying a command', async () => {
+    const config = await fixture()
+    const owner = join(config.root, 'supervisor.lock')
+    await writeFile(owner, '')
+    const unlock = await lockfile.lock(owner, { stale: 5000, update: 1000 })
+    cleanup.push(unlock)
+    const execute = vi.fn(() => {
+      throw unavailable('Command was not admitted.')
+    })
+    let published: Promise<unknown> | undefined
+    const publication = setTimeout(() => {
+      published = listener(join(config.root, 'supervisor.sock'), (socket) => {
+        const peer = new ControlPeer()
+        peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-recover') }), execute)
+        void peer.connect(new SocketTransport(socket))
+      })
+    }, 6500)
+    try {
+      const peer = new ControlPeer()
+      await peer.connect(
+        new SocketTransport(await supervisorConnection(config, AbortSignal.timeout(9000)))
+      )
+      cleanup.push(() => peer.close())
+      expect(spawn).not.toHaveBeenCalled()
+      await expect(
+        peer.request({ method: 'tempad/runtime-recover' }, ResultSchema)
+      ).rejects.toThrow('not admitted')
+      expect(execute).toHaveBeenCalledOnce()
+    } finally {
+      clearTimeout(publication)
+      await published
+    }
+  }, 10000)
+
+  it.each(['caller', 'recovery'] as const)(
+    'bounds supervisor discovery by the %s deadline',
+    async (source) => {
+      const config = await fixture()
+      const owner = join(config.root, 'supervisor.lock')
+      await writeFile(owner, '')
+      cleanup.push(await lockfile.lock(owner, { stale: 5000, update: 1000 }))
+      const deadline = new AbortController()
+      const error = new Error('Caller cancelled command')
+      if (source === 'recovery') vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
+      const connecting = supervisorConnection(
+        config,
+        source === 'caller' ? deadline.signal : new AbortController().signal
+      )
+      const rejected = expect(connecting).rejects.toThrow(
+        source === 'caller' ? error.message : 'supervisor startup timed out'
+      )
+      deadline.abort(error)
+      await rejected
+      if (source === 'recovery') expect(AbortSignal.timeout).toHaveBeenCalledWith(RECOVER_MS)
+      expect(spawn).not.toHaveBeenCalled()
+    }
+  )
+
+  it('rejects untrusted supervisor endpoints without retry or replacement', async () => {
+    const config = await fixture()
+    const path = join(config.root, 'supervisor.sock')
+    await listener(path)
+    await chmod(path, 0o666)
+    await expect(supervisorConnection(config, AbortSignal.timeout(500))).rejects.toThrow(
+      'untrusted'
+    )
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it.each(['release', 'local'] as const)(
+    'does not retry a missing %s artifact as a missing socket',
+    async (kind) => {
+      const config = await fixture()
+      const directory = join(config.root, 'missing-artifact')
+      config.entry = join(directory, 'managed-runtime.mjs')
+      if (kind === 'release') {
+        config.release = { directory, manifestHash: 'a'.repeat(64) }
+        const { root, ...saved } = config
+        await writeFile(join(root, 'prototype.json'), JSON.stringify(saved), { mode: 0o600 })
+      }
+      await expect(supervisorConnection(config, AbortSignal.timeout(500))).rejects.toMatchObject({
+        code: 'ENOENT',
+        path: kind === 'release' ? join(directory, 'package.json') : directory
+      })
+      expect(spawn).not.toHaveBeenCalled()
+    }
+  )
 
   it('renews one Hub lease, negotiates registrations and closes with its Hub', async () => {
     const config = await fixture()
