@@ -271,13 +271,13 @@ describe.skipIf(process.platform === 'win32')('isolated prototype processes', ()
     ).rejects.toThrow('only once')
     const grant = await first
     await duplicate
-    expect(grant).toMatchObject({ generation: 1, hubId: control.hubId, version: 1 })
+    expect(grant).toMatchObject({ generation: 1, hubId: control.hubId, version: 2 })
     const incompatible = new ControlPeer()
     await incompatible.connect(new SocketTransport(await connectSocket(path)))
     cleanup.push(() => incompatible.close())
     await expect(
       incompatible.request(
-        { method: 'tempad/runtime-hello', params: { ...params, versions: [2] } },
+        { method: 'tempad/runtime-hello', params: { ...params, versions: [1] } },
         ResultSchema
       )
     ).rejects.toThrow('MCP_RUNTIME_RESTART_REQUIRED')

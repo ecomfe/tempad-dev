@@ -30,6 +30,7 @@ describe('runtime control negotiation and admission', () => {
     expect(negotiate([1], [1, 2])).toBe(1)
     expect(() => negotiate([2], [1])).toThrow('MCP_RUNTIME_RESTART_REQUIRED')
     expect(() => negotiate([])).toThrow('MCP_RUNTIME_RESTART_REQUIRED')
+    expect(() => negotiate([1])).toThrow('MCP_RUNTIME_RESTART_REQUIRED')
   })
 
   it.skipIf(process.platform === 'win32')(
@@ -77,7 +78,7 @@ describe('runtime control negotiation and admission', () => {
         sessionId: randomUUID(),
         token: randomUUID(),
         context: captureHostContext({ HOME: root, TMPDIR: root }),
-        versions: [1]
+        versions: [2]
       }
       await first.request({ method: 'tempad/runtime-register', params: registration }, ResultSchema)
       expect(control.pendingConnections()).toBe(1)

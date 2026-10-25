@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import {
   TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
@@ -311,7 +312,16 @@ async function scenario(a, b, mode, incompatible) {
       )
     }
     await attach()
-    if (claudeStop) await applyHook(root, claudeHook('UserPromptSubmit'))
+    if (claudeStop) {
+      await assert.rejects(
+        clients[0].request(
+          { method: 'tempad/client-hook', params: claudeHook('UserPromptSubmit') },
+          ResultSchema
+        ),
+        /runtime gateway/
+      )
+      await applyHook(root, claudeHook('UserPromptSubmit'))
+    }
     const task = await call(clients[0], 'manage_design_task', {
       action: 'begin',
       title: mode,

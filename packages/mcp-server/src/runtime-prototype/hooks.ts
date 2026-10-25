@@ -22,15 +22,17 @@ import { readPrivateJson } from './state'
 const InboxSchema = z.array(
   z.object({
     input: ClientHookRequestSchema.shape.params,
+    admittedHubId: z.uuid().optional(),
     retired: z.literal('expired').optional(),
     result: z.record(z.string(), z.unknown()).optional()
   })
 )
+const ReceiverSchema = z.object({ hubId: z.uuid(), freshAfter: z.number().optional() })
 
 /** Keep the installed hook path alive while the data-plane Hub is stopped. */
 export async function startHookGateway(
   root: string,
-  deliver: (input: ClientHook) => Promise<Record<string, unknown>>,
+  deliver: (input: ClientHook, admittedHubId?: string) => Promise<Record<string, unknown>>,
   onFault: (error?: unknown) => void = () => {},
   socketPath = join(root, 'run', 'mcp.sock')
 ) {
@@ -39,11 +41,17 @@ export async function startHookGateway(
     path,
     z.union([
       InboxSchema,
-      z.object({ version: z.literal(2), cutoff: z.number(), entries: InboxSchema })
+      z.object({
+        version: z.literal(2),
+        cutoff: z.number(),
+        entries: InboxSchema,
+        receiver: ReceiverSchema.optional()
+      })
     ])
   )
   let entries = Array.isArray(stored) ? stored : (stored?.entries ?? [])
   let cutoff = Array.isArray(stored) ? 0 : (stored?.cutoff ?? 0)
+  let receiver = Array.isArray(stored) ? undefined : stored?.receiver
   let flushing: Promise<void> | undefined
   let closed = false
   const sockets = new Set<import('node:net').Socket>()
@@ -53,11 +61,20 @@ export async function startHookGateway(
     entries.filter(retained).length >= HOOK_RECEIPT_LIMIT
       ? new Error('Hook inbox capacity reached.')
       : undefined
-  function save(next: typeof entries) {
+  const pending = () => entries.some((entry) => !entry.result && !entry.retired)
+  const evidenceHub = (input: ClientHook) =>
+    receiver &&
+    (input.version !== 2 ||
+      (input.issuedAt <= Date.now() &&
+        (receiver.freshAfter === undefined || input.issuedAt > receiver.freshAfter)))
+      ? receiver.hubId
+      : undefined
+  function save(next: typeof entries, nextReceiver = receiver) {
     if (closed) throw new Error('The hook inbox owner has closed.')
     try {
-      writeDurableJson(path, { version: 2, cutoff, entries: next })
+      writeDurableJson(path, { version: 2, cutoff, entries: next, receiver: nextReceiver })
       entries = next
+      receiver = nextReceiver
     } catch (error) {
       onFault(error)
       throw error
@@ -68,8 +85,16 @@ export async function startHookGateway(
     const run = async () => {
       while (true) {
         const entry = entries.find((value) => !value.result && !value.retired)
-        if (!entry) return
-        const result = await deliver(entry.input).catch((error: unknown) => {
+        if (!entry) {
+          // A later Stop (including one admitted during this drain) must commit
+          // before an earlier delivery fault can reopen the data plane.
+          onFault(capacityFailure())
+          return
+        }
+        const result = await deliver(
+          entry.input,
+          entry.admittedHubId === evidenceHub(entry.input) ? entry.admittedHubId : undefined
+        ).catch((error: unknown) => {
           onFault(error)
           throw error
         })
@@ -77,7 +102,6 @@ export async function startHookGateway(
         if (retired && entry.input.version === 2) cutoff = Math.max(cutoff, entry.input.issuedAt)
         const outcome = retired ? { retired: 'expired' as const } : { result }
         save(entries.map((value) => (value === entry ? { ...value, ...outcome } : value)))
-        onFault(capacityFailure())
       }
     }
     flushing = run()
@@ -158,7 +182,7 @@ export async function startHookGateway(
               onFault(error)
               throw error
             }
-            save([...entries, { input }])
+            save([...entries, { input, admittedHubId: evidenceHub(input) }])
           }
           if (input.version === 2) {
             void flush().catch(() => {})
@@ -202,9 +226,29 @@ export async function startHookGateway(
   })
   rmSync(socketPath, { force: true })
   await listenPrivate(server, socketPath)
-  onFault(capacityFailure())
+  onFault(
+    capacityFailure() ?? (pending() ? new Error('Lifecycle hooks remain queued.') : undefined)
+  )
   return {
     flush,
+    setReceiver(hubId: string) {
+      if (receiver?.hubId === hubId) return
+      // A real Hub replacement requires new evidence. The first receiver still
+      // accepts hooks issued while it was starting; reconnecting the same Hub
+      // preserves its boundary and each invocation's original admission.
+      save(
+        entries,
+        ReceiverSchema.parse({
+          hubId,
+          ...(receiver || stored !== undefined
+            ? { freshAfter: Math.max(receiver?.freshAfter ?? 0, Date.now()) }
+            : {})
+        })
+      )
+    },
+    get pending() {
+      return pending()
+    },
     close: async () => {
       closed = true
       for (const socket of sockets) socket.destroy()

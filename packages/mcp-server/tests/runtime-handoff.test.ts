@@ -257,13 +257,13 @@ it.skipIf(process.platform === 'win32')(
     await peer.connect(new SocketTransport(await connectSocket(join(root, 'control.sock'))))
     cleanup.push(() => peer.close())
     const lease = await peer.request(
-      { method: 'tempad/runtime-acquire', params: { secret: 'secret', versions: [1] } },
+      { method: 'tempad/runtime-acquire', params: { secret: 'secret', versions: [2] } },
       LeaseSchema
     )
     const registration = {
       sessionId: randomUUID(),
       token: randomUUID(),
-      versions: [1],
+      versions: [2],
       context: { version: 1, home: root, tempDir: root, codexHome: root, codexSqliteHome: root }
     }
     await peer.request({ method: 'tempad/runtime-register', params: registration }, ResultSchema)
@@ -339,6 +339,72 @@ it.skipIf(process.platform === 'win32')(
     retry.destroy()
     expect(deliver).toHaveBeenCalledTimes(2)
     expect(applied.size).toBe(1)
+  }
+)
+
+it.skipIf(process.platform === 'win32')(
+  'keeps a delivery fault fenced through the whole backlog, including concurrent admissions',
+  async () => {
+    const root = directory()
+    const input = (event: ClientHook['event']): ClientHook => ({
+      version: 2,
+      kind: 'claude',
+      sessionId: 'session',
+      event,
+      turnId: 'turn',
+      invocationId: randomUUID(),
+      profile: { kind: 'release' },
+      issuedAt: Date.now()
+    })
+    const first = input('UserPromptSubmit')
+    const second = input('Stop')
+    const third = input('SessionEnd')
+    writeDurableJson(join(root, 'hooks.json'), [{ input: first }, { input: second }])
+    const secondGate = Promise.withResolvers<void>()
+    const thirdGate = Promise.withResolvers<void>()
+    let failing = true
+    const fault = vi.fn()
+    const deliver = vi.fn(async (hook: ClientHook) => {
+      if (failing) throw new Error('Hub temporarily unavailable')
+      if (hook.invocationId === second.invocationId) await secondGate.promise
+      if (hook.invocationId === third.invocationId) await thirdGate.promise
+      return {}
+    })
+    const gateway = await startHookGateway(root, deliver, fault)
+    cleanup.push(() => gateway.close())
+    await expect(gateway.flush()).rejects.toThrow('temporarily unavailable')
+    failing = false
+    const retry = gateway.flush()
+    try {
+      await vi.waitFor(() => expect(deliver).toHaveBeenCalledWith(second, undefined))
+      expect(fault).toHaveBeenLastCalledWith(expect.any(Error))
+      const socket = connect(join(root, 'run/mcp.sock'))
+      await once(socket, 'connect')
+      const reply = once(socket, 'data')
+      socket.write(
+        JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tempad/client-hook', params: third }) +
+          '\n'
+      )
+      try {
+        expect(JSON.parse(String((await reply)[0])).result.receipt.state).toBe('accepted')
+      } finally {
+        socket.destroy()
+      }
+      secondGate.resolve()
+      await vi.waitFor(() => expect(deliver).toHaveBeenCalledWith(third, undefined))
+      expect(fault).toHaveBeenLastCalledWith(expect.any(Error))
+    } finally {
+      secondGate.resolve()
+      thirdGate.resolve()
+      await retry
+    }
+    expect(fault).toHaveBeenLastCalledWith(undefined)
+    expect(deliver.mock.calls.map(([hook]) => hook.invocationId)).toEqual([
+      first.invocationId,
+      first.invocationId,
+      second.invocationId,
+      third.invocationId
+    ])
   }
 )
 

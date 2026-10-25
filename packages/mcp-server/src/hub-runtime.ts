@@ -178,7 +178,7 @@ export async function startHub(
         inspect: handoffStatus,
         flush: flushHandoff,
         stop: shutdownHandoff,
-        hook: (input) => receiveHook(input, true)
+        hook: (input, fresh) => receiveHook(input, true, fresh)
       })
     : undefined
   const endpoints = options.prototype?.root ? readEndpoints(options.prototype.root) : undefined
@@ -278,7 +278,9 @@ export async function startHub(
   const consumerSessions = new Set<McpServer>()
   const incomingSockets = new Set<Socket>()
 
-  function receiveHook(input: ClientHook, durable = false) {
+  function receiveHook(input: ClientHook, durable = false, fresh = true) {
+    if (runtimeControl && !durable)
+      throw new Error('Managed lifecycle hooks must enter through the runtime gateway.')
     if (input.version === 2 && !sameRuntimeProfile(input.profile, RUNTIME_PROFILE))
       throw new Error('Lifecycle hook belongs to a different runtime profile.')
     const result =
@@ -286,7 +288,7 @@ export async function startHub(
         ? designTasks.applyHook(
             input.invocationId,
             input,
-            () => agentClients.clientHook(input),
+            () => agentClients.clientHook(input, fresh),
             durable ? () => agentClients.retireHook(input) : undefined
           )
         : agentClients.clientHook(input)

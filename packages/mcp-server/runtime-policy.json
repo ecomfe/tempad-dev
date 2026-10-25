@@ -3,7 +3,7 @@
   "guidanceEpoch": 1,
   "guidanceReview": {
     "version": "0.12.0",
-    "sourceHash": "0ceab57b72acfeedb53135896f82f50e33465ebd6485272ec98db21befd249ac",
+    "sourceHash": "7ccaf31538a235f078c0085808c3e0144724c1c466833d71055efffe3a16d9e2",
     "decision": "initial",
     "baseline": {
       "version": "0.11.0",
@@ -11,7 +11,7 @@
     },
     "rationale": "First manifest-bearing runtime. Earlier releases lack reviewed epochs and require a coordinated MCP restart; this does not declare their instructions compatible."
   },
-  "controlProtocols": [1],
+  "controlProtocols": [2],
   "state": { "family": "tempad-runtime", "reads": [1], "writes": 1 },
   "extension": { "protocols": [13, 15], "legacy": true },
   "hookProtocol": 2

@@ -23,7 +23,8 @@ import { z } from 'zod'
 import { HostContextSchema } from '../agent-clients/host-context'
 import { decodeConsumerMessage, encodeConsumerMessage } from '../consumer-transport'
 
-export const CONTROL_VERSIONS = [1] as const
+// Version 1 was an unpublished prototype without hook admission provenance.
+export const CONTROL_VERSIONS = [2] as const
 export const LEASE_MS = 10_000
 export const RENEW_MS = 2_000
 export const RECOVER_MS = 90_000

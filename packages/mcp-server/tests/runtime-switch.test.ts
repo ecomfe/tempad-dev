@@ -43,7 +43,7 @@ afterEach(async () => {
   vi.clearAllMocks()
 })
 
-async function fixture(hook?: (input: ClientHook) => Record<string, unknown>) {
+async function fixture(hook?: (input: ClientHook, fresh: boolean) => Record<string, unknown>) {
   const root = await realpath(await mkdtemp('/tmp/tp-switch-test-'))
   await mkdir(join(root, 'run'), { mode: 0o700 })
   cleanups.push(() => rm(root, { recursive: true, force: true }))
@@ -96,7 +96,7 @@ async function fixture(hook?: (input: ClientHook) => Record<string, unknown>) {
       const peer = new ControlPeer()
       peer.onerror = () => {}
       peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-acquire') }), () => ({
-        version: 1,
+        version: 2,
         generation: 1,
         hubId: id,
         hubPid: pid
@@ -128,8 +128,11 @@ async function fixture(hook?: (input: ClientHook) => Record<string, unknown>) {
       })
       if (hook)
         peer.setRequestHandler(
-          z.object({ method: z.literal('tempad/runtime-hook'), params: ClientHookParamsSchema }),
-          ({ params }) => hook(params)
+          z.object({
+            method: z.literal('tempad/runtime-hook'),
+            params: z.object({ input: ClientHookParamsSchema, admittedHubId: z.uuid().optional() })
+          }),
+          ({ params }) => hook(params.input, params.admittedHubId === id)
         )
       peer.fallbackRequestHandler = async () => ({})
       void peer.connect(new SocketTransport(socket))
@@ -191,7 +194,7 @@ async function fixture(hook?: (input: ClientHook) => Record<string, unknown>) {
         token: randomUUID(),
         context: captureHostContext({ HOME: root, TMPDIR: root }),
         updates: { policy: 'stable', version: a.version, manifestHash: 'a'.repeat(64) },
-        versions: [1]
+        versions: [2]
       }
     },
     GrantSchema
@@ -229,13 +232,13 @@ it.skipIf(process.platform === 'win32')(
     vi.spyOn(Date, 'now').mockImplementation(() => now)
     let available = false
     let tasks!: DesignTasks
-    const applied = vi.fn((input: ClientHook) => clients.clientHook(input))
-    const f = await fixture((input) => {
+    const applied = vi.fn((input: ClientHook, fresh: boolean) => clients.clientHook(input, fresh))
+    const f = await fixture((input, fresh) => {
       if (!available) throw new Error('Hub outcome unavailable after crash')
       return tasks.applyHook(
         input.invocationId,
         input,
-        () => applied(input),
+        () => applied(input, fresh),
         () => clients.retireHook(input)
       )
     })
@@ -322,7 +325,7 @@ it.skipIf(process.platform === 'win32')(
       event: 'UserPromptSubmit' as const
     }
     expect((await request(fresh)).result.receipt.state).toBe('accepted')
-    await vi.waitFor(() => expect(applied).toHaveBeenCalledExactlyOnceWith(fresh))
+    await vi.waitFor(() => expect(applied).toHaveBeenCalledExactlyOnceWith(fresh, true))
     expect(tasks.find(task.task.taskId)).toMatchObject({
       task: { status: 'cancelled' },
       claudeStopNotice: { sessionId: 'old-session' }

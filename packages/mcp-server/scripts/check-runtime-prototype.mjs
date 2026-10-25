@@ -337,7 +337,7 @@ try {
       sessionId: randomUUID(),
       token: randomUUID(),
       context: saved.hostContext,
-      versions: [2]
+      versions: [1]
     }
   })
   assert.match(incompatible.error.message, /MCP_RUNTIME_RESTART_REQUIRED/)

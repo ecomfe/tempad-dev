@@ -657,7 +657,10 @@ receipt/retry acceptance remain gates before automatic activation, not claims fr
 
 ### Phase 1 — stable edge and supervisor, bundled runtime only
 
-The isolated `runtime-prototype.mjs` entry now implements this topology with control protocol 1.
+The isolated `runtime-prototype.mjs` entry implements this topology with control protocol 2.
+Protocol 1 was an unpublished prototype without hook admission provenance; its isolated
+fixtures require a new runtime root. Incompatible control components fail during negotiation,
+before handoff or rollback, rather than interpreting historical hooks as fresh evidence.
 It requires a private Unix root, pins the built `.mjs` files, and allocates ephemeral ports;
 the normal CLI does not select it. `pnpm mcp:check-runtime-prototype` exercises it with real
 processes and a synthetic extension, without touching installed hosts or downloading packages.
@@ -976,6 +979,12 @@ fresh validated client/session/turn evidence through the existing host-specific 
 before resuming writes. Stale pre-switch hooks cannot satisfy that check. A fresh event
 cannot prove a missing historical event was delivered; it can only establish a safe current
 binding while existing task cancellation and read-back protections remain in force.
+
+The inbox records each invocation's first admitting Hub, plus a durable freshness boundary
+when that Hub is replaced. Reattaching the same Hub preserves both; the first Hub can accept
+hooks issued while it was starting. Historical delivery may reconcile cancellation, but cannot
+activate a session, bind a task, or consume a pending Stop notice. Delivery faults fence admission
+until the entire accepted backlog commits or retires, including events received during recovery.
 
 Automatic switching while Claude clients are attached is eligible only after each binding
 demonstrates the new receipt/retry contract and its recovery tests pass. Unknown or legacy

@@ -195,7 +195,9 @@ exact tarball and manifest receipt, then confirms npm serves that same integrity
 Each same-epoch release promises compatibility with all earlier presentations in that epoch,
 including skipped releases. Session wire hashes and epochs must match, state must remain readable
 in both directions, and the released extension adapters must remain available. The current control
-protocol is 1; retirement is blocked by the packager. Future retirement needs a separate migration
+protocol is 2; unpublished protocol 1 fixtures must restart in a new isolated runtime root.
+Stable 0.11.0 predates managed control, so this does not retire a released protocol. Retirement
+of a released protocol is blocked by the packager and needs a separate migration
 review: retain the current and previous stable generations and at least 90 days after a successor
 becomes stable. Breaking boundaries are 0.x minor changes, 1.0, and later major changes.
 

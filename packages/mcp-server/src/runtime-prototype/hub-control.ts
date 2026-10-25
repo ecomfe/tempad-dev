@@ -37,7 +37,10 @@ export class HubControl {
       inspect: () => { drained: boolean; deadline: number; blockers: string[]; version: string }
       flush: () => void
       stop: () => Promise<void>
-      hook: (input: import('../agent-clients/hooks').ClientHook) => Record<string, unknown>
+      hook: (
+        input: import('../agent-clients/hooks').ClientHook,
+        fresh: boolean
+      ) => Record<string, unknown>
     }
   ) {
     this.gated = handoff?.paused ?? false
@@ -113,12 +116,17 @@ export class HubControl {
     peer.setRequestHandler(
       z.object({
         method: z.literal('tempad/runtime-hook'),
-        params: ClientHookRequestSchema.shape.params
+        params: z
+          .object({
+            input: ClientHookRequestSchema.shape.params,
+            admittedHubId: z.uuid().optional()
+          })
+          .strict()
       }),
       ({ params }) => {
         requireLease()
         if (!this.handoff) throw unavailable('Durable hook admission is unavailable.')
-        return this.handoff.hook(params)
+        return this.handoff.hook(params.input, params.admittedHubId === this.hubId)
       }
     )
     peer.setRequestHandler(

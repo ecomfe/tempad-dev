@@ -122,10 +122,10 @@ export class AgentClients {
     }
   }
 
-  clientHook(input: ClientHook) {
+  clientHook(input: ClientHook, fresh = true) {
     // Older installed Codex packages may still call hooks. Native state is authoritative.
     if (input.kind === 'codex') return {}
-    const result = this.hooks.handle(input)
+    const result = fresh ? this.hooks.handle(input) : this.hooks.reconcile(input)
     if (!result) return {}
     if (input.event === 'PostToolUse' && input.taskId) {
       this.event('hook', {

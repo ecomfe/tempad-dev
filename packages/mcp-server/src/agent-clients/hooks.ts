@@ -53,6 +53,23 @@ export class ClientHooks {
     return true
   }
 
+  /** Historical delivery can end old work, never establish liveness or consume a Stop notice. */
+  reconcile(input: ClientHook): ClientHookResult | undefined {
+    if (!['Stop', 'Interrupt', 'SessionEnd'].includes(input.event)) return
+    const session = this.sessions.get(scope(input.kind, input.sessionId))
+    if (session) {
+      if (
+        input.version !== 2 ||
+        (session.issuedAt ?? 0) >= input.issuedAt ||
+        (input.turnId && session.turnId && input.turnId !== session.turnId)
+      )
+        return
+      session.active = false
+      session.issuedAt = input.issuedAt
+    }
+    return {}
+  }
+
   /** Undefined rejects the event; an empty result accepts it without model-facing output. */
   handle(input: ClientHook): ClientHookResult | undefined {
     const key = scope(input.kind, input.sessionId)

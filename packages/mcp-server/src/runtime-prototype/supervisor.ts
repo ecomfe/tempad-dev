@@ -180,8 +180,10 @@ export async function startSupervisor(config: PrototypeConfig) {
     })
   }
   async function gate(closed: boolean) {
-    if (!closed && hookFault)
-      throw unavailable(`Lifecycle delivery remains uncertain: ${hookFault}`)
+    if (!closed && (hookFault || hooks?.pending))
+      throw unavailable(
+        `Lifecycle delivery remains uncertain: ${hookFault ?? 'hooks remain queued'}`
+      )
     return requireHub().request(
       { method: 'tempad/runtime-gate', params: { closed } },
       InspectionSchema,
@@ -198,10 +200,14 @@ export async function startSupervisor(config: PrototypeConfig) {
   async function ensureHooks() {
     hooks ??= await startHookGateway(
       config.root,
-      (input) =>
-        requireHub().request({ method: 'tempad/runtime-hook', params: input }, ResultSchema, {
-          timeout: 5000
-        }),
+      (input, admittedHubId) =>
+        requireHub().request(
+          { method: 'tempad/runtime-hook', params: { input, admittedHubId } },
+          ResultSchema,
+          {
+            timeout: 5000
+          }
+        ),
       (error) => {
         const recovering = !!hookFault
         hookFault = error === undefined ? undefined : String(error)
@@ -209,6 +215,7 @@ export async function startSupervisor(config: PrototypeConfig) {
       },
       join(paths.runtime, 'mcp.sock')
     )
+    hooks.setReceiver(lease!.hubId)
   }
 
   async function waitForExit(pid: number, timeout = 15_000) {

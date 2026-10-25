@@ -231,7 +231,7 @@ it('includes pending native actions and transfers in the runtime drain boundary'
   await peer.connect(new SocketTransport(socket))
   try {
     await peer.request(
-      { method: 'tempad/runtime-acquire', params: { secret: 'isolated', versions: [1] } },
+      { method: 'tempad/runtime-acquire', params: { secret: 'isolated', versions: [2] } },
       LeaseSchema
     )
     const inspect = () => peer.request({ method: 'tempad/runtime-inspect' }, ResultSchema)
@@ -329,6 +329,33 @@ afterEach(async () => {
 afterAll(() => rmSync(fixture.directory, { recursive: true, force: true }))
 
 describe('Hub runtime module', () => {
+  it('rejects raw hooks on the managed Hub endpoint before lifecycle effects', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub({ prototype: { secret: 'isolated' } })
+    const hook = vi.spyOn(AgentClients.prototype, 'clientHook')
+    const socket = connect(fixture.socketPath)
+    consumerSockets.push(socket)
+    await once(socket, 'connect')
+    const closed = once(socket, 'close')
+    socket.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tempad/client-hook',
+        params: {
+          version: 1,
+          kind: 'claude',
+          sessionId: 'session',
+          event: 'UserPromptSubmit',
+          invocationId: '00000000-0000-4000-8000-000000000001'
+        }
+      }) + '\n'
+    )
+    await closed
+    expect(hook).not.toHaveBeenCalled()
+    expect(assetStop).not.toHaveBeenCalled()
+  })
+
   it('receives private CLI contexts before initialize and persists only the task owner context', async () => {
     const context = captureHostContext({
       HOME: `${fixture.directory}/host-a`,
