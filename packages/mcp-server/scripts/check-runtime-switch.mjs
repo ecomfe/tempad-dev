@@ -532,6 +532,9 @@ async function scenario(a, b, mode, incompatible) {
       }
     }
     const outcome = await update
+    await writeFile(join(root, 'test-switch-outcome.json'), JSON.stringify(outcome), {
+      mode: 0o600
+    })
     await portBarrier
     await newEdge
     const settled = await until(
