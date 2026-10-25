@@ -324,12 +324,15 @@ export async function startHub(
     const autoBlockers: string[] = []
     if (
       !consumerSessions.size ||
+      [...consumerSessions].some((session) => !session.server.getClientVersion())
+    )
+      autoBlockers.push('Waiting for MCP clients to finish initialization')
+    if (
+      agentClients.hasClaudeConnections ||
       [...consumerSessions].some(
-        (session) => session.server.getClientVersion()?.name !== 'codex-mcp-client'
+        (session) => session.server.getClientVersion()?.name === 'claude-code'
       )
     )
-      autoBlockers.push('Automatic switching is verified only for initialized Codex clients')
-    if (agentClients.hasClaudeConnections)
       autoBlockers.push('Claude native automatic switching acceptance is pending')
     return {
       drained: blockers.length === 0,

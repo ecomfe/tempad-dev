@@ -30,7 +30,7 @@ import {
   type RuntimeManifest
 } from '../src/runtime-update/manifest'
 import { sha256, verifyPackage } from '../src/runtime-update/package'
-import { downloadRelease, resolveRelease } from '../src/runtime-update/registry'
+import { downloadRelease, releaseCatalog, resolveRelease } from '../src/runtime-update/registry'
 
 function tar(entries: { path: string; data?: string; type?: string }[]) {
   const blocks: Buffer[] = []
@@ -278,6 +278,53 @@ describe('official release acquisition', () => {
       tarball: 'https://registry.npmjs.org/@tempad-dev/mcp/-/mcp-0.12.0.tgz'
     }
   }
+  it('orders stable history below the current latest tag and fingerprints deprecation', async () => {
+    const version = (value: string, extra = {}) => ({
+      ...metadata,
+      version: value,
+      dist: {
+        ...metadata.dist,
+        tarball: `https://registry.npmjs.org/@tempad-dev/mcp/-/mcp-${value}.tgz`
+      },
+      ...extra
+    })
+    const payload = {
+      name: metadata.name,
+      'dist-tags': { latest: '0.12.3' },
+      versions: {
+        '0.12.0': metadata,
+        '0.12.1': version('0.12.1'),
+        '0.12.2': version('0.12.2', { deprecated: 'Withdrawn' }),
+        '0.12.3': version('0.12.3'),
+        '0.12.4': { untrusted: 'above stable ceiling' },
+        '0.13.0-alpha': { untrusted: 'prerelease' }
+      }
+    }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(payload))
+    const first = await releaseCatalog('0.12.0', fetcher)
+    expect(first.releases.map((release) => release.version)).toEqual(['0.12.3', '0.12.2', '0.12.1'])
+    expect(first.releases[1]?.deprecated).toBe('Withdrawn')
+    expect(fetcher.mock.calls[0]?.[0]).toBe('https://registry.npmjs.org/@tempad-dev%2fmcp')
+    payload.versions['0.12.2'] = version('0.12.2')
+    fetcher.mockResolvedValue(Response.json(payload))
+    expect((await releaseCatalog('0.12.0', fetcher)).fingerprint).not.toBe(first.fingerprint)
+    payload['dist-tags'].latest = '0.12.0'
+    fetcher.mockResolvedValue(Response.json(payload))
+    expect((await releaseCatalog('0.12.2', fetcher)).releases).toEqual([])
+  })
+  it('rejects oversized, mismatched, or missing stable history metadata', async () => {
+    const payload = {
+      name: metadata.name,
+      'dist-tags': { latest: '0.12.1' },
+      versions: { '0.12.1': metadata }
+    }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(payload))
+    await expect(releaseCatalog('0.12.0', fetcher)).rejects.toThrow('requested official release')
+    fetcher.mockResolvedValueOnce(Response.json({ ...payload, versions: {} }))
+    await expect(releaseCatalog('0.12.0', fetcher)).rejects.toThrow()
+    fetcher.mockResolvedValueOnce(new Response('x'.repeat(8 * 1024 * 1024 + 1)))
+    await expect(releaseCatalog('0.12.0', fetcher)).rejects.toThrow('byte limit')
+  })
   it('pins exact metadata and refuses redirects or alternate tarball hosts', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(metadata))
     expect(await resolveRelease('latest', fetcher)).toEqual({

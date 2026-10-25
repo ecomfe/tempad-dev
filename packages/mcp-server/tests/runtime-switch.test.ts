@@ -74,7 +74,7 @@ async function fixture(
     a.release = { directory: root, manifestHash: 'a'.repeat(64) }
     b.release = { directory: root, manifestHash: 'b'.repeat(64), integrity: 'verified' }
     config.release = a.release
-    vi.spyOn(releaseAcquisition, 'acquireRelease').mockResolvedValue(b)
+    vi.spyOn(releaseAcquisition, 'acquireRelease').mockResolvedValue({ candidate: b })
     vi.spyOn(releaseArtifacts, 'verifyReleaseArtifact').mockImplementation((artifact) =>
       releaseArtifacts.releaseManifest(artifact)
     )

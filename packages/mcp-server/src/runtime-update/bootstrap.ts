@@ -35,7 +35,11 @@ import { prepareManagedEdge } from './cold-start'
 import { MANIFEST_PATH, ManifestSchema, VersionSchema } from './manifest'
 import { sha256 } from './package'
 
-export function updateIntent(args: string[], checkout: boolean) {
+export function updateIntent(
+  args: string[],
+  checkout: boolean,
+  defaultPolicy: 'stable' | 'off' = 'off'
+) {
   const flags = args.filter((arg) => arg.startsWith('--runtime-updates'))
   if (
     flags.length > 1 ||
@@ -56,15 +60,38 @@ export function updateIntent(args: string[], checkout: boolean) {
         ? ('stable' as const)
         : flags[0] === '--runtime-updates=pinned'
           ? ('pinned' as const)
-          : ('off' as const)
+          : flags[0] === '--runtime-updates=off'
+            ? ('off' as const)
+            : defaultPolicy
   }
 }
 
 /** Enrollment changes policy, never the release namespace or the task/asset store. */
 export async function maybeManagedRuntime(args: string[], packageDir: string): Promise<boolean> {
-  const intent = updateIntent(args, RUNTIME_PROFILE.kind === 'checkout')
+  const manifestPath = join(packageDir, MANIFEST_PATH)
+  const intent = updateIntent(
+    args,
+    RUNTIME_PROFILE.kind === 'checkout',
+    existsSync(manifestPath) ? 'stable' : 'off'
+  )
   if (RUNTIME_PROFILE.kind === 'checkout') return false
   if (args.includes('--recover-task-storage')) return false
+  if (process.platform === 'win32') {
+    const reason =
+      'Managed runtime updates are not supported on Windows; using the bundled runtime.'
+    if (intent.command === '--runtime-update-status') {
+      process.stdout.write(
+        JSON.stringify({ managed: false, automaticActivation: false, reason }) + '\n'
+      )
+      process.stdin.destroy()
+      endLogging()
+      return true
+    }
+    if (intent.command || intent.policy === 'pinned' || args.includes('--recover-runtime'))
+      throw new Error(reason)
+    if (intent.policy === 'stable') process.stderr.write(`TemPad: ${reason}\n`)
+    return false
+  }
   const root = join(resolveStateDir(), 'runtime')
   const path = join(root, 'prototype.json')
   if (!existsSync(path) && intent.command === '--runtime-update-status') {
@@ -73,12 +100,11 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
     endLogging()
     return true
   }
+  if (!existsSync(path)) {
+    if (args.includes('--runtime-status') || args.includes('--resolve-runtime-block')) return false
+    if (args.includes('--recover-runtime')) throw new Error('No managed runtime exists to recover.')
+  }
   if (!existsSync(path) && intent.policy === 'off' && !intent.command) return false
-  if (process.platform === 'win32')
-    throw new Error(
-      'Managed runtime updates are not supported on Windows; use the bundled runtime without enrollment.'
-    )
-  const manifestPath = join(packageDir, MANIFEST_PATH)
   if (!existsSync(manifestPath))
     throw new Error(
       'This build is not a verified release. Use a checkout profile for development; no online fallback is allowed.'
@@ -105,6 +131,12 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
         }
         if (legacy) {
           legacy.destroy()
+          if (intent.policy === 'stable' && !intent.command) {
+            process.stderr.write(
+              'TemPad: using the existing Hub. Automatic updates will start after all TemPad MCP clients restart once.\n'
+            )
+            return false
+          }
           throw new Error(
             'A legacy Hub is running. Close/restart all TemPad MCP connections once to enroll; it will not be terminated automatically.'
           )

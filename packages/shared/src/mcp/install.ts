@@ -1,6 +1,6 @@
 const SERVER_NAME = 'tempad-dev'
 const SERVER_COMMAND = 'npx'
-const SERVER_ARGS = ['-y', '@tempad-dev/mcp@latest'] as const
+const SERVER_ARGS = ['-y', '@tempad-dev/mcp@latest', '--runtime-updates=stable'] as const
 const REPOSITORY = 'ecomfe/tempad-dev'
 const PLUGIN_INSTALL_COMMAND = `npx plugins add ${REPOSITORY}`
 

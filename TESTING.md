@@ -72,14 +72,16 @@ Root:
   retains isolated evidence. It never downloads or updates installed runtimes. Windows and native
   host behavior are outside this harness; CI runs the full matrix on Node 22 and 24.
 - `pnpm mcp:check-runtime-updates` builds complete release archives from the frozen local store,
-  serves them from an isolated loopback registry, and exercises opt-in staging and explicit
+  serves them from an isolated loopback registry, and exercises default release enrollment, staging and explicit
   activation through real CLI/Hub processes. It checks mixed policies sharing one Hub, exact
-  pins, frozen presentation, incompatible epochs, offline operation, corrupt caches, and zero
+  pins, newest-compatible selection below the stable tag, tag rollback without downgrade,
+  exact-version requests without substitution, frozen presentation, incompatible epochs,
+  offline operation, corrupt caches, and zero
   registry requests from checkout builds. A real metadata write failure must leave the supervisor
   and MCP service alive without starting acquisition. After all owners exit, concurrent installed-release
   launches upgrade both control and Hub across an epoch boundary without registry access or
   allowing an older CLI to downgrade them. A separate simulated Codex namespace checks idle
-  automatic activation, unknown/Claude/off-policy deferral, continuous tool work, bounded request
+  automatic activation, generic MCP clients, Claude/off-policy deferral, continuous tool work, bounded request
   waiting and measured admission pause. This is process evidence, not new native acceptance. CI runs this on
   Node 22/24; Windows and native host acceptance remain outside this fixture. No installed
   runtime or public registry is used by the acquisition test.
@@ -120,7 +122,7 @@ private directory, and unused release discovery ports; it never stops another po
 
 ```sh
 node packages/mcp-server/scripts/native-runtime-fixture.mjs --root /tmp/tp-native-example --prepare
-node packages/mcp-server/scripts/native-runtime-fixture.mjs --root /tmp/tp-native-example --serve
+node packages/mcp-server/scripts/native-runtime-fixture.mjs --root /tmp/tp-native-example --serve --hold-candidate
 # In another terminal, use the canonical descriptor path printed by --prepare:
 pnpm agent-plugin:build --runtime-fixture /private/tmp/tp-native-example/runtime-fixture.json
 pnpm build:ext
@@ -135,12 +137,15 @@ namespace. It does not change any generated release target or the default checko
 Use a release-profile extension for this fixture, not a checkout-profile build.
 
 After replacing the plugin and reloading the extension, require preflight and a native MCP read.
-Observe staged-only behavior before explicitly invoking the initial package's CLI with
-`--update-runtime <candidate-version>` and the descriptor's four `TEMPAD_MCP_*_DIR` values.
-Confirm the exact version in its TTY. Record stable host/edge identities, changed Hub identity,
-native feedback/lifecycle/Stop and subsequent canvas work. Enrolled, wait-capable Codex-only
-clients can now activate after five idle seconds; retain an off-policy observer during staged-only
-observation, then close it to verify automatic activation. Claude bindings must remain staged.
+`--hold-candidate` keeps the registry on the initial version while this baseline is established.
+Send `SIGUSR2` to the registry PID printed by `--serve` to expose the already-verified candidate;
+this does not restart either the host or registry. Invoke `--check-runtime-update` with the
+descriptor's environment to discover it immediately instead of waiting for the scheduled check.
+An off-policy observer can hold the candidate staged for inspection; close it before testing
+activation. Enrolled, initialized, wait-capable MCP clients can activate after five idle seconds.
+Record stable host/edge identities, changed Hub identity, native feedback/lifecycle/Stop and
+subsequent canvas work. Claude bindings must remain staged. The explicit update command remains
+available, but cannot override an attached off-policy observer or other compatibility blockers.
 The registry request log records only local acquisition. This establishes installed-host behavior
 for the local candidate; official-registry provenance and cross-version release compatibility
 remain separate checks. Do not count synthetic SDK clients as native-host acceptance.

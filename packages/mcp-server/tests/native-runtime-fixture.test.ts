@@ -123,6 +123,20 @@ describe('native runtime fixture isolation', () => {
 
   it('serves only the exact fixture versions and publishes the candidate as latest', () => {
     const fixture = descriptor()
+    const catalog = fixtureResponse(fixture, 'GET', '/@tempad-dev%2fmcp')
+    expect(catalog).toEqual({
+      status: 200,
+      metadata: {
+        name: '@tempad-dev/mcp',
+        'dist-tags': { latest: fixture.candidate.version },
+        versions: Object.fromEntries(
+          [fixture.initial, fixture.candidate].map((release) => [
+            release.version,
+            fixtureResponse(fixture, 'GET', `/@tempad-dev%2fmcp/${release.version}`).metadata
+          ])
+        )
+      }
+    })
     expect(fixtureResponse(fixture, 'GET', '/@tempad-dev%2fmcp/latest')).toEqual({
       status: 200,
       metadata: {
@@ -144,6 +158,35 @@ describe('native runtime fixture isolation', () => {
     })
     expect(fixtureResponse(fixture, 'GET', '/@tempad-dev%2fmcp/0.12.2')).toEqual({ status: 404 })
     expect(fixtureResponse(fixture, 'POST', '/@tempad-dev%2fmcp/latest')).toEqual({ status: 405 })
+  })
+
+  it('can hold the candidate until the native baseline has been observed', () => {
+    const fixture = descriptor()
+    expect(fixtureResponse(fixture, 'GET', '/@tempad-dev%2fmcp', false)).toEqual({
+      status: 200,
+      metadata: {
+        name: '@tempad-dev/mcp',
+        'dist-tags': { latest: fixture.initial.version },
+        versions: {
+          [fixture.initial.version]: fixtureResponse(
+            fixture,
+            'GET',
+            `/@tempad-dev%2fmcp/${fixture.initial.version}`
+          ).metadata
+        }
+      }
+    })
+    expect(fixtureResponse(fixture, 'GET', '/@tempad-dev%2fmcp/latest', false)).toMatchObject({
+      status: 200,
+      metadata: { version: fixture.initial.version }
+    })
+    for (const path of [
+      `/@tempad-dev%2fmcp/${fixture.candidate.version}`,
+      `/@tempad-dev/mcp/-/mcp-${fixture.candidate.version}.tgz`
+    ]) {
+      expect(fixtureResponse(fixture, 'GET', path, false)).toEqual({ status: 404 })
+      expect(fixtureResponse(fixture, 'GET', path, true)).toMatchObject({ status: 200 })
+    }
   })
 
   it('checks and releases the entire normal release discovery group', async () => {

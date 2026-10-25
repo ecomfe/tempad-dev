@@ -1,15 +1,30 @@
 import { z } from 'zod'
 
 import { MAX_ARCHIVE_BYTES } from './archive'
-import { IntegritySchema, PACKAGE_NAME, VersionSchema } from './manifest'
+import { compareVersions, IntegritySchema, PACKAGE_NAME, VersionSchema } from './manifest'
+import { sha256 } from './package'
 
 const REGISTRY = 'https://registry.npmjs.org'
 const MetadataSchema = z.object({
   name: z.literal(PACKAGE_NAME),
   version: VersionSchema,
+  deprecated: z.string().optional(),
   dist: z.object({ integrity: IntegritySchema, tarball: z.string() })
 })
-export type Release = { version: string; integrity: string; url: string }
+export type Release = { version: string; integrity: string; url: string; deprecated?: string }
+
+function releaseMetadata(value: unknown, version?: string): Release {
+  const metadata = MetadataSchema.parse(value)
+  const url = `${REGISTRY}/@tempad-dev/mcp/-/mcp-${metadata.version}.tgz`
+  if (metadata.dist.tarball !== url || (version && version !== metadata.version))
+    throw new Error('Registry metadata does not identify the requested official release.')
+  return {
+    version: metadata.version,
+    integrity: metadata.dist.integrity,
+    url,
+    ...(metadata.deprecated ? { deprecated: metadata.deprecated } : {})
+  }
+}
 
 async function bytes(url: string, limit: number, timeout: number, fetcher: typeof fetch) {
   const controller = new AbortController()
@@ -53,13 +68,35 @@ export async function resolveRelease(
     10_000,
     fetcher
   )
-  const metadata = MetadataSchema.parse(
-    JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body))
+  return releaseMetadata(
+    JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body)),
+    selector === 'latest' ? undefined : selector
   )
-  const url = `${REGISTRY}/@tempad-dev/mcp/-/mcp-${metadata.version}.tgz`
-  if (metadata.dist.tarball !== url || (selector !== 'latest' && selector !== metadata.version))
-    throw new Error('Registry metadata does not identify the requested official release.')
-  return { version: metadata.version, integrity: metadata.dist.integrity, url }
+}
+
+/** The stable tag is an upper bound, including when its publisher rolls it back. */
+export async function releaseCatalog(current: string, fetcher: typeof fetch = fetch) {
+  VersionSchema.parse(current)
+  const body = await bytes(`${REGISTRY}/@tempad-dev%2fmcp`, 8 * 1024 * 1024, 10_000, fetcher)
+  const catalog = z
+    .object({
+      name: z.literal(PACKAGE_NAME),
+      'dist-tags': z.object({ latest: VersionSchema }),
+      versions: z.record(z.string(), z.unknown())
+    })
+    .parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body)))
+  const latest = catalog['dist-tags'].latest
+  releaseMetadata(catalog.versions[latest], latest)
+  const releases = Object.keys(catalog.versions)
+    .filter(
+      (version) =>
+        VersionSchema.safeParse(version).success &&
+        compareVersions(version, current) > 0 &&
+        compareVersions(version, latest) <= 0
+    )
+    .sort((a, b) => compareVersions(b, a))
+    .map((version) => releaseMetadata(catalog.versions[version], version))
+  return { latest, releases, fingerprint: sha256(JSON.stringify({ latest, releases })) }
 }
 
 export function downloadRelease(release: Release, fetcher: typeof fetch = fetch) {

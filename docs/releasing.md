@@ -65,17 +65,21 @@ were prepared before their source changes were committed.
 ## Bridge protocol and release order
 
 Release setup launches `npx -y @tempad-dev/mcp@latest`. Moving the npm `latest` tag affects
-subsequent launches; running CLI and Hub processes do not update themselves. A newly launched
-CLI also reuses an existing Hub, and an older CLI can restart its own packaged Hub. Replacing
-that runtime requires disconnecting all TemPad MCP clients before restarting their MCP servers.
+subsequent launches. Before MCP 0.12.0, running CLI and Hub processes do not update themselves;
+a newly launched CLI reuses an existing Hub, and an older CLI can restart its own packaged Hub.
+Migrating that runtime requires disconnecting all TemPad MCP clients once before restarting
+their MCP servers. New clients defer enrollment while that legacy Hub remains alive and keep
+using its byte bridge; ordinary MCP startup must not fail merely because older work is ongoing.
 The extension separately waits for Chrome Web Store review and staged rollout. Neither npm nor
 store publication establishes that users are running the update or have reloaded Figma.
 
-MCP 0.12.0 adds optional verified downloads and explicit switching on macOS/Linux. Default
-plugin/manual configurations remain unenrolled; their launch argument is unchanged. First
-enrollment still requires the coordinated restart above. Automatic activation is disabled;
-the [runtime design](engineering/mcp-runtime-updates.md) separates these implemented controls
-from the native acceptance and automatic activation work in Phase 4.
+Verified MCP 0.12.0 releases default to stable runtime updates on macOS/Linux. Agent Plugin
+0.5.10 and shared installation snippets also select `--runtime-updates=stable` explicitly.
+Publish the verified MCP release before shipping these plugin targets or setup instructions.
+Windows accepts the same setup but keeps its bundled runtime; checkout and unverified builds
+never acquire release updates. Compatible Hub updates activate for initialized MCP sessions
+with negotiated waiting support at an idle boundary. Claude keeps candidates staged; `off` and
+`pinned` policies remain available. See the [runtime design](engineering/mcp-runtime-updates.md).
 
 | Hub change                                          | Release requirement                                                                                           |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -203,15 +207,16 @@ becomes stable. Breaking boundaries are 0.x minor changes, 1.0, and later major 
 
 Explicit switches require interactive `--update-runtime <exact-version>` confirmation of that
 artifact's version and integrity; approval never bypasses compatibility or attached-client policy.
-Enrolled Codex-only sessions may automatically activate a compatible stable candidate within the
+Enrolled, initialized MCP sessions may automatically activate a compatible stable candidate within the
 same breaking-release boundary after five idle seconds. All edges must acknowledge bounded
-pre-dispatch waiting; old edges, Claude and unknown hosts keep candidates staged. Automatic
+pre-dispatch waiting; old edges and Claude keep candidates staged. Automatic
 shutdown rechecks readiness and defers immediately if work arrives, without waiting through a
-long drain or killing work. Existing and plugin-managed
-configurations use the same optional `--runtime-updates=stable` argument. Keep generated plugin
-arguments and shared installation snippets unenrolled until a separately reviewed default change;
-checkout configurations must never carry release enrollment. Publish runtime support before its
-user instructions or any changed plugin arguments become public.
+long drain or killing work. Verified releases default to this stable policy; generated plugin
+arguments and shared installation snippets make it explicit with `--runtime-updates=stable`.
+Use `--runtime-updates=off` to disable acquisition and automatic switching, or `pinned` to enforce
+the installed artifact. Checkout configurations must never carry release enrollment. Publish
+MCP 0.12.0 before Agent Plugin 0.5.10 and the updated installation guidance. An old cached CLI
+may ignore the flag; that does not prove enrollment, which requires the runtime's status evidence.
 
 Publish the compatible hook receiver before Agent Plugin 0.5.9's receipt/retry payload. Current
 bindings must demonstrate v2 capability; plugin version or elapsed rollout time is not evidence.

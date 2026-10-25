@@ -6,6 +6,13 @@ import { z } from 'zod'
 import { writeDurableJson } from '../durable-json'
 import { hubEnvironment } from '../process-environment'
 import { ArtifactSchema, readPrivateJson, type Artifact } from '../runtime-prototype/state'
+import {
+  AcquisitionResultSchema,
+  SelectionSchema,
+  type AcquisitionContext,
+  type AcquisitionResult,
+  type SelectionCursor
+} from './acquire'
 import { VersionSchema } from './manifest'
 
 const StateSchema = z
@@ -15,6 +22,7 @@ const StateSchema = z
     failures: z.number().int().nonnegative(),
     lastAttempt: z.number().optional(),
     candidate: ArtifactSchema.optional(),
+    selection: SelectionSchema.optional(),
     error: z.string().optional()
   })
   .strict()
@@ -34,7 +42,11 @@ export class ReleaseUpdates {
     private readonly options: {
       root: string
       enrolled: () => boolean
-      acquire: (selector: string, signal: AbortSignal) => Promise<Artifact | undefined>
+      acquire: (
+        selector: string,
+        signal: AbortSignal,
+        cursor?: SelectionCursor
+      ) => Promise<AcquisitionResult>
       now?: () => number
       jitter?: () => number
     }
@@ -107,18 +119,28 @@ export class ReleaseUpdates {
     this.explicit = explicit
     const signal = this.abort.signal
     this.pending = Promise.resolve()
-      .then(() => this.options.acquire(selector, signal))
-      .then((candidate) => {
+      .then(() =>
+        this.options.acquire(
+          selector,
+          signal,
+          selector === 'latest' ? this.state.selection?.cursor : undefined
+        )
+      )
+      .then((value) => {
         if (this.closed) return
+        const { candidate, selection } = AcquisitionResultSchema.parse(value)
         this.save({
           ...this.state,
-          candidate: candidate ? ArtifactSchema.parse(candidate) : this.state.candidate,
+          // A successful scan also revokes old staging when the stable tag rewinds.
+          candidate: selector === 'latest' ? candidate : (candidate ?? this.state.candidate),
+          selection,
           failures: 0,
           error: undefined,
           nextCheck:
             this.now() +
-            INTERVAL +
-            Math.floor(((this.options.jitter?.() ?? Math.random()) * INTERVAL) / 10)
+            (selection?.cursor
+              ? 30_000
+              : INTERVAL + Math.floor(((this.options.jitter?.() ?? Math.random()) * INTERVAL) / 10))
         })
         return candidate
       })
@@ -154,21 +176,35 @@ export async function acquireRelease(
   entry: string,
   cache: string,
   selector: string,
-  current: string,
-  signal: AbortSignal
+  context: AcquisitionContext,
+  signal: AbortSignal,
+  cursor?: SelectionCursor
 ) {
   if (process.env.TEMPAD_MCP_DEV_CHECKOUT)
     throw new Error('Checkout runtimes cannot acquire releases.')
   const { stdout } = await promisify(execFile)(
     process.execPath,
-    [entry, '--cache', cache, '--version', selector, '--current', current],
+    [
+      entry,
+      '--cache',
+      cache,
+      '--version',
+      selector,
+      '--active',
+      JSON.stringify(context.active),
+      '--control',
+      JSON.stringify(context.control),
+      '--excluded',
+      JSON.stringify(context.excludedBundles ?? []),
+      ...(cursor ? ['--cursor', JSON.stringify(cursor)] : [])
+    ],
     {
       env: hubEnvironment(process.env),
       signal,
-      timeout: 150_000,
+      timeout: 240_000,
       maxBuffer: 1024 * 1024
     }
   )
   const result: unknown = JSON.parse(stdout)
-  return result === null ? undefined : ArtifactSchema.parse(result)
+  return AcquisitionResultSchema.parse(result)
 }

@@ -86,7 +86,11 @@ export function supportsNode(range: string, version = process.versions.node) {
 
 export function compatibilityReasons(active: RuntimeManifest, next: RuntimeManifest): string[] {
   const reasons: string[] = []
-  if (!supportsNode(next.node)) reasons.push('Node restart/upgrade required')
+  try {
+    if (!supportsNode(next.node)) reasons.push('Node restart/upgrade required')
+  } catch {
+    reasons.push('Node engine policy requires a newer runtime checker')
+  }
   if (!next.platforms.includes(process.platform as 'darwin' | 'linux'))
     reasons.push('Unsupported platform')
   if (active.wireHash !== next.wireHash) reasons.push('MCP contract changed; restart MCP')
@@ -109,11 +113,15 @@ export function compatibilityReasons(active: RuntimeManifest, next: RuntimeManif
 }
 
 /** Automatic consent never crosses a breaking-release boundary. */
+export function crossesBreakingBoundary(active: string, next: string) {
+  const [major, minor] = VersionSchema.parse(active).split('.').map(Number)
+  const [nextMajor, nextMinor] = VersionSchema.parse(next).split('.').map(Number)
+  return major !== nextMajor || (major === 0 && minor !== nextMinor)
+}
+
 export function automaticCompatibilityReasons(active: RuntimeManifest, next: RuntimeManifest) {
   const reasons = compatibilityReasons(active, next)
-  const [major, minor] = active.packageVersion.split('.').map(Number)
-  const [nextMajor, nextMinor] = next.packageVersion.split('.').map(Number)
-  if (major !== nextMajor || (major === 0 && minor !== nextMinor))
+  if (crossesBreakingBoundary(active.packageVersion, next.packageVersion))
     reasons.push('Breaking release boundary; explicit update required')
   return reasons
 }

@@ -264,7 +264,7 @@ it('includes pending native actions and transfers in the runtime drain boundary'
   }
 })
 
-it('requires initialized Codex clients for automatic switches and records activity between inspections', async () => {
+it('requires initialized clients for automatic switches and records activity between inspections', async () => {
   let now = 0
   vi.spyOn(performance, 'now').mockImplementation(() => now)
   const { startHub } = await loadRuntime()
@@ -334,7 +334,7 @@ it('requires initialized Codex clients for automatic switches and records activi
     await peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)
 
     const unknown = await attach('unknown-host')
-    expect((await inspect()).autoBlockers).not.toEqual([])
+    expect((await inspect()).autoBlockers).toEqual([])
     await unknown.close()
     await vi.waitFor(async () => expect((await inspect()).autoBlockers).toEqual([]))
     const claude = await attach('claude-code')

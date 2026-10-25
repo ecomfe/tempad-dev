@@ -13,7 +13,7 @@ Requires the TemPad Dev extension, an open panel, and **MCP access** enabled. Ca
   "mcpServers": {
     "tempad-dev": {
       "command": "npx",
-      "args": ["-y", "@tempad-dev/mcp@latest"]
+      "args": ["-y", "@tempad-dev/mcp@latest", "--runtime-updates=stable"]
     }
   }
 }
@@ -21,25 +21,30 @@ Requires the TemPad Dev extension, an open panel, and **MCP access** enabled. Ca
 
 For agent-specific setup, open TemPad Dev's **Preferences → Agent integration → Set up agents**. It provides guided paths for Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, and TRAE, plus **Other** for compatible clients not listed.
 
-### Optional runtime updates (0.12.0+)
+### Runtime updates (0.12.0+)
 
-Default installations do not check for or activate runtime updates. On macOS/Linux, add
-`--runtime-updates=stable` after the package argument in your host's MCP configuration to
-enable verified background downloads and compatible automatic Hub updates. The same option applies to plugin-managed and manual
-configurations; checkout builds reject it and never fetch release runtimes. First enrollment
-requires closing all existing TemPad MCP connections once, then restarting them. It preserves
-the release task and asset stores.
+Verified releases enable background downloads and compatible automatic Hub updates on
+macOS/Linux by default, including existing `npx @latest` configurations after they restart onto
+0.12.0 or later. The configuration above and Agent Plugin 0.5.10 select this policy explicitly
+with `--runtime-updates=stable`. First enrollment requires closing all existing TemPad MCP
+connections once, then restarting them. It preserves the release task and asset stores.
+Until that restart, new clients keep using an existing legacy Hub without interrupting it.
+Windows accepts this configuration and continues using the bundled runtime without background
+downloads or switching. Checkout development builds use a separate local configuration and never
+fetch release runtimes.
 
 In a terminal using the same runtime configuration:
 
 - `npx -y @tempad-dev/mcp@latest --runtime-update-status` shows the active/staged versions and blockers.
-- `npx -y @tempad-dev/mcp@latest --check-runtime-update` checks and stages the latest stable release.
+- `npx -y @tempad-dev/mcp@latest --check-runtime-update` searches for the newest compatible stable
+  release, no newer than npm's `latest` tag. Large histories resume in bounded batches; status
+  reports the remaining search and why the latest version was skipped.
 - `npx -y @tempad-dev/mcp@latest --update-runtime <version>` asks you to confirm the exact version
   and integrity before switching. Incompatible tool contracts/guidance, unfinished operations,
   legacy Claude hooks, and attached clients without opt-in prevent activation.
 
-Automatic activation currently requires only initialized Codex clients, all opted in and capable
-of waiting through a switch. Claude and unknown hosts keep updates staged pending native acceptance.
+Automatic activation requires initialized MCP clients, all using the stable update policy and
+capable of waiting through a switch. Claude keeps updates staged pending native lifecycle acceptance.
 After five seconds without calls, transfers or native actions, the supervisor rechecks eligibility
 and switches locally. New, undispatched requests wait up to ten seconds; dispatched writes are
 never replayed. Busy work defers the update, and downloads or network failures leave the Hub serving.
@@ -47,10 +52,12 @@ Breaking release boundaries, incompatible contracts and guidance require an expl
 Existing MCP sessions retain their tool descriptions through a compatible switch;
 Figma reconnects and design tasks may require resume/read-back. The running edge and supervisor,
 Node, browser extension, and installed plugin still require their normal upgrade/restart.
-Use `--runtime-updates=off` (or omit the option) to stop background checks when no enrolled
+Use `--runtime-updates=off` to stop background checks when no enrolled
 client remains. To enforce the launch package's exact version, use `--runtime-updates=pinned`
 with a fixed npm version; a conflict reports a restart requirement instead of creating another Hub.
-Windows continues to use the bundled runtime without enrollment.
+Unverified local builds keep their bundled runtime and never download releases; explicit enrollment
+is rejected. Runtime download, switching and `pinned` enrollment are unavailable on Windows;
+pin the npm package version without update flags if needed.
 
 ### Tools and resources
 

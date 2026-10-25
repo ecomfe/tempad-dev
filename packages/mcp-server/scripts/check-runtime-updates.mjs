@@ -1,6 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import assert from 'node:assert/strict'
+import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
 import console from 'node:console'
 import {
@@ -47,6 +48,14 @@ const automaticPids = new Set()
 const releases = new Map()
 const requests = []
 let online = true
+let latestVersion
+function metadata(release) {
+  return {
+    name: '@tempad-dev/mcp',
+    version: release.version,
+    dist: { integrity: release.integrity, tarball: release.url }
+  }
+}
 const registry = createServer((req, res) => {
   requests.push(req.url)
   if (!online) {
@@ -54,11 +63,24 @@ const registry = createServer((req, res) => {
     res.end()
     return
   }
+  if (req.url === '/@tempad-dev%2fmcp') {
+    res.setHeader('content-type', 'application/json')
+    res.end(
+      JSON.stringify({
+        name: '@tempad-dev/mcp',
+        'dist-tags': { latest: latestVersion },
+        versions: Object.fromEntries(
+          [...releases].map(([version, release]) => [version, metadata(release)])
+        )
+      })
+    )
+    return
+  }
   const selector = req.url?.startsWith('/@tempad-dev%2fmcp/')
     ? req.url.slice('/@tempad-dev%2fmcp/'.length)
     : undefined
   const release = selector
-    ? releases.get(selector === 'latest' ? [...releases.keys()].at(-1) : selector)
+    ? releases.get(selector === 'latest' ? latestVersion : selector)
     : [...releases.values()].find(
         (item) => item.url === `http://127.0.0.1:${registry.address().port}${req.url}`
       )
@@ -69,13 +91,7 @@ const registry = createServer((req, res) => {
   }
   if (selector) {
     res.setHeader('content-type', 'application/json')
-    res.end(
-      JSON.stringify({
-        name: '@tempad-dev/mcp',
-        version: release.version,
-        dist: { integrity: release.integrity, tarball: release.url }
-      })
-    )
+    res.end(JSON.stringify(metadata(release)))
   } else {
     res.setHeader('content-type', 'application/octet-stream')
     res.end(release.bytes)
@@ -119,7 +135,7 @@ const { ControlPeer, SocketTransport, ResultSchema, connectSocket } = verify
 const pkg = JSON.parse(await readFile(join(source, 'package.json'), 'utf8'))
 const policy = JSON.parse(await readFile(join(source, 'runtime-policy.json'), 'utf8'))
 const [major, minor, patch] = pkg.version.split('.').map(Number)
-const versions = [0, 1, 2].map((offset) => `${major}.${minor}.${patch + offset}`)
+const versions = [0, 1, 2, 3].map((offset) => `${major}.${minor}.${patch + offset}`)
 async function until(check, label, timeout = 60_000) {
   const deadline = performance.now() + timeout
   do {
@@ -238,6 +254,7 @@ async function makeArtifact(version, base, epoch) {
     url: `${registryUrl}/@tempad-dev/mcp/-/mcp-${version}.tgz`
   }
   releases.set(version, release)
+  latestVersion = version
   return release
 }
 async function client(release, policy = 'off', env = isolationEnv, name = 'release-acceptance') {
@@ -245,7 +262,7 @@ async function client(release, policy = 'off', env = isolationEnv, name = 'relea
     command: process.execPath,
     args: [
       join(release.directory, 'dist/cli.mjs'),
-      ...(policy !== 'off' ? [`--runtime-updates=${policy}`] : [])
+      ...(policy !== 'default' ? [`--runtime-updates=${policy}`] : [])
     ],
     env,
     stderr: 'pipe'
@@ -323,15 +340,19 @@ async function automaticAcceptance(a, b) {
     await mkdir(env[key], { recursive: true, mode: 0o700 })
   }
   // These are SDK clients with host identity fixtures, not installed-host
-  // acceptance. The unknown client keeps B staged while blockers are exercised.
+  // acceptance. Hold publication until an explicit opt-out observer is attached.
   const firstClient = clients.length
   const firstTransport = transports.length
+  const published = latestVersion
+  latestVersion = a.version
   const owner = new ControlPeer()
   try {
-    const unknown = await client(a, 'stable', env)
+    const generic = await client(a, 'default', env)
     const codexEnv = { ...env, CODEX_THREAD_ID: 'automatic-release-fixture' }
-    const codex = await client(a, 'stable', codexEnv, 'codex-mcp-client')
+    const codex = await client(a, 'default', codexEnv, 'codex-mcp-client')
     const catalog = await codex.listTools()
+    const genericCatalog = await generic.listTools()
+    const observer = await client(a, 'off', env)
     await owner.connect(
       new SocketTransport(await connectSocket(join(directory, 'run/supervisor.sock')))
     )
@@ -340,14 +361,36 @@ async function automaticAcceptance(a, b) {
       for (const pid of [state.supervisorPid, state.hubPid]) if (pid) automaticPids.add(pid)
       return state
     }
-    const staged = await until(async () => {
+    await until(async () => {
       const state = await status()
-      if (state.updates.error) throw new Error(state.updates.error)
-      return state.updates.candidate?.version === b.version && state
-    }, 'automatic fixture staging')
+      return state.updates.lastAttempt && !state.updates.checking
+    }, 'initial default update check')
+    latestVersion = published
+    await owner.request(
+      { method: 'tempad/runtime-check', params: { version: 'latest' } },
+      ResultSchema,
+      { timeout: 180_000 }
+    )
+    const staged = await until(
+      async () => {
+        const state = await status()
+        if (state.updates.error) throw new Error(state.updates.error)
+        return state.updates.candidate?.version === b.version && state
+      },
+      'automatic fixture staging',
+      120_000
+    )
     assert.equal(staged.active.version, a.version)
-    assert.equal(staged.updates.automaticActivation, true)
-    assert.ok(staged.autoBlockers.length > 0, 'unknown hosts must defer automatic switching')
+    assert.equal(staged.updates.selection.latest, published)
+    assert.ok(
+      staged.updates.selection.latestReasons.some((reason) => reason.includes('Guidance epoch'))
+    )
+    assert.equal(staged.updates.automaticActivation, false)
+    assert.deepEqual(
+      staged.autoBlockers,
+      [],
+      'initialized generic clients support automatic switching'
+    )
     const oldPid = staged.hubPid
     const remainsStaged = async (reason) => {
       const deadline = performance.now() + 8000
@@ -357,9 +400,8 @@ async function automaticAcceptance(a, b) {
         return performance.now() >= deadline
       }, reason)
     }
-    await remainsStaged('unknown hosts must keep the candidate staged')
-    const claude = await client(a, 'stable', { ...env, CLAUDECODE: '1' })
-    await unknown.close()
+    const claude = await client(a, 'stable', { ...env, CLAUDECODE: '1' }, 'claude-code')
+    await observer.close()
     const claudeBlocked = await until(async () => {
       const state = await status()
       return state.autoBlockers.some((reason) => reason.includes('Claude')) && state
@@ -371,7 +413,7 @@ async function automaticAcceptance(a, b) {
     const policyBlocked = await until(async () => {
       const state = await status()
       return state.autoBlockers.length === 0 && state
-    }, 'only Codex clients remain')
+    }, 'only supported clients remain')
     assert.ok(
       policyBlocked.updates.pendingReasons.some((reason) => reason.includes('not opted in'))
     )
@@ -424,11 +466,15 @@ async function automaticAcceptance(a, b) {
     assert.notEqual(changed.hubPid, oldPid)
     assert.equal(changed.supervisorPid, staged.supervisorPid)
     assert.deepEqual(await codex.listTools(), catalog, 'automatic switching preserves the catalog')
+    assert.deepEqual(await generic.listTools(), genericCatalog, 'generic session keeps its catalog')
     await codex.ping()
+    await generic.ping()
     await codex.close()
+    await generic.close()
     await until(() => [...automaticPids].every(exited), 'automatic fixture shutdown', 15_000)
     return { admissionPauseMs, uninterruptedCalls: calls }
   } finally {
+    latestVersion = published
     await owner.close()
     await Promise.allSettled(clients.slice(firstClient).map((client) => client.close()))
     await Promise.allSettled(transports.slice(firstTransport).map((transport) => transport.close()))
@@ -451,6 +497,16 @@ try {
   }
   const a = await makeArtifact(versions[0], base, policy.guidanceEpoch)
   const b = await makeArtifact(versions[1], base, policy.guidanceEpoch)
+  const c = await makeArtifact(versions[2], base, policy.guidanceEpoch + 1)
+  // A published version above the stable tag is not a stable update candidate.
+  // Its intentionally unavailable bytes make accidental acquisition fail loudly.
+  const ahead = {
+    ...b,
+    version: versions[3],
+    bytes: Buffer.from('not a stable release'),
+    url: `${registryUrl}/@tempad-dev/mcp/-/mcp-${versions[3]}.tgz`
+  }
+  releases.set(ahead.version, ahead)
   const defaultStatus = await exec(
     process.execPath,
     [join(a.directory, 'dist/cli.mjs'), '--runtime-update-status'],
@@ -511,28 +567,42 @@ try {
   await storageFailureClient.close()
   await until(() => runtimePids.every(exited), 'storage fault runtime shutdown', 15_000)
   await rm(metadataTemporary, { recursive: true })
+  latestVersion = a.version
   const started = performance.now()
   const [first, parallel] = await Promise.all([client(a, 'stable'), client(a, 'stable')])
   const firstInitializeMs = Math.round(performance.now() - started)
   await parallel.listTools()
   await parallel.close()
   const catalog = await first.listTools()
+  const second = await client(a, 'off')
   control = new ControlPeer()
   await control.connect(new SocketTransport(await connectSocket(join(root, 'run/supervisor.sock'))))
   const request = (method, params) =>
     control.request({ method, ...(params ? { params } : {}) }, ResultSchema, { timeout: 180_000 })
   const status = () => request('tempad/runtime-status')
-  const staged = await until(async () => {
-    const value = await status()
-    if (value.updates?.error) throw new Error(value.updates.error)
-    return value.updates?.candidate?.version === b.version && value
-  }, 'verified candidate staging')
+  await until(async () => {
+    const state = await status()
+    return state.updates.lastAttempt && !state.updates.checking
+  }, 'initial check before candidate publication')
+  latestVersion = c.version
+  await request('tempad/runtime-check', { version: 'latest' })
+  const staged = await until(
+    async () => {
+      const value = await status()
+      if (value.updates?.error) throw new Error(value.updates.error)
+      return value.updates?.candidate?.version === b.version && value
+    },
+    'verified candidate staging',
+    120_000
+  )
   assert.equal(staged.active.version, a.version)
-  assert.equal(staged.updates.automaticActivation, true)
-  assert.ok(staged.autoBlockers.length > 0, 'unknown clients retain explicit activation')
+  assert.equal(staged.updates.selection.latest, c.version)
+  assert.ok(
+    staged.updates.selection.latestReasons.some((reason) => reason.includes('Guidance epoch'))
+  )
+  assert.equal(staged.updates.automaticActivation, false)
   runtimePids = [staged.supervisorPid, staged.hubPid]
   const oldPid = staged.hubPid
-  const second = await client(a)
   assert.equal((await status()).hubPid, oldPid, 'mixed policies must share the Hub')
   const count = requests.length
   await delay(200)
@@ -544,6 +614,12 @@ try {
     /not opted in/
   )
   assert.equal((await status()).hubPid, oldPid)
+  // Leave a fresh quiet window for the explicit transaction to acquire ownership
+  // before the automatic scheduler can consider this same compatible candidate.
+  assert.notEqual(
+    (await first.callTool({ name: 'list_design_sessions', arguments: {} })).isError,
+    true
+  )
   await second.close()
   await until(
     async () =>
@@ -570,7 +646,20 @@ try {
 
   const automatic = await automaticAcceptance(a, b)
 
-  const c = await makeArtifact(versions[2], base, policy.guidanceEpoch + 1)
+  assert.ok(requests.includes('/@tempad-dev%2fmcp'), 'stable checks must read the release catalog')
+  assert.ok(!requests.some((path) => path?.endsWith(`/mcp-${ahead.version}.tgz`)))
+  latestVersion = a.version
+  const rolledBackTag = await request('tempad/runtime-check', { version: 'latest' })
+  assert.equal(rolledBackTag.candidate, undefined, 'moving latest backwards must not downgrade')
+  assert.equal((await status()).active.version, b.version)
+  latestVersion = c.version
+  const olderExact = await request('tempad/runtime-check', { version: a.version })
+  assert.equal(
+    olderExact.candidate,
+    undefined,
+    'an exact request must not substitute another release'
+  )
+  assert.equal((await status()).active.version, b.version)
   const incompatible = await request('tempad/runtime-check', { version: c.version })
   assert.ok(incompatible.pendingReasons.some((value) => value.includes('Guidance epoch')))
   assert.equal(
@@ -675,11 +764,16 @@ try {
         'cold-upgrade-offline',
         'old-cli-no-downgrade',
         'automatic-compatible-activation',
-        'automatic-unknown-host-block',
+        'automatic-generic-host-activation',
         'automatic-claude-block',
         'automatic-non-opt-in-block',
         'automatic-busy-work-deferral',
-        'automatic-handoff-request-wait'
+        'automatic-handoff-request-wait',
+        'default-release-enrollment',
+        'newest-compatible-selection',
+        'stable-tag-ceiling',
+        'stable-tag-rollback-no-downgrade',
+        'exact-version-no-substitution'
       ]
     })
   )

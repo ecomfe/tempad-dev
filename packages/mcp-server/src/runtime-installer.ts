@@ -3,7 +3,20 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 
-const [flag, cache, versionFlag, selector, currentFlag, current] = process.argv.slice(2)
+const [
+  flag,
+  cache,
+  versionFlag,
+  selector,
+  activeFlag,
+  active,
+  controlFlag,
+  control,
+  excludedFlag,
+  excluded,
+  cursorFlag,
+  cursor
+] = process.argv.slice(2)
 if (
   process.env.TEMPAD_MCP_DEV_CHECKOUT ||
   process.platform === 'win32' ||
@@ -12,9 +25,14 @@ if (
   !isAbsolute(cache) ||
   versionFlag !== '--version' ||
   !selector ||
-  currentFlag !== '--current' ||
-  !current ||
-  process.argv.length !== 8
+  activeFlag !== '--active' ||
+  !active ||
+  controlFlag !== '--control' ||
+  !control ||
+  excludedFlag !== '--excluded' ||
+  !excluded ||
+  (process.argv.length !== 12 &&
+    !(process.argv.length === 14 && cursorFlag === '--cursor' && cursor))
 )
   throw new Error(
     'Release acquisition requires an explicit private release cache and version; checkout acquisition is forbidden.'
@@ -29,9 +47,19 @@ for (const [key, directory] of Object.entries({
   process.env[key] = join(isolation, directory)
 const { endLogging } = await import('./shared')
 try {
-  const { stageRelease } = await import('./runtime-update/acquire')
-  const staged = await stageRelease(cache, selector, current)
-  process.stdout.write(JSON.stringify(staged ?? null) + '\n')
+  const { AcquisitionContextSchema, SelectionCursorSchema, stageRelease } =
+    await import('./runtime-update/acquire')
+  const staged = await stageRelease(
+    cache,
+    selector,
+    AcquisitionContextSchema.parse({
+      active: JSON.parse(active),
+      control: JSON.parse(control),
+      excludedBundles: JSON.parse(excluded)
+    }),
+    cursor ? SelectionCursorSchema.parse(JSON.parse(cursor)) : undefined
+  )
+  process.stdout.write(JSON.stringify(staged) + '\n')
 } catch (error) {
   process.stderr.write(`Runtime acquisition failed: ${String(error)}\n`)
   process.exitCode = 1

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { Artifact } from '../src/runtime-prototype/state'
+import type { AcquisitionResult } from '../src/runtime-update/acquire'
 
 import * as durable from '../src/durable-json'
 import { updateIntent } from '../src/runtime-update/bootstrap'
@@ -43,7 +44,7 @@ it.each([
   const directory = root()
   const acquire = vi.fn(async () => {
     if (stage === 'failure') throw new Error('registry offline')
-    return candidate
+    return { candidate }
   })
   const updates = owner({ root: directory, enrolled: () => true, acquire })
   const write = durable.writeDurableJson
@@ -74,7 +75,11 @@ it.each([
   // A fresh owner can resume once storage is repaired, using the persisted
   // attempt backoff rather than repeatedly crashing or skipping admission.
   persist.mockRestore()
-  const restored = owner({ root: directory, enrolled: () => true, acquire: async () => candidate })
+  const restored = owner({
+    root: directory,
+    enrolled: () => true,
+    acquire: async () => ({ candidate })
+  })
   await expect(restored.check('latest', true)).resolves.toEqual(candidate)
 })
 
@@ -82,11 +87,11 @@ it.each([false, true])(
   'retains the committed candidate after a failed save (renamed: %s)',
   async (renamed) => {
     const directory = root()
-    const acquire = vi.fn(async () => candidate)
+    const acquire = vi.fn(async () => ({ candidate }))
     const updates = owner({ root: directory, enrolled: () => true, acquire })
     await updates.check('latest', true)
     const later = { ...candidate, version: '0.12.2', bundle: 'b'.repeat(64) }
-    acquire.mockResolvedValue(later)
+    acquire.mockResolvedValue({ candidate: later })
     const write = durable.writeDurableJson
     vi.spyOn(durable, 'writeDurableJson')
       .mockImplementationOnce(write)
@@ -104,7 +109,7 @@ it.each([false, true])(
 
 it('does no background work without an enrolled edge and never activates', async () => {
   vi.useFakeTimers()
-  const acquire = vi.fn(async () => candidate)
+  const acquire = vi.fn(async () => ({ candidate }))
   const directory = root()
   const updates = owner({ root: directory, enrolled: () => false, acquire })
   updates.schedule()
@@ -120,7 +125,7 @@ it('does no background work without an enrolled edge and never activates', async
 it('shares concurrent checks and preserves the schedule across an owner restart', async () => {
   vi.useFakeTimers()
   const directory = root()
-  const acquire = vi.fn(async () => candidate)
+  const acquire = vi.fn(async () => ({ candidate }))
   const options = { root: directory, enrolled: () => true, acquire, jitter: () => 0 }
   const updates = owner(options)
   const [first, second] = await Promise.all([updates.check(), updates.check()])
@@ -138,8 +143,8 @@ it('shares concurrent checks and preserves the schedule across an owner restart'
 it('backs off offline failures while retaining a verified candidate', async () => {
   vi.useFakeTimers()
   const acquire = vi
-    .fn<() => Promise<Artifact>>()
-    .mockResolvedValueOnce(candidate)
+    .fn<() => Promise<AcquisitionResult>>()
+    .mockResolvedValueOnce({ candidate })
     .mockRejectedValue(new Error('offline'))
   const updates = owner({ root: root(), enrolled: () => true, acquire, jitter: () => 0 })
   await updates.check()
@@ -158,7 +163,7 @@ it('cancels background acquisition after the last opt-in edge leaves', async () 
   let enrolled = true
   const acquire = vi.fn(
     (_selector, signal: AbortSignal) =>
-      new Promise<Artifact>((_resolve, reject) =>
+      new Promise<AcquisitionResult>((_resolve, reject) =>
         signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
       )
   )
@@ -173,7 +178,7 @@ it('cancels background acquisition after the last opt-in edge leaves', async () 
 it('preserves corrupt scheduling evidence without querying the network', async () => {
   const directory = root()
   writeFileSync(join(directory, 'updates.json'), 'broken', { mode: 0o600 })
-  const acquire = vi.fn(async () => candidate)
+  const acquire = vi.fn(async () => ({ candidate }))
   const updates = owner({ root: directory, enrolled: () => true, acquire })
   updates.schedule()
   await expect(updates.check('latest', true)).rejects.toThrow('metadata is unreadable')
@@ -195,4 +200,59 @@ it('rejects contradictory checkout enrollment before constructing an updater', (
   expect(updateIntent(['--runtime-updates=pinned'], false).policy).toBe('pinned')
   vi.stubEnv('TEMPAD_MCP_DEV_CHECKOUT', '/missing/checkout')
   expect(() => owner({ root: root(), enrolled: () => true, acquire: vi.fn() })).toThrow('Checkout')
+})
+
+it('persists search progress and resumes promptly after an owner restart', async () => {
+  vi.useFakeTimers()
+  const directory = root()
+  const cursor = {
+    fingerprint: 'b'.repeat(64),
+    before: '0.12.3',
+    latestReasons: ['Guidance epoch changed; restart MCP']
+  }
+  const selection = {
+    latest: '0.12.19',
+    latestReasons: cursor.latestReasons,
+    inspected: 16,
+    remaining: 2,
+    cursor
+  }
+  const acquire = vi
+    .fn<ConstructorParameters<typeof ReleaseUpdates>[0]['acquire']>()
+    .mockResolvedValueOnce({ selection })
+    .mockResolvedValue({
+      candidate,
+      selection: { ...selection, inspected: 2, remaining: 0, cursor: undefined }
+    })
+  const options = { root: directory, enrolled: () => true, acquire, jitter: () => 0 }
+  const first = owner(options)
+  await first.check()
+  expect(first.status.candidate).toBeUndefined()
+  expect(first.status.selection?.cursor).toEqual(cursor)
+  first.close()
+  const next = owner(options)
+  next.schedule()
+  await vi.advanceTimersByTimeAsync(29999)
+  expect(acquire).toHaveBeenCalledOnce()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(acquire).toHaveBeenLastCalledWith('latest', expect.any(AbortSignal), cursor)
+  expect(next.status.candidate).toEqual(candidate)
+  expect(next.status.selection?.cursor).toBeUndefined()
+})
+
+it('clears staging after a successful tag rollback but retains it when the registry is unavailable', async () => {
+  const acquire = vi
+    .fn<ConstructorParameters<typeof ReleaseUpdates>[0]['acquire']>()
+    .mockResolvedValueOnce({ candidate })
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValue({
+      selection: { latest: '0.12.0', latestReasons: [], inspected: 0, remaining: 0 }
+    })
+  const updates = owner({ root: root(), enrolled: () => true, acquire })
+  await updates.check()
+  await expect(updates.check()).rejects.toThrow('offline')
+  expect(updates.status.candidate).toEqual(candidate)
+  await updates.check()
+  expect(updates.status.candidate).toBeUndefined()
+  expect(updates.status.selection?.latest).toBe('0.12.0')
 })

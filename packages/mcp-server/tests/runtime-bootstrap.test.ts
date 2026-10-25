@@ -91,6 +91,7 @@ beforeEach(() => {
   mkdirSync(join(packageDir, 'dist'), { recursive: true, mode: 0o700 })
   writeFileSync(join(packageDir, 'dist/runtime-manifest.json'), JSON.stringify(manifest))
   vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+  vi.spyOn(process.stderr, 'write').mockReturnValue(true)
   vi.spyOn(process.stdin, 'destroy').mockReturnValue(process.stdin)
 })
 afterEach(() => {
@@ -100,15 +101,52 @@ afterEach(() => {
   rmSync(packageDir, { recursive: true, force: true })
 })
 
-it('leaves default and checkout launches on the original path; status does not enroll', async () => {
-  expect(await maybeManagedRuntime([], packageDir)).toBe(false)
+it('keeps status, opt-out and checkout launches from enrolling', async () => {
   expect(await maybeManagedRuntime(['--runtime-update-status'], packageDir)).toBe(true)
+  expect(await maybeManagedRuntime(['--runtime-status'], packageDir)).toBe(false)
+  expect(await maybeManagedRuntime(['--resolve-runtime-block'], packageDir)).toBe(false)
+  await expect(maybeManagedRuntime(['--recover-runtime'], packageDir)).rejects.toThrow(
+    'No managed runtime'
+  )
+  expect(await maybeManagedRuntime(['--runtime-updates=off'], packageDir)).toBe(false)
   expect(existsSync(configPath)).toBe(false)
   expect(fake.retain).not.toHaveBeenCalled()
   fake.profile.kind = 'checkout'
   expect(await maybeManagedRuntime([], packageDir)).toBe(false)
   await expect(maybeManagedRuntime(['--check-runtime-update'], packageDir)).rejects.toThrow(
     'Checkout'
+  )
+})
+
+it('automatically enrolls verified releases but never guesses an unverified local build', async () => {
+  const path = join(packageDir, 'dist/runtime-manifest.json')
+  rmSync(path)
+  expect(await maybeManagedRuntime([], packageDir)).toBe(false)
+  expect(fake.connect).not.toHaveBeenCalled()
+  expect(fake.retain).not.toHaveBeenCalled()
+  writeFileSync(path, JSON.stringify(manifest))
+  expect(await maybeManagedRuntime([], packageDir)).toBe(true)
+  expect(fake.edge).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ policy: 'stable' })
+  )
+})
+
+it('keeps standard Windows launches usable without creating an update owner', async () => {
+  vi.stubGlobal('process', { ...process, platform: 'win32' })
+  expect(await maybeManagedRuntime([], packageDir)).toBe(false)
+  expect(await maybeManagedRuntime(['--runtime-updates=stable'], packageDir)).toBe(false)
+  expect(await maybeManagedRuntime(['--runtime-updates=off'], packageDir)).toBe(false)
+  expect(await maybeManagedRuntime(['--runtime-update-status'], packageDir)).toBe(true)
+  expect(process.stdout.write).toHaveBeenCalledWith(expect.stringContaining('"managed":false'))
+  expect(fake.connect).not.toHaveBeenCalled()
+  expect(fake.retain).not.toHaveBeenCalled()
+  expect(existsSync(configPath)).toBe(false)
+  await expect(maybeManagedRuntime(['--check-runtime-update'], packageDir)).rejects.toThrow(
+    'Windows'
+  )
+  await expect(maybeManagedRuntime(['--runtime-updates=pinned'], packageDir)).rejects.toThrow(
+    'Windows'
   )
 })
 
@@ -122,19 +160,30 @@ it('enrolls once and gives every subsequent policy the same directories and owne
     log: LOG_DIR
   })
   await maybeManagedRuntime([], packageDir)
+  await maybeManagedRuntime(['--runtime-updates=off'], packageDir)
   await maybeManagedRuntime(['--runtime-updates=pinned'], packageDir)
   expect(fake.retain).toHaveBeenCalledTimes(1)
-  expect(fake.edge.mock.calls.map((call) => call[1].policy)).toEqual(['stable', 'off', 'pinned'])
+  expect(fake.edge.mock.calls.map((call) => call[1].policy)).toEqual([
+    'stable',
+    'stable',
+    'off',
+    'pinned'
+  ])
   expect(fake.edge.mock.calls.every((call) => call[0].secret === saved.secret)).toBe(true)
 })
 
 it('never replaces an existing legacy owner or guesses a missing release build', async () => {
   const destroy = vi.fn()
   fake.connect.mockResolvedValue({ destroy })
-  await expect(maybeManagedRuntime(['--runtime-updates=stable'], packageDir)).rejects.toThrow(
+  expect(await maybeManagedRuntime([], packageDir)).toBe(false)
+  expect(await maybeManagedRuntime(['--runtime-updates=stable'], packageDir)).toBe(false)
+  await expect(maybeManagedRuntime(['--check-runtime-update'], packageDir)).rejects.toThrow(
     'legacy Hub'
   )
-  expect(destroy).toHaveBeenCalledOnce()
+  await expect(maybeManagedRuntime(['--runtime-updates=pinned'], packageDir)).rejects.toThrow(
+    'legacy Hub'
+  )
+  expect(destroy).toHaveBeenCalledTimes(4)
   expect(existsSync(configPath)).toBe(false)
   rmSync(join(packageDir, 'dist/runtime-manifest.json'))
   await expect(maybeManagedRuntime(['--runtime-updates=stable'], packageDir)).rejects.toThrow(

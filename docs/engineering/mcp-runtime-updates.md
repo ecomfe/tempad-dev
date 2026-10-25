@@ -1,8 +1,9 @@
 # Updating a running MCP runtime
 
-Status: Phases 0–3 are implemented. Codex native switching is verified and compatible automatic activation is implemented for enrolled Codex-only sessions; Claude native acceptance remains pending.
-The default CLI keeps the existing bridge until explicit enrollment. Acquisition is opt-in and
-incompatible or breaking-boundary updates require an explicit decision or restart. Design baseline: `74ed70c9`.
+Status: Phases 0–3 are implemented. Codex native switching is verified and compatible automatic activation is implemented for enrolled MCP sessions with waiting support; Claude native acceptance remains pending.
+Verified releases default to stable updates; checkout and unverified local builds keep the bundled
+bridge without release acquisition. Incompatible or breaking-boundary updates require an explicit
+decision or restart. Design baseline: `74ed70c9`.
 
 This design is for maintainers implementing runtime updates and preparing compatible
 releases. It owns the proposed process boundary, update transaction, and acceptance
@@ -153,8 +154,8 @@ Automatic activation requires all of the following, checked again at commit time
   Fixing a typo need not force a restart; changing required workflow or safety guidance does.
 - Its extension protocol adapters support the promised released-extension range,
   including connected peers. An offline older extension must not lose a promised adapter.
-- The initialized host set contains only Codex clients and each edge acknowledges bounded
-  pre-dispatch waiting. Claude and unknown hosts currently defer automatic activation.
+- Every host session is initialized and each edge acknowledges bounded pre-dispatch waiting.
+  Claude currently defers automatic activation until its native lifecycle acceptance is complete.
   Future Claude enablement also requires native acceptance and the receipt/retry requirement in
   [Appendix B](#appendix-b-installed-hooks-and-delivery-evidence); legacy or unknown
   capability defers automatic switching, without disabling ordinary MCP use.
@@ -200,11 +201,12 @@ local path uses the release namespace too; an unclassifiable build fails closed.
 | Release test | Explicit isolated endpoints and stores for updater tests, never production or checkout state.                                                         |
 
 A checkout declaration always wins over a release-update flag; contradictory inputs
-must fail closed. Use the same proposed `--runtime-updates=stable` launch argument for
-generated release plugin configuration and manual installations; no plugin is required
-to enroll. Existing configurations without the argument keep their current launch behavior
-and add no background acquisition. An edge without opt-in joins the same release Hub but
-defers automatic activation while attached; enrolled edges may still stage a candidate.
+must fail closed. Verified releases default to the stable policy; generated release plugin
+configuration and manual installation snippets also select `--runtime-updates=stable` explicitly.
+No plugin is required to enroll. Existing no-argument configurations take up this policy after
+restarting onto the verified release. An `off` edge, or an older edge without enrollment, joins
+the same release Hub but defers automatic activation while attached; enrolled edges may still
+stage a candidate.
 Recheck unanimous consent when closing admission and before commit, including new arrivals.
 An explicit `--runtime-updates=pinned` edge requires its launch package's version and manifest;
 absence of enrollment is not proof of an npm version pin. Do not switch a pinned edge to a different active artifact: report the
@@ -214,14 +216,18 @@ may still fetch its launch package. Checkout launches use the local Node entry p
 Build origin, real path, and launch policy are validated together rather than guessing
 from semver, the current directory, or whether `.git` happens to exist.
 
-From MCP 0.12.0, offer enrollment as
-`npx -y @tempad-dev/mcp@latest --runtime-updates=stable`, followed by the ordinary one-time
-MCP restart. Keep both root and MCP README languages and the shared installation snippets
-in sync; do not document this as a working command before it ships. Adding the argument
-to the authored plugin manifest requires a stable plugin version increase and regenerated
-targets. Existing generated plugin and manual setup arguments remain unchanged: enrollment
-is an explicit host-configuration choice using the same argument. It enables compatible automatic
-Hub switching for the accepted Codex path; checkout builds never enroll.
+MCP 0.12.0 defaults to stable updates only when a verified release manifest is present.
+Unverified local builds retain the bundled path with no registry requests; explicit release
+enrollment fails rather than falling back online. Windows accepts the stable setup but keeps
+the bundled runtime without downloading or switching. `--runtime-updates=off` opts out, while
+`pinned` requires the launch artifact's exact version.
+Agent Plugin 0.5.10 and the shared manual setup snippets specify the same stable policy.
+Keep both root and MCP README languages aligned; publish the compatible runtime before these
+plugin targets and instructions. First enrollment still needs one coordinated MCP restart.
+Until the existing legacy Hub exits, ordinary launches defer enrollment and keep its byte bridge
+so updating an installation does not interrupt its active work.
+Automatic Hub switching requires initialized MCP sessions and negotiated waiting support;
+Claude lifecycle acceptance remains a gate, and checkout builds never enroll.
 
 Namespace IPC endpoints, locks, state, assets, activation records, and caches by user
 and profile. Checkout profiles also include a stable hash of the real checkout path.
@@ -300,13 +306,22 @@ Recommended initial defaults, subject to isolated measurement:
   Persist the last check so reconnects and multiple edges do not multiply requests.
 - Only the supervisor checks. A network check never blocks MCP initialization or
   a tool call. Offline operation uses the current verified runtime.
-- Bound metadata requests to ten seconds, downloads to two minutes, and the complete acquisition worker to 150 seconds;
+- Bound metadata requests to ten seconds, downloads to two minutes, and the complete acquisition worker to four minutes;
   bound response, archive, and extracted sizes. Failure leaves the active runtime intact.
 - Retry failed checks with backoff. Quarantine a failed candidate by version and
   integrity hash rather than attempting the same failing switch in a loop.
 
-Resolve the channel once to an exact `@tempad-dev/mcp` version and integrity. Stage
-that immutable artifact in a private directory outside the npm/npx cache. Validate
+Read the official release catalog and search stable versions newer than the active Hub, in
+descending order up to the current `latest` tag. Skip deprecated, quarantined and incompatible
+candidates; compare compatibility against both the active Hub and the retained control artifact.
+Each pass examines at most 16 releases and downloads at most one archive, yielding between
+candidates after 30 seconds. Persist the continuation cursor and resume after 30 seconds; catalog,
+active/control manifest or quarantine changes invalidate that cursor. A successful check also
+revokes stale staging when the stable tag moves back, without downgrading the running Hub.
+Exact-version commands inspect that version only, never substitute a different candidate.
+
+Resolve the selected version to its exact integrity and stage that immutable artifact in a
+private directory outside the npm/npx cache. Validate
 the tarball integrity, package name/version, runtime manifest, required files, archive
 paths, and supported engine before executing candidate code. Never use a URL supplied
 by a Figma document, extension message, or tool argument as an update source.
@@ -798,9 +813,9 @@ process switching and native Codex/Claude acceptance are not claimed by these is
   capabilities, journal crash points, disk-full errors, and failure after admission reopens.
   Rollback retains all post-activation Stop and execution fences.
 
-### Phase 3 — verified release acquisition, activation off by default
+### Phase 3 — verified release acquisition and explicit controls
 
-Implemented in `src/runtime-update/`, with the Phase 2 transaction shared by the opt-in release
+Implemented in `src/runtime-update/`, with the Phase 2 transaction shared by the managed release
 entry and isolated local harness. The coordinator retains its original edge/supervisor payload,
 current/previous Hub, staged candidate, and interrupted-transaction artifacts. New CLI launches
 use the same release namespace; non-opt-in edges defer switching. Checks run only while enrolled
@@ -812,7 +827,8 @@ active Hub available. The release policy is now maintained in [Releasing](../rel
 `mcp:check-runtime-updates` covers real downloads from an isolated local registry, shared ownership,
 explicit activation, preserved session presentation, incompatible epochs, offline operation,
 corrupt caches, and checkout refusal. These process tests do not establish native host acceptance.
-Windows enrollment is disabled. The remaining rollout requirements are:
+Windows uses the bundled bridge even with the stable flag; managed switching is unavailable.
+The remaining rollout requirements are:
 
 - Before this phase, publish the backward-compatible hook receiver, then a versioned plugin
   with profile-aware receipt/retry hooks. Allow an installed-plugin upgrade period and verify
@@ -835,7 +851,7 @@ Windows enrollment is disabled. The remaining rollout requirements are:
 
 ### Phase 4 — native acceptance and compatible automatic activation
 
-Automatic activation is limited to enrolled, initialized, wait-capable Codex clients. Use the isolated
+Automatic activation requires enrolled, initialized, wait-capable MCP clients. Use the isolated
 [native fixture](../../TESTING.md#native-runtime-switch-acceptance) to exercise local packaged
 candidates through installed hosts; changing the registry origin for this probe does not
 establish official-registry provenance or compatibility with every host version.
@@ -843,14 +859,20 @@ establish official-registry provenance or compatibility with every host version.
 Codex App acceptance covers Queue/Steer before and after an explicit Hub switch, resumed
 canvas reads/writes and screenshots, native Stop interruption, and cancelled-task read-back
 after both switching and crash rollback. The existing MCP edge processes remain alive.
+Native automatic activation also passed with the private 0.12.0 → 0.12.1 fixture: exposing
+the candidate and requesting a check, without an activation command, replaced the Hub while
+preserving the App's CLI processes and the Figma session. Native reads succeeded before and
+after the switch.
 Claude installation, initialization and `/clear` hook delivery have been exercised, but its
-model-driven tool calls and Stop across a switch still need native acceptance; any Claude or
-unknown host connection blocks automatic activation while ordinary tools and staging remain usable.
+model-driven tool calls and Stop across a switch still need native acceptance; any Claude
+connection blocks automatic activation while ordinary tools and staging remain usable.
 The process fixture additionally checks idle automatic switching and requests arriving during
 handoff. It measures the actual pause without treating it as a zero-downtime guarantee: a lost
 reply at socket closure can still surface an error because uncertain writes cannot be retried.
-The updater considers npm's latest stable candidate; an incompatible latest stays staged rather
-than searching release history or relaxing compatibility checks.
+The updater searches for the newest compatible stable candidate at or below npm's `latest` tag.
+An incompatible newest release does not hide a compatible patch in the retained release line;
+status preserves the latest-version blocker and bounded search progress. Explicit exact-version
+commands remain available, with the same activation compatibility checks.
 
 - Run the full preceding matrix and frozen released-extension compatibility checks against
   the packaged candidate. Measure switch latency and deferral rates before promising a target.
@@ -1025,5 +1047,5 @@ binding and tool-boundary Stop notices, not Codex-only comment delivery.
 
 The implemented publication gates, cumulative guidance review, release boundaries, and hook
 rollout are maintained in [Releasing](../releasing.md#runtime-release-policy). Automatic activation
-also requires the accepted host path, edge waiting support, unanimous enrollment and an idle Hub;
+also requires initialized clients, edge waiting support, unanimous enrollment and an idle Hub;
 passing artifact checks alone does not enable it.

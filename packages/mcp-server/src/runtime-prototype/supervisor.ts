@@ -81,6 +81,12 @@ export async function startSupervisor(config: PrototypeConfig) {
   const unlock = await lockfile.lock(lockPath, { retries: 0, stale: 5000, update: 1000 })
   const socketPath = supervisorSocketPath(config)
   const paths = runtimePaths(config)
+  const control: Artifact = {
+    entry: config.entry,
+    bundle: config.bundle,
+    version: PACKAGE_VERSION,
+    release: config.release
+  }
   const peers = new Set<ControlPeer>()
   const edges = new Map<ControlPeer, Edge>()
   let hub: ControlPeer | undefined
@@ -90,12 +96,7 @@ export async function startSupervisor(config: PrototypeConfig) {
     version: 1,
     revision: 0,
     phase: 'committed',
-    active: {
-      entry: config.entry,
-      bundle: config.bundle,
-      version: PACKAGE_VERSION,
-      release: config.release
-    },
+    active: control,
     failedBundles: []
   }
   let closing = false
@@ -116,33 +117,29 @@ export async function startSupervisor(config: PrototypeConfig) {
         enrolled: () =>
           !transitioning &&
           [...edges.values()].some((edge) => edge.registration.updates?.policy === 'stable'),
-        acquire: async (version, signal) => {
+        acquire: async (version, signal, cursor) => {
           await requireHub().request(
             { method: 'tempad/runtime-retain', params: { retained: true } },
             ResultSchema
           )
           try {
-            const candidate = await acquireRelease(
+            const result = await acquireRelease(
               join(dirname(config.entry), 'runtime-installer.mjs'),
               join(config.root, 'cache'),
               version,
-              journal.active.version,
-              signal
+              { active: journal.active, control, excludedBundles: journal.failedBundles },
+              signal,
+              cursor
             )
             pruneCache(join(config.root, 'cache'), [
-              {
-                entry: config.entry,
-                bundle: config.bundle,
-                version: PACKAGE_VERSION,
-                release: config.release
-              },
+              control,
               journal.active,
               journal.previous,
               journal.candidate,
-              candidate,
+              result.candidate,
               updates?.status.candidate
             ])
-            return candidate
+            return result
           } finally {
             await hub
               ?.request(
@@ -159,7 +156,13 @@ export async function startSupervisor(config: PrototypeConfig) {
     let reasons: string[]
     try {
       const compare = automatic ? automaticCompatibilityReasons : compatibilityReasons
-      reasons = compare(releaseManifest(journal.active), releaseManifest(candidate))
+      const next = releaseManifest(candidate)
+      reasons = [
+        ...new Set([
+          ...compare(releaseManifest(journal.active), next),
+          ...compatibilityReasons(releaseManifest(control), next)
+        ])
+      ]
     } catch (error) {
       return [`Retained release verification failed: ${String(error)}`]
     }
@@ -837,6 +840,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         const candidate = await updates.check(params.version, true)
         return {
           candidate,
+          selection: updates.status.selection,
           automaticActivation: automaticEnabled(),
           pendingReasons: candidate ? activationBlockers(candidate) : []
         }

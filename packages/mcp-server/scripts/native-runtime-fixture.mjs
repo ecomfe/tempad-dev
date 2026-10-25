@@ -69,22 +69,39 @@ export function validateFixture(fixture, root) {
   return fixture
 }
 
-export function fixtureResponse(fixture, method, path) {
+export function fixtureResponse(fixture, method, path, candidateAvailable = true) {
   if (method !== 'GET') return { status: 405 }
-  for (const release of [fixture.initial, fixture.candidate]) {
+  const releases = candidateAvailable ? [fixture.initial, fixture.candidate] : [fixture.initial]
+  const latest = releases.at(-1)
+  const metadata = (release) => ({
+    name: '@tempad-dev/mcp',
+    version: release.version,
+    dist: {
+      integrity: release.integrity,
+      tarball: `${fixture.registryUrl}/@tempad-dev/mcp/-/mcp-${release.version}.tgz`
+    }
+  })
+  if (path === '/@tempad-dev%2fmcp')
+    return {
+      status: 200,
+      metadata: {
+        name: '@tempad-dev/mcp',
+        'dist-tags': { latest: latest.version },
+        versions: Object.fromEntries(
+          releases.map((release) => [release.version, metadata(release)])
+        )
+      }
+    }
+  for (const release of releases) {
     const archivePath = `/@tempad-dev/mcp/-/mcp-${release.version}.tgz`
     if (path === archivePath) return { status: 200, archive: release.archive }
     if (
       path === `/@tempad-dev%2fmcp/${release.version}` ||
-      (release === fixture.candidate && path === '/@tempad-dev%2fmcp/latest')
+      (release === latest && path === '/@tempad-dev%2fmcp/latest')
     )
       return {
         status: 200,
-        metadata: {
-          name: '@tempad-dev/mcp',
-          version: release.version,
-          dist: { integrity: release.integrity, tarball: fixture.registryUrl + archivePath }
-        }
+        metadata: metadata(release)
       }
   }
   return { status: 404 }
@@ -328,7 +345,7 @@ async function prepare(requestedRoot) {
   }
 }
 
-async function serve(requestedRoot) {
+async function serve(requestedRoot, holdCandidate) {
   const root = await realpath(requestedRoot)
   const stat = await lstat(root)
   assert.equal(stat.mode & 0o077, 0, 'Fixture root must remain private.')
@@ -351,8 +368,16 @@ async function serve(requestedRoot) {
     verifier.endLogging()
   }
   await assertReleasePortsFree()
+  let candidateAvailable = !holdCandidate
+  const revealCandidate = () => {
+    if (candidateAvailable) return
+    candidateAvailable = true
+    console.log(
+      JSON.stringify({ event: 'candidate-available', version: fixture.candidate.version })
+    )
+  }
   const server = createServer((req, res) => {
-    const result = fixtureResponse(fixture, req.method, req.url)
+    const result = fixtureResponse(fixture, req.method, req.url, candidateAvailable)
     appendFileSync(
       join(root, 'registry-requests.jsonl'),
       JSON.stringify({
@@ -369,8 +394,18 @@ async function serve(requestedRoot) {
     res.end(result.metadata ? JSON.stringify(result.metadata) : archives.get(result.archive))
   })
   await listen(server, Number(new URL(fixture.registryUrl).port))
+  // SIGUSR1 is reserved for Node's debugger; this test-only signal exposes the
+  // already-verified candidate without restarting the registry or installed host.
+  if (holdCandidate) process.on('SIGUSR2', revealCandidate)
+  server.once('close', () => process.off('SIGUSR2', revealCandidate))
   console.log(
-    JSON.stringify({ registryUrl: fixture.registryUrl, descriptor: join(root, descriptorName) })
+    JSON.stringify({
+      registryUrl: fixture.registryUrl,
+      descriptor: join(root, descriptorName),
+      pid: process.pid,
+      candidateAvailable,
+      ...(holdCandidate ? { revealSignal: 'SIGUSR2', heldVersion: fixture.candidate.version } : {})
+    })
   )
   for (const signal of ['SIGINT', 'SIGTERM'])
     process.once(signal, () => {
@@ -381,16 +416,26 @@ async function serve(requestedRoot) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values } = parseArgs({
-    options: { root: { type: 'string' }, prepare: { type: 'boolean' }, serve: { type: 'boolean' } }
+    options: {
+      root: { type: 'string' },
+      prepare: { type: 'boolean' },
+      serve: { type: 'boolean' },
+      'hold-candidate': { type: 'boolean' }
+    }
   })
-  if (!values.root || !isAbsolute(values.root) || !!values.prepare === !!values.serve)
+  if (
+    !values.root ||
+    !isAbsolute(values.root) ||
+    !!values.prepare === !!values.serve ||
+    (values['hold-candidate'] && !values.serve)
+  )
     throw new Error(
-      'Use --root <absolute-private-root> --prepare or --serve. Test-only; never publish.'
+      'Use --root <absolute-private-root> --prepare or --serve [--hold-candidate]. Test-only; never publish.'
     )
   if (process.platform === 'win32' || process.env.TEMPAD_MCP_DEV_CHECKOUT)
     throw new Error(
       'Native fixtures require a Unix release environment without TEMPAD_MCP_DEV_CHECKOUT.'
     )
   if (values.prepare) await prepare(values.root)
-  else await serve(values.root)
+  else await serve(values.root, values['hold-candidate'])
 }
