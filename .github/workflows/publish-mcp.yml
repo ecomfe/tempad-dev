@@ -73,6 +73,14 @@ jobs:
       - name: Prepare and verify the immutable release
         run: pnpm mcp:prepare-release --output "$RUNNER_TEMP/tempad-mcp.tgz" --verify-baseline
 
+      - name: Check the exact release archive
+        run: |
+          release_check_dir=$(mktemp -d "$RUNNER_TEMP/tempad-mcp-installed.XXXXXX")
+          trap 'rm -rf "$release_check_dir"' EXIT
+          tar -xzf "$RUNNER_TEMP/tempad-mcp.tgz" -C "$release_check_dir" --strip-components=1
+          node packages/mcp-server/scripts/check-bridge-compatibility.mjs "$release_check_dir"
+          node packages/mcp-server/scripts/check-log-transport.mjs "$release_check_dir"
+
       - name: Archive the reviewed release and manifest
         uses: actions/upload-artifact@v7
         with:

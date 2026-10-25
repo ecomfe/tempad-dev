@@ -38,6 +38,9 @@ were prepared before their source changes were committed.
    Plain workspace `npm pack` can include pnpm store paths outside the package and is not a
    publishable runtime. Inspect the verified tarball and its `.tgz.json` manifest/integrity receipt.
    Check MCP initialization and tool discovery on supported Node.js versions.
+   Run `node packages/mcp-server/scripts/check-bridge-compatibility.mjs <installed-package-directory>`
+   against the unpacked archive to verify the frozen extension contracts using the exact shipped
+   Hub and CLI; the publication workflow repeats this check before publishing.
    Run `node packages/mcp-server/scripts/check-log-transport.mjs <installed-package-directory>`
    from the checkout to check the shipped logging worker with its installed dependencies.
    Use separate runtime, state, log, and asset directories for the check so an active local Hub is

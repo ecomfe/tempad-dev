@@ -16,6 +16,7 @@ import { promisify } from 'node:util'
 import { build } from 'tsdown'
 
 import config from '../tsdown.config.ts'
+import { runtimeSourceHash } from './runtime-source-hash.mjs'
 
 if (process.platform === 'win32' || process.env.TEMPAD_MCP_DEV_CHECKOUT)
   throw new Error(
@@ -23,6 +24,8 @@ if (process.platform === 'win32' || process.env.TEMPAD_MCP_DEV_CHECKOUT)
   )
 const exec = promisify(execFile)
 const source = fileURLToPath(new URL('..', import.meta.url))
+const repo = join(source, '../..')
+const sourceHash = runtimeSourceHash(repo)
 const root = await realpath(await mkdtemp(join(tmpdir(), 'tp-release-test-')))
 const packaged = join(root, 'source.tgz')
 const clients = []
@@ -379,6 +382,7 @@ try {
   online = true
   await assert.rejects(request('tempad/runtime-check', { version: c.version }), /hash mismatch/)
   await first.ping()
+  assert.equal(runtimeSourceHash(repo), sourceHash, 'Runtime sources changed during acceptance.')
   succeeded = true
   console.log(
     JSON.stringify({
