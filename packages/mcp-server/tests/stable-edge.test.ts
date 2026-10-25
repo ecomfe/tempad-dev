@@ -74,6 +74,77 @@ async function fixture(overrides: Partial<StableEdgeOptions> = {}) {
 }
 
 describe('stable MCP edge', () => {
+  async function replacement(
+    f: Awaited<ReturnType<typeof fixture>>,
+    version = '10',
+    instructions = 'Original guidance.'
+  ) {
+    const [transport, endpoint] = InMemoryTransport.createLinkedPair()
+    const runtime = new Server(
+      { name: 'runtime', version, title: 'Runtime title' },
+      { capabilities: { tools: { listChanged: true } }, instructions }
+    )
+    runtime.setRequestHandler(ListToolsRequestSchema, () => f.list())
+    runtime.fallbackRequestHandler = async () => ({ runtime: version })
+    await runtime.connect(endpoint)
+    cleanup.push(() => runtime.close())
+    f.open.mockResolvedValue(transport)
+    return runtime
+  }
+
+  it('switches two initialized clients without replacing frozen metadata or replaying requests', async () => {
+    const register = vi.fn(async () => {})
+    const clients = await Promise.all([fixture({ register }), fixture({ register })])
+    for (const f of clients) {
+      await f.connect()
+      const catalog = await f.client.listTools()
+      const runtime = await replacement(f)
+      await f.edge.replaceBackend()
+      expect(runtime.getClientVersion()).toEqual({ name: 'host', version: '2' })
+      expect(await f.client.request({ method: 'fixture/version' }, ResultSchema)).toEqual({
+        runtime: '10'
+      })
+      expect(await f.client.listTools()).toEqual(catalog)
+      expect(f.client.getServerVersion()?.version).toBe('1')
+      expect(f.client.getInstructions()).toBe('Original guidance.')
+    }
+    expect(register).toHaveBeenCalledTimes(4)
+  })
+
+  it('fails lost writes once, rejects calls during replacement, and preserves the session after a rejected candidate', async () => {
+    const closed = vi.fn()
+    const f = await fixture({ onBackendClose: closed })
+    const written = vi.fn(
+      async (_request, extra) =>
+        new Promise<Record<string, unknown>>((resolve) =>
+          extra.signal.addEventListener('abort', () => resolve({}))
+        )
+    )
+    f.runtime.fallbackRequestHandler = written
+    await expect(f.edge.replaceBackend()).rejects.toMatchObject({ data: { dispatched: false } })
+    await f.connect()
+    const pending = f.client.request({ method: 'fixture/write' }, ResultSchema)
+    const lost = expect(pending).rejects.toThrow()
+    await vi.waitFor(() => expect(written).toHaveBeenCalledOnce())
+    await f.runtime.close()
+    await lost
+    expect(closed).toHaveBeenCalledOnce()
+    await expect(f.client.request({ method: 'fixture/write' }, ResultSchema)).rejects.toMatchObject(
+      { data: { code: 'MCP_RUNTIME_UNAVAILABLE', dispatched: false } }
+    )
+    expect(await f.client.ping()).toEqual({})
+    const catalog = await f.client.listTools()
+    await replacement(f, '10', 'Incompatible guidance.')
+    await expect(f.edge.replaceBackend()).rejects.toThrow('MCP_RUNTIME_RESTART_REQUIRED')
+    expect(await f.client.listTools()).toEqual(catalog)
+    await replacement(f, '9')
+    await f.edge.replaceBackend()
+    expect(await f.client.request({ method: 'fixture/version' }, ResultSchema)).toEqual({
+      runtime: '9'
+    })
+    expect(written).toHaveBeenCalledOnce()
+  })
+
   it('freezes runtime guidance and catalog while identifying the edge version', async () => {
     const f = await fixture()
     await f.connect()

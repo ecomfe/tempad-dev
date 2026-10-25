@@ -18,6 +18,7 @@ import {
   McpError,
   ResultSchema
 } from '@modelcontextprotocol/sdk/types.js'
+import { isDeepStrictEqual } from 'node:util'
 
 import { ClientBindingUpdateSchema, type ClientBindingUpdate } from './client-binding'
 
@@ -28,12 +29,45 @@ export interface StableEdgeOptions {
   register?: (client: Client) => Promise<void>
   onBinding?: (binding: ClientBindingUpdate) => void
   onError?: (error: Error) => void
+  onBackendClose?: () => void
+  onBackendReady?: () => Promise<void>
+}
+
+/** Phase 2 requires exact metadata equality; relaxed release policy belongs to Phase 3. */
+export async function readRuntimeContract(client: Client, signal: AbortSignal, timeout: number) {
+  const pages = new Map<string, Awaited<ReturnType<Client['listTools']>>>()
+  let cursor: string | undefined
+  let bytes = 0
+  do {
+    if (pages.has(cursor ?? '') || pages.size >= 64)
+      throw new Error('Runtime returned a cyclic or oversized tool catalog.')
+    const page = await client.request(
+      { method: 'tools/list', ...(cursor === undefined ? {} : { params: { cursor } }) },
+      ListToolsResultSchema,
+      { signal, timeout }
+    )
+    bytes += Buffer.byteLength(JSON.stringify(page))
+    if (bytes > STDIO_DEFAULT_MAX_BUFFER_SIZE)
+      throw new Error('Runtime tool catalog exceeded the MCP buffer limit.')
+    pages.set(cursor ?? '', page)
+    cursor = page.nextCursor
+  } while (cursor !== undefined)
+  const { version: _version, ...info } = client.getServerVersion()!
+  return {
+    pages,
+    info,
+    capabilities: client.getServerCapabilities(),
+    instructions: client.getInstructions()
+  }
 }
 
 /** Own the host's MCP session without carrying any tool implementation or schema. */
 export async function startStableEdge(host: Transport, options: StableEdgeOptions) {
   const lifetime = new AbortController()
   let backend: Client | undefined
+  let initializedRequest: InitializeRequest | undefined
+  let contract: Awaited<ReturnType<typeof readRuntimeContract>> | undefined
+  let replacement: Promise<void> | undefined
   let server: Server | undefined
   let opening = false
   let openingId: string | number | undefined
@@ -75,6 +109,81 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
     })
   }
 
+  function unavailable() {
+    return new McpError(
+      -32001,
+      'Runtime switching or recovery is in progress; this call was not dispatched.',
+      { code: 'MCP_RUNTIME_UNAVAILABLE', dispatched: false }
+    )
+  }
+
+  async function openBackend(request: InitializeRequest) {
+    const client = new Client(request.params.clientInfo, {
+      capabilities: request.params.capabilities
+    })
+    client.onerror = options.onError
+    client.onclose = () => {
+      if (backend !== client) return
+      backend = undefined
+      if (!lifetime.signal.aborted) options.onBackendClose?.()
+    }
+    client.fallbackRequestHandler = (request, extra) => {
+      if (!server) throw new McpError(ErrorCode.InvalidRequest, 'Host is not initialized.')
+      return forward(server, request, extra)
+    }
+    client.fallbackNotificationHandler = async (notification) => {
+      if (notification.method === ClientBindingUpdateSchema.shape.method.value)
+        options.onBinding?.(ClientBindingUpdateSchema.parse(notification).params)
+      else if (notification.method !== 'notifications/tools/list_changed')
+        await server?.notification(notification)
+    }
+    try {
+      const transport = await options.open(request, lifetime.signal)
+      if (lifetime.signal.aborted) {
+        await transport.close()
+        lifetime.signal.throwIfAborted()
+      }
+      await client.connect(transport, {
+        signal: lifetime.signal,
+        timeout: options.requestTimeoutMs
+      })
+      await options.register?.(client)
+      const observed = await readRuntimeContract(client, lifetime.signal, options.requestTimeoutMs)
+      lifetime.signal.throwIfAborted()
+      if (!client.transport) throw unavailable()
+      return { client, observed }
+    } catch (error) {
+      await client.close()
+      throw error
+    }
+  }
+
+  async function replaceBackend(): Promise<void> {
+    if (!initializedRequest || !server || !contract || lifetime.signal.aborted) throw unavailable()
+    if (replacement) return replacement
+    const replace = async () => {
+      const previous = backend
+      backend = undefined
+      await previous?.close()
+      const { client, observed } = await openBackend(initializedRequest!)
+      if (!isDeepStrictEqual(contract, observed)) {
+        await client.close()
+        throw new McpError(
+          -32002,
+          'MCP_RUNTIME_RESTART_REQUIRED: replacement runtime changed this session’s frozen contract.'
+        )
+      }
+      backend = client
+      await options.onBackendReady?.()
+    }
+    replacement = replace()
+    try {
+      await replacement
+    } finally {
+      replacement = undefined
+    }
+  }
+
   async function initialize(message: JSONRPCMessage) {
     if (!('method' in message) || message.method !== 'initialize' || !('id' in message)) {
       if ('id' in message)
@@ -89,69 +198,33 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
     openingId = message.id
     try {
       const request = InitializeRequestSchema.parse(message)
-      backend = new Client(request.params.clientInfo, {
-        capabilities: request.params.capabilities
-      })
-      backend.onerror = options.onError
-      backend.fallbackRequestHandler = (request, extra) => {
-        if (!server) throw new McpError(ErrorCode.InvalidRequest, 'Host is not initialized.')
-        return forward(server, request, extra)
-      }
-      backend.fallbackNotificationHandler = async (notification) => {
-        if (notification.method === ClientBindingUpdateSchema.shape.method.value) {
-          options.onBinding?.(ClientBindingUpdateSchema.parse(notification).params)
-        } else if (notification.method !== 'notifications/tools/list_changed') {
-          await server?.notification(notification)
-        }
-      }
-      const transport = await options.open(request, lifetime.signal)
-      if (lifetime.signal.aborted) {
-        await transport.close()
-        return
-      }
-      await backend.connect(transport, {
-        signal: lifetime.signal,
-        timeout: options.requestTimeoutMs
-      })
-      await options.register?.(backend)
-
-      // Freeze every advertised page. A runtime may paginate, but must not make
-      // later tools/list calls quietly replace this session's guidance.
-      const pages = new Map<string, Awaited<ReturnType<Client['listTools']>>>()
-      let cursor: string | undefined
-      let catalogBytes = 0
-      do {
-        if (pages.has(cursor ?? '') || pages.size >= 64)
-          throw new Error('Runtime returned a cyclic or oversized tool catalog.')
-        const page = await backend.request(
-          { method: 'tools/list', ...(cursor === undefined ? {} : { params: { cursor } }) },
-          ListToolsResultSchema,
-          { signal: lifetime.signal, timeout: options.requestTimeoutMs }
-        )
-        catalogBytes += Buffer.byteLength(JSON.stringify(page))
-        if (catalogBytes > STDIO_DEFAULT_MAX_BUFFER_SIZE)
-          throw new Error('Runtime tool catalog exceeded the MCP buffer limit.')
-        pages.set(cursor ?? '', page)
-        cursor = page.nextCursor
-      } while (cursor !== undefined)
-
-      lifetime.signal.throwIfAborted()
+      const { client, observed } = await openBackend(request)
+      backend = client
+      initializedRequest = request
+      contract = observed
+      await options.onBackendReady?.()
       const runtimeInfo = backend.getServerVersion()!
       server = new Server(
         { ...runtimeInfo, version: options.version },
         {
-          capabilities: backend.getServerCapabilities(),
-          instructions: backend.getInstructions()
+          capabilities: contract.capabilities,
+          instructions: contract.instructions
         }
       )
       server.onerror = options.onError
       server.setRequestHandler(ListToolsRequestSchema, ({ params }) => {
-        const page = pages.get(params?.cursor ?? '')
+        const page = contract!.pages.get(params?.cursor ?? '')
         if (!page) throw new McpError(ErrorCode.InvalidParams, 'Unknown tool catalog cursor.')
         return structuredClone(page)
       })
-      server.fallbackRequestHandler = (request, extra) => forward(backend!, request, extra)
-      server.fallbackNotificationHandler = (notification) => backend!.notification(notification)
+      server.fallbackRequestHandler = (request, extra) => {
+        if (!backend) throw unavailable()
+        return forward(backend, request, extra)
+      }
+      server.fallbackNotificationHandler = async (notification) => {
+        if (!backend) throw unavailable()
+        await backend.notification(notification)
+      }
       // The host transport already started while the runtime was being opened.
       const session: Transport = {
         start: async () => {},
@@ -212,5 +285,5 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
     } else buffered.push(message)
   }
   await host.start()
-  return { close, closed }
+  return { close, closed, replaceBackend }
 }
