@@ -105,6 +105,13 @@ export function protectPipe(path: string) {
   windowsSecurity('protect', path, 'pipe')
 }
 
+export function windowsPowerShellEnvironment(env: NodeJS.ProcessEnv = process.env) {
+  // PowerShell 7's module paths can load incompatible modules in Windows PowerShell 5.
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => key.toLowerCase() !== 'psmodulepath')
+  )
+}
+
 // Built-in Windows PowerShell supplies the platform ACL API without an npm/native dependency.
 // Paths are JSON on stdin, never interpolated into executable source or shell arguments.
 function windowsSecurity(action: 'ensure' | 'inspect' | 'protect', path: string, kind: string) {
@@ -127,6 +134,7 @@ function windowsSecurity(action: 'ensure' | 'inspect' | 'protect', path: string,
         timeout: 15_000,
         maxBuffer: 64 * 1024,
         windowsHide: true,
+        env: windowsPowerShellEnvironment(),
         stdio: ['pipe', 'pipe', 'pipe']
       }
     )

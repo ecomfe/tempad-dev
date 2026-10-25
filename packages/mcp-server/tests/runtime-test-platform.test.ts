@@ -4,14 +4,35 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }))
 
 const modulePath = '../scripts/runtime-test-platform.mjs'
-const { commandArguments, fixtureEnvironment, fixtureProcesses } = await import(modulePath)
+const { commandArguments, fixtureEnvironment, fixtureProcesses, processInventory } = await import(
+  modulePath
+)
+const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
 
 afterEach(() => {
+  Object.defineProperty(process, 'platform', platform)
   vi.unstubAllEnvs()
   vi.clearAllMocks()
 })
 
 describe('runtime process fixture platform', () => {
+  it.each(['PSModulePath', 'psmodulepath', 'PsMoDuLePaTh'])(
+    'lets Windows PowerShell choose its own modules instead of inheriting %s',
+    (key) => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      vi.stubEnv('SystemRoot', 'C:\\Windows')
+      vi.stubEnv('TEMP', 'C:\\fixture-temp')
+      vi.stubEnv(key, 'C:\\PowerShell7\\Modules')
+      vi.mocked(execFileSync).mockReturnValue('[]')
+      expect(processInventory()).toEqual([])
+      const options = vi.mocked(execFileSync).mock.calls[0]![2]!
+      expect(options.env).toMatchObject({ SystemRoot: 'C:\\Windows', TEMP: 'C:\\fixture-temp' })
+      expect(Object.keys(options.env!).some((name) => name.toLowerCase() === 'psmodulepath')).toBe(
+        false
+      )
+    }
+  )
+
   it('retains platform discovery variables without inheriting host identity', () => {
     vi.stubEnv('SystemRoot', 'C:\\Windows')
     vi.stubEnv('CODEX_THREAD_ID', 'unrelated-task')

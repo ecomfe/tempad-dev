@@ -21,7 +21,8 @@ import {
   ensurePrivateDirectory,
   isPipe,
   protectPipe,
-  runtimeEndpoint
+  runtimeEndpoint,
+  windowsPowerShellEnvironment
 } from '../src/runtime-platform'
 
 const roots: string[] = []
@@ -91,7 +92,12 @@ describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
         '-EncodedCommand',
         Buffer.from(source, 'utf16le').toString('base64')
       ],
-      { input: JSON.stringify(input), encoding: 'utf8', windowsHide: true }
+      {
+        input: JSON.stringify(input),
+        encoding: 'utf8',
+        windowsHide: true,
+        env: windowsPowerShellEnvironment()
+      }
     )
   }
 

@@ -9,7 +9,10 @@ import lockfile from 'proper-lockfile'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-vi.mock('node:child_process', () => ({ spawn: vi.fn() }))
+vi.mock('node:child_process', async (original) => ({
+  ...(await original<typeof import('node:child_process')>()),
+  spawn: vi.fn()
+}))
 
 import { captureHostContext } from '../src/agent-clients/host-context'
 import { createHubRuntimeIdentity } from '../src/runtime-identity'

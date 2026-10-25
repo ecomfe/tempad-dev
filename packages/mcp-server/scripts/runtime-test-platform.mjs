@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import process from 'node:process'
 
-import { ensurePrivateDirectory } from '../src/runtime-platform.ts'
+import { ensurePrivateDirectory, windowsPowerShellEnvironment } from '../src/runtime-platform.ts'
 
 export async function fixtureRoot(prefix) {
   if (process.platform === 'win32') {
@@ -42,7 +42,7 @@ function powershell(script) {
       '-Command',
       `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $ErrorActionPreference = 'Stop'; ${script}`
     ],
-    { encoding: 'utf8', windowsHide: true }
+    { encoding: 'utf8', windowsHide: true, env: windowsPowerShellEnvironment() }
   ).trim()
 }
 

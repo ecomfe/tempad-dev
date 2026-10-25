@@ -58,6 +58,22 @@ it('caches unchanged ACLs but rechecks a changed security descriptor', () => {
   })
 })
 
+it.each(['PSModulePath', 'PSMODULEPATH', 'psmodulepath'])(
+  'does not inherit %s from another PowerShell edition into ACL helpers',
+  (key) => {
+    process.env[key] = 'PowerShell7/modules'
+    process.env.TEMP = resolve('temporary')
+    assertPrivatePath(path, 'directory')
+    const options = vi.mocked(execFileSync).mock.calls[0]?.[2]
+    expect(options?.env).not.toHaveProperty(key)
+    expect(options?.env).toMatchObject({
+      SystemRoot: process.env.SystemRoot,
+      TEMP: process.env.TEMP
+    })
+    expect(process.env[key]).toBe('PowerShell7/modules')
+  }
+)
+
 it('creates missing directories through the ACL helper, without repairing unsafe ones', () => {
   vi.mocked(lstatSync).mockImplementationOnce(() => {
     throw Object.assign(new Error('missing'), { code: 'ENOENT' })
