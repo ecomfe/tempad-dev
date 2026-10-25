@@ -44,7 +44,7 @@ beforeEach(() => {
   vi.stubGlobal('process', {
     ...process,
     argv: ['node', '/fixture.mjs', '--root', root],
-    env: { ...process.env },
+    env: { ...process.env, SystemRoot: process.env.SystemRoot },
     stdin: { destroy: vi.fn() },
     stdout: { write: vi.fn() },
     stderr: { write: vi.fn() }

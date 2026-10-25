@@ -162,6 +162,7 @@ function windowsSecurity(action: 'ensure' | 'inspect' | 'protect', path: string,
 
 const SECURITY_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $failureCode = $null
 try {
   $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
@@ -189,21 +190,26 @@ public static class TempadPipeSecurity {
   [DllImport("kernel32.dll")]
   static extern IntPtr LocalFree(IntPtr memory);
   public static byte[] Inspect(string path, string sddl) {
-    using (SafeFileHandle handle = CreateFile(path, 0x20000u | (sddl == null ? 0u : 0x40000u), 7, IntPtr.Zero, 3, 0x40000000, IntPtr.Zero)) {
-      if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
-      if (sddl != null) {
+    // PowerShell converts a null string argument to an empty string.
+    bool protect = !String.IsNullOrEmpty(sddl);
+    SafeFileHandle opened = CreateFile(path, 0x20000u | (protect ? 0x40000u : 0u), 7, IntPtr.Zero, 3, 0x40000000, IntPtr.Zero);
+    int openError = Marshal.GetLastWin32Error();
+    using (SafeFileHandle handle = opened) {
+      if (handle.IsInvalid) throw new Win32Exception(openError, "CreateFile failed for the runtime pipe.");
+      if (protect) {
         IntPtr replacement; uint length;
-        if (!ConvertStringSecurityDescriptorToSecurityDescriptor(sddl, 1, out replacement, out length)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (!ConvertStringSecurityDescriptorToSecurityDescriptor(sddl, 1, out replacement, out length)) throw new Win32Exception(Marshal.GetLastWin32Error(), "ConvertStringSecurityDescriptorToSecurityDescriptor failed.");
         try {
           bool present, defaulted; IntPtr acl;
-          if (!GetSecurityDescriptorDacl(replacement, out present, out acl, out defaulted) || !present) throw new Win32Exception(Marshal.GetLastWin32Error());
+          if (!GetSecurityDescriptorDacl(replacement, out present, out acl, out defaulted)) throw new Win32Exception(Marshal.GetLastWin32Error(), "GetSecurityDescriptorDacl failed.");
+          if (!present || acl == IntPtr.Zero) throw new InvalidOperationException("The replacement pipe descriptor has no discretionary ACL.");
           uint changed = SetSecurityInfo(handle, 6, 4u | 0x80000000u, IntPtr.Zero, IntPtr.Zero, acl, IntPtr.Zero);
-          if (changed != 0) throw new Win32Exception((int)changed);
+          if (changed != 0) throw new Win32Exception((int)changed, "SetSecurityInfo failed for the runtime pipe.");
         } finally { LocalFree(replacement); }
       }
       IntPtr owner, group, dacl, sacl, descriptor;
       uint result = GetSecurityInfo(handle, 6, 5, out owner, out group, out dacl, out sacl, out descriptor);
-      if (result != 0) throw new Win32Exception((int)result);
+      if (result != 0) throw new Win32Exception((int)result, "GetSecurityInfo failed for the runtime pipe.");
       try {
         byte[] bytes = new byte[GetSecurityDescriptorLength(descriptor)];
         Marshal.Copy(descriptor, bytes, 0, bytes.Length);

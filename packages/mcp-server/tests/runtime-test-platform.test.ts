@@ -9,6 +9,10 @@ const { commandArguments, fixtureEnvironment, fixtureProcesses, processInventory
 )
 const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
 
+function windowsEnvironment(env: NodeJS.ProcessEnv) {
+  return Object.fromEntries(Object.entries(env).map(([key, value]) => [key.toUpperCase(), value]))
+}
+
 afterEach(() => {
   Object.defineProperty(process, 'platform', platform)
   vi.unstubAllEnvs()
@@ -26,7 +30,10 @@ describe('runtime process fixture platform', () => {
       vi.mocked(execFileSync).mockReturnValue('[]')
       expect(processInventory()).toEqual([])
       const options = vi.mocked(execFileSync).mock.calls[0]![2]!
-      expect(options.env).toMatchObject({ SystemRoot: 'C:\\Windows', TEMP: 'C:\\fixture-temp' })
+      expect(windowsEnvironment(options.env!)).toMatchObject({
+        SYSTEMROOT: 'C:\\Windows',
+        TEMP: 'C:\\fixture-temp'
+      })
       expect(Object.keys(options.env!).some((name) => name.toLowerCase() === 'psmodulepath')).toBe(
         false
       )
@@ -38,8 +45,8 @@ describe('runtime process fixture platform', () => {
     vi.stubEnv('CODEX_THREAD_ID', 'unrelated-task')
     vi.stubEnv('TEMPAD_MCP_DEV_CHECKOUT', '/unrelated-checkout')
     const env = fixtureEnvironment('/private-home', '/private-temp')
-    expect(env).toMatchObject({
-      SystemRoot: 'C:\\Windows',
+    expect(windowsEnvironment(env)).toMatchObject({
+      SYSTEMROOT: 'C:\\Windows',
       HOME: '/private-home',
       USERPROFILE: '/private-home',
       TMPDIR: '/private-temp',

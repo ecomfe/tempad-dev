@@ -1,10 +1,9 @@
 import { spawn } from 'node:child_process'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
 
-const preload = fileURLToPath(new URL('../scripts/runtime-probe-isolation.mjs', import.meta.url))
+const preload = new URL('../scripts/runtime-probe-isolation.mjs', import.meta.url).href
 const roots: string[] = []
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))

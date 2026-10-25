@@ -65,24 +65,36 @@ jobs:
           pnpm build:mcp
 
       - name: Test runtime contracts and platform boundaries
+        shell: cmd
         run: |
-          pnpm --filter @tempad-dev/mcp exec vitest run --config vitest.config.ts tests/runtime- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000 2>&1 | Tee-Object runtime-ci-logs/unit.log
-          exit $LASTEXITCODE
+          call pnpm --filter @tempad-dev/mcp exec vitest run --config vitest.config.ts tests/runtime- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000 > runtime-ci-logs\unit.log 2>&1
+          set "test_exit=%errorlevel%"
+          type runtime-ci-logs\unit.log
+          exit /b %test_exit%
 
       - name: Check supervisor recovery and concurrent edges
+        shell: cmd
         run: |
-          pnpm mcp:check-runtime-prototype 2>&1 | Tee-Object runtime-ci-logs/prototype.log
-          exit $LASTEXITCODE
+          call pnpm mcp:check-runtime-prototype > runtime-ci-logs\prototype.log 2>&1
+          set "test_exit=%errorlevel%"
+          type runtime-ci-logs\prototype.log
+          exit /b %test_exit%
 
       - name: Check switching, in-flight requests, crashes and rollback
+        shell: cmd
         run: |
-          pnpm mcp:check-runtime-switch 2>&1 | Tee-Object runtime-ci-logs/switch.log
-          exit $LASTEXITCODE
+          call pnpm mcp:check-runtime-switch > runtime-ci-logs\switch.log 2>&1
+          set "test_exit=%errorlevel%"
+          type runtime-ci-logs\switch.log
+          exit /b %test_exit%
 
       - name: Check verified downloads and automatic activation
+        shell: cmd
         run: |
-          pnpm mcp:check-runtime-updates 2>&1 | Tee-Object runtime-ci-logs/updates.log
-          exit $LASTEXITCODE
+          call pnpm mcp:check-runtime-updates > runtime-ci-logs\updates.log 2>&1
+          set "test_exit=%errorlevel%"
+          type runtime-ci-logs\updates.log
+          exit /b %test_exit%
 
       - name: Preserve runtime evidence
         if: always()
