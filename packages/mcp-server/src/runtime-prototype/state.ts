@@ -8,10 +8,37 @@ export const ArtifactSchema = z
   .object({
     entry: z.string().refine(isAbsolute),
     bundle: z.string().regex(/^[a-f0-9]{64}$/),
-    version: z.string().regex(/^\d+\.\d+\.\d+$/)
+    version: z.string().regex(/^\d+\.\d+\.\d+$/),
+    release: z
+      .object({
+        directory: z.string().refine(isAbsolute),
+        manifestHash: z.string().regex(/^[a-f0-9]{64}$/),
+        integrity: z.string().optional()
+      })
+      .strict()
+      .optional()
   })
   .strict()
 export type Artifact = z.infer<typeof ArtifactSchema>
+export const ConfigSchema = z
+  .object({
+    version: z.literal(1),
+    entry: z.string().refine(isAbsolute),
+    bundle: z.string().regex(/^[a-f0-9]{64}$/),
+    secret: z.uuid(),
+    directories: z
+      .object({
+        runtime: z.string().refine(isAbsolute),
+        state: z.string().refine(isAbsolute),
+        assets: z.string().refine(isAbsolute),
+        log: z.string().refine(isAbsolute)
+      })
+      .strict()
+      .optional(),
+    release: ArtifactSchema.shape.release
+  })
+  .strict()
+export type PrototypeConfig = z.infer<typeof ConfigSchema> & { root: string }
 export const EndpointsSchema = z
   .object({
     wsPort: z.number().int().min(1).max(65535),

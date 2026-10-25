@@ -25,10 +25,10 @@ export const CORE_COVERAGE_THRESHOLDS = {
 } as const
 
 export const EXTENSION_CORE_COVERAGE_FILES = ['mcp/**/*.ts'] as const
-// CLI/Hub launchers, including the isolated prototype entry, run in child processes.
+// CLI/Hub/acquisition launchers run in child-process acceptance harnesses.
 // Include every other top-level module and every nested runtime module.
 export const MCP_CORE_COVERAGE_FILES = [
-  'src/!(cli.ts|hub.ts|runtime-prototype.ts)',
+  'src/!(cli.ts|hub.ts|runtime-prototype.ts|managed-runtime.ts|runtime-installer.ts)',
   'src/*/**/*.ts'
 ] as const
 

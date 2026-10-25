@@ -14,21 +14,12 @@ import { connect, type Server } from 'node:net'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import lockfile from 'proper-lockfile'
-import { z } from 'zod'
 
 import { hubEnvironment } from '../process-environment'
+import { verifyReleaseArtifact } from '../runtime-update/artifact'
 import { assertTrustedSocket, ensureFile, ensureDir } from '../shared'
-import { readJournal, type Artifact } from './state'
-
-const ConfigSchema = z
-  .object({
-    version: z.literal(1),
-    entry: z.string(),
-    bundle: z.string().regex(/^[a-f0-9]{64}$/),
-    secret: z.uuid()
-  })
-  .strict()
-export type PrototypeConfig = z.infer<typeof ConfigSchema> & { root: string }
+import { ConfigSchema, readJournal, type Artifact, type PrototypeConfig } from './state'
+export type { PrototypeConfig } from './state'
 
 export function fingerprintBundle(entry: string): string {
   const directory = dirname(entry)
@@ -43,8 +34,23 @@ export function fingerprintBundle(entry: string): string {
   return hash.digest('hex')
 }
 
-export function hubSocketPath(root: string) {
-  return join(root, 'run', 'runtime-hub.sock')
+export function runtimePaths(config: PrototypeConfig) {
+  return (
+    config.directories ?? {
+      runtime: join(config.root, 'run'),
+      state: join(config.root, 'state'),
+      assets: join(config.root, 'assets'),
+      log: join(config.root, 'log')
+    }
+  )
+}
+
+export function hubSocketPath(root: string, runtime = join(root, 'run')) {
+  return join(runtime, 'runtime-hub.sock')
+}
+
+export function supervisorSocketPath(config: PrototypeConfig) {
+  return join(config.directories?.runtime ?? config.root, 'supervisor.sock')
 }
 
 export function prototypeConfig(root: string, entry: string, role = 'edge'): PrototypeConfig {
@@ -86,6 +92,15 @@ export function prototypeConfig(root: string, entry: string, role = 'edge'): Pro
 
 export function launch(config: PrototypeConfig, role: 'supervisor' | 'hub', artifact?: Artifact) {
   const entry = artifact?.entry ?? config.entry
+  if (artifact?.release) verifyReleaseArtifact(artifact)
+  else if (config.release && !artifact)
+    verifyReleaseArtifact({
+      entry,
+      bundle: config.bundle,
+      version: JSON.parse(readFileSync(join(config.release.directory, 'package.json'), 'utf8'))
+        .version,
+      release: config.release
+    })
   if (fingerprintBundle(entry) !== (artifact?.bundle ?? config.bundle))
     throw new Error('Verified runtime bundle changed before launch.')
   const child = spawn(process.execPath, [entry, '--root', config.root, '--role', role], {
@@ -143,7 +158,7 @@ export function unavailableSocket(error: unknown) {
 }
 
 export async function supervisorConnection(config: PrototypeConfig, signal: AbortSignal) {
-  const path = join(config.root, 'supervisor.sock')
+  const path = supervisorSocketPath(config)
   try {
     return await connectSocket(path, signal)
   } catch (error) {

@@ -20,6 +20,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import { isDeepStrictEqual } from 'node:util'
 
+import { runtimeContract } from '../scripts/runtime-contract.mjs'
 import { ClientBindingUpdateSchema, type ClientBindingUpdate } from './client-binding'
 
 export interface StableEdgeOptions {
@@ -31,9 +32,26 @@ export interface StableEdgeOptions {
   onError?: (error: Error) => void
   onBackendClose?: () => void
   onBackendReady?: () => Promise<void>
+  validateContract?: (
+    contract: RuntimeContract,
+    version: string,
+    previous?: RuntimeContract
+  ) => void
+}
+type RuntimeContract = Awaited<ReturnType<typeof readRuntimeContract>>
+
+export function contractHashes(contract: RuntimeContract) {
+  return runtimeContract({
+    initialize: {
+      serverInfo: { ...contract.info, version: '0' },
+      capabilities: contract.capabilities,
+      instructions: contract.instructions
+    },
+    tools: [...contract.pages.values()].flatMap((page) => page.tools)
+  })
 }
 
-/** Phase 2 requires exact metadata equality; relaxed release policy belongs to Phase 3. */
+/** Capture the observable contract before admitting a backend into a host session. */
 export async function readRuntimeContract(client: Client, signal: AbortSignal, timeout: number) {
   const pages = new Map<string, Awaited<ReturnType<Client['listTools']>>>()
   let cursor: string | undefined
@@ -149,6 +167,7 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
       })
       await options.register?.(client)
       const observed = await readRuntimeContract(client, lifetime.signal, options.requestTimeoutMs)
+      options.validateContract?.(observed, client.getServerVersion()!.version, contract)
       lifetime.signal.throwIfAborted()
       if (!client.transport) throw unavailable()
       return { client, observed }
@@ -166,7 +185,7 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
       backend = undefined
       await previous?.close()
       const { client, observed } = await openBackend(initializedRequest!)
-      if (!isDeepStrictEqual(contract, observed)) {
+      if (!options.validateContract && !isDeepStrictEqual(contract, observed)) {
         await client.close()
         throw new McpError(
           -32002,

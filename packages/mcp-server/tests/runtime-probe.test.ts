@@ -39,7 +39,10 @@ vi.mock('../src/runtime-prototype/processes', () => ({
   connectSocket: async () => ({}),
   fingerprintBundle: fake.fingerprint
 }))
-vi.mock('../src/stable-edge', () => ({ readRuntimeContract: fake.contract }))
+vi.mock('../src/stable-edge', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/stable-edge')>()),
+  readRuntimeContract: fake.contract
+}))
 import { probeArtifact } from '../src/runtime-prototype/probe'
 
 let root: string

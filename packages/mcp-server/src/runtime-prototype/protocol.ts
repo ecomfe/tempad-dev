@@ -34,6 +34,14 @@ export const RegistrationSchema = z
     sessionId: IdSchema,
     token: IdSchema,
     context: HostContextSchema,
+    updates: z
+      .object({
+        policy: z.enum(['off', 'stable', 'pinned']),
+        version: z.string(),
+        manifestHash: z.string().regex(/^[a-f0-9]{64}$/)
+      })
+      .strict()
+      .optional(),
     versions: z.array(z.number().int().positive()).min(1).max(16)
   })
   .strict()

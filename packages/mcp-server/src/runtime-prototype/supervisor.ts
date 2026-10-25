@@ -7,6 +7,10 @@ import lockfile from 'proper-lockfile'
 import { z } from 'zod'
 
 import { parseHubRuntimeIdentity } from '../runtime-identity'
+import { releaseManifest, verifyReleaseArtifact } from '../runtime-update/artifact'
+import { pruneCache } from '../runtime-update/cache'
+import { acquireRelease, ReleaseUpdates } from '../runtime-update/manager'
+import { compatibilityReasons } from '../runtime-update/manifest'
 import { ensureDir, ensureFile, HUB_LOCK_STALE_MS, PACKAGE_VERSION } from '../shared'
 import { startHookGateway } from './hooks'
 import { LeaseSchema } from './hub-control'
@@ -15,6 +19,8 @@ import {
   connectSocket,
   fingerprintBundle,
   hubSocketPath,
+  runtimePaths,
+  supervisorSocketPath,
   launch,
   listenPrivate,
   waitForSocket,
@@ -63,7 +69,8 @@ export async function startSupervisor(config: PrototypeConfig) {
   const lockPath = join(config.root, 'supervisor.lock')
   ensureFile(lockPath)
   const unlock = await lockfile.lock(lockPath, { retries: 0, stale: 5000, update: 1000 })
-  const socketPath = join(config.root, 'supervisor.sock')
+  const socketPath = supervisorSocketPath(config)
+  const paths = runtimePaths(config)
   const peers = new Set<ControlPeer>()
   const edges = new Map<ControlPeer, Edge>()
   let hub: ControlPeer | undefined
@@ -73,7 +80,12 @@ export async function startSupervisor(config: PrototypeConfig) {
     version: 1,
     revision: 0,
     phase: 'committed',
-    active: { entry: config.entry, bundle: config.bundle, version: PACKAGE_VERSION },
+    active: {
+      entry: config.entry,
+      bundle: config.bundle,
+      version: PACKAGE_VERSION,
+      release: config.release
+    },
     failedBundles: []
   }
   let closing = false
@@ -85,6 +97,70 @@ export async function startSupervisor(config: PrototypeConfig) {
   const pause = (milliseconds: number) =>
     delay(milliseconds, undefined, { signal: lifetime.signal })
   const stop = () => void close()
+  const updates: ReleaseUpdates | undefined = config.release
+    ? new ReleaseUpdates({
+        root: config.root,
+        enrolled: () =>
+          !transitioning &&
+          [...edges.values()].some((edge) => edge.registration.updates?.policy === 'stable'),
+        acquire: async (version, signal) => {
+          await requireHub().request(
+            { method: 'tempad/runtime-retain', params: { retained: true } },
+            ResultSchema
+          )
+          try {
+            const candidate = await acquireRelease(
+              join(dirname(config.entry), 'runtime-installer.mjs'),
+              join(config.root, 'cache'),
+              version,
+              journal.active.version,
+              signal
+            )
+            pruneCache(join(config.root, 'cache'), [
+              {
+                entry: config.entry,
+                bundle: config.bundle,
+                version: PACKAGE_VERSION,
+                release: config.release
+              },
+              journal.active,
+              journal.previous,
+              journal.candidate,
+              candidate,
+              updates?.status.candidate
+            ])
+            return candidate
+          } finally {
+            await hub
+              ?.request(
+                { method: 'tempad/runtime-retain', params: { retained: false } },
+                ResultSchema
+              )
+              .catch(() => {})
+          }
+        }
+      })
+    : undefined
+
+  function activationBlockers(candidate: Artifact) {
+    let reasons: string[]
+    try {
+      reasons = compatibilityReasons(releaseManifest(journal.active), releaseManifest(candidate))
+    } catch (error) {
+      return [`Retained release verification failed: ${String(error)}`]
+    }
+    if (!newerVersion(candidate.version, journal.active.version))
+      reasons.push('Candidate is not newer than the active runtime')
+    if (journal.failedBundles.includes(candidate.bundle))
+      reasons.push('Candidate was quarantined after a failed activation')
+    if ([...edges.values()].some((edge) => edge.registration.updates?.policy !== 'stable'))
+      reasons.push(
+        'An attached MCP client has not opted in; restart it with --runtime-updates=stable or close it'
+      )
+    if ([...edges.values()].some((edge) => !edge.supportsReplacement))
+      reasons.push('An attached MCP client has not finished initialization')
+    return reasons
+  }
 
   function persist(next: Journal) {
     lifetime.signal.throwIfAborted()
@@ -129,7 +205,8 @@ export async function startSupervisor(config: PrototypeConfig) {
         const recovering = !!hookFault
         hookFault = error === undefined ? undefined : String(error)
         if (hookFault || (recovering && !transitioning)) void gate(!!hookFault).catch(() => {})
-      }
+      },
+      join(paths.runtime, 'mcp.sock')
     )
   }
 
@@ -143,14 +220,14 @@ export async function startSupervisor(config: PrototypeConfig) {
   }
   async function waitForWriters() {
     const deadline = performance.now() + HUB_LOCK_STALE_MS + 5000
-    const paths = [
-      [join(config.root, 'run', 'hub.lock'), undefined],
-      [join(config.root, 'state'), join(config.root, 'state', '.tempad-hub-writer.lock')],
-      [join(config.root, 'assets'), join(config.root, 'assets', '.tempad-hub-writer.lock')]
+    const writerLocks = [
+      [join(paths.runtime, 'hub.lock'), undefined],
+      [paths.state, join(paths.state, '.tempad-hub-writer.lock')],
+      [paths.assets, join(paths.assets, '.tempad-hub-writer.lock')]
     ] as const
     while (true) {
       let locked = false
-      for (const [path, lockfilePath] of paths) {
+      for (const [path, lockfilePath] of writerLocks) {
         if (
           existsSync(path) &&
           (await lockfile.check(path, {
@@ -171,10 +248,10 @@ export async function startSupervisor(config: PrototypeConfig) {
     if (closing) throw unavailable('Runtime supervisor is closing.')
     let socket
     try {
-      socket = await connectSocket(hubSocketPath(config.root), lifetime.signal)
+      socket = await connectSocket(hubSocketPath(config.root, paths.runtime), lifetime.signal)
     } catch (error) {
       if (!allowLaunch || !unavailableSocket(error)) throw error
-      const identityPath = join(config.root, 'run', 'hub-runtime.json')
+      const identityPath = join(paths.runtime, 'hub-runtime.json')
       if (existsSync(identityPath)) {
         const previous = parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
         if (!previous || alive(previous.processId))
@@ -185,7 +262,7 @@ export async function startSupervisor(config: PrototypeConfig) {
       await waitForWriters()
       lifetime.signal.throwIfAborted()
       launch(config, 'hub', artifact)
-      socket = await waitForSocket(hubSocketPath(config.root), lifetime.signal)
+      socket = await waitForSocket(hubSocketPath(config.root, paths.runtime), lifetime.signal)
     }
     const peer = new ControlPeer()
     peer.onerror = () => void peer.close()
@@ -203,7 +280,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         timeout: 5000
       })
       const identity = parseHubRuntimeIdentity(
-        JSON.parse(readFileSync(join(config.root, 'run', 'hub-runtime.json'), 'utf8'))
+        JSON.parse(readFileSync(join(paths.runtime, 'hub-runtime.json'), 'utf8'))
       )
       if (
         !identity ||
@@ -321,7 +398,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         await connectHub(artifact)
         return
       } catch (error) {
-        const identityPath = join(config.root, 'run', 'hub-runtime.json')
+        const identityPath = join(paths.runtime, 'hub-runtime.json')
         const identity = existsSync(identityPath)
           ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
           : undefined
@@ -340,6 +417,10 @@ export async function startSupervisor(config: PrototypeConfig) {
   }
 
   async function activate(candidate: Artifact) {
+    if (candidate.release) {
+      const blockers = activationBlockers(candidate)
+      if (blockers.length) throw new Error(blockers.join('; '))
+    }
     await drain()
     persist({
       ...journal,
@@ -357,6 +438,10 @@ export async function startSupervisor(config: PrototypeConfig) {
   async function finishHandoff() {
     await reattach()
     await hooks?.flush()
+    if (journal.candidate?.release && journal.phase !== 'committed') {
+      const blockers = activationBlockers(journal.candidate)
+      if (blockers.length) throw new Error(blockers.join('; '))
+    }
     if (journal.phase !== 'committed')
       persist({
         ...journal,
@@ -402,7 +487,7 @@ export async function startSupervisor(config: PrototypeConfig) {
     transitioning = true
     let observedPid: number | undefined
     try {
-      const identityPath = join(config.root, 'run', 'hub-runtime.json')
+      const identityPath = join(paths.runtime, 'hub-runtime.json')
       const identity = existsSync(identityPath)
         ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
         : undefined
@@ -456,16 +541,20 @@ export async function startSupervisor(config: PrototypeConfig) {
       } else throw error
     } finally {
       transitioning = false
+      updates?.schedule()
     }
   }
 
-  async function update(entry: string) {
+  async function update(entry: string, released?: Artifact) {
     if (transitioning) throw unavailable('Another runtime transition is in progress.')
+    if (updates?.status.checking)
+      throw unavailable('Wait for release acquisition to finish before activating.')
     if (journal.phase !== 'committed')
       throw unavailable(
         'An interrupted handoff must finish through --recover-runtime before offering another version.'
       )
     transitioning = true
+    updates?.schedule()
     try {
       await requireHub().request(
         { method: 'tempad/runtime-retain', params: { retained: true } },
@@ -475,14 +564,23 @@ export async function startSupervisor(config: PrototypeConfig) {
         throw new Error(
           'An attached edge has not confirmed backend replacement support; wait for initialization or restart an older MCP client before switching.'
         )
-      const candidate = await probeArtifact(entry)
+      if (config.release && !released)
+        throw new Error('Managed releases accept only a verified staged npm artifact.')
+      if (released) verifyReleaseArtifact(released)
+      const candidate = released
+        ? { artifact: released, contract: undefined }
+        : await probeArtifact(entry)
       if (!newerVersion(candidate.artifact.version, journal.active.version))
         throw new Error('Only a newer stable local runtime can be offered.')
       if (journal.failedBundles.includes(candidate.artifact.bundle))
         throw new Error('This runtime bundle is quarantined after a failed activation.')
-      const active = await probeArtifact(journal.active.entry)
-      if (candidate.contract !== active.contract)
-        throw new Error('The local candidate changes the frozen MCP contract; restart MCP instead.')
+      if (!released) {
+        const active = await probeArtifact(journal.active.entry)
+        if (candidate.contract !== active.contract)
+          throw new Error(
+            'The local candidate changes the frozen MCP contract; restart MCP instead.'
+          )
+      }
       persist({ ...journal, candidate: candidate.artifact, failure: undefined })
       try {
         await activate(candidate.artifact)
@@ -502,6 +600,7 @@ export async function startSupervisor(config: PrototypeConfig) {
       await hub
         ?.request({ method: 'tempad/runtime-retain', params: { retained: false } }, ResultSchema)
         .catch(() => {})
+      updates?.schedule()
     }
   }
 
@@ -518,15 +617,27 @@ export async function startSupervisor(config: PrototypeConfig) {
       clearTimeout(timeout)
       peers.delete(peer)
       edges.delete(peer)
+      updates?.schedule()
     }
     peer.setRequestHandler(
       z.object({ method: z.literal('tempad/runtime-hello'), params: RegistrationSchema }),
       async ({ params }) => {
         if (edges.has(peer)) throw new Error('A runtime connection can register only once.')
+        if (transitioning) throw unavailable('Runtime handoff in progress; retry attachment.')
+        if (
+          config.release &&
+          params.updates?.policy === 'pinned' &&
+          (params.updates?.version !== journal.active.version ||
+            params.updates?.manifestHash !== journal.active.release?.manifestHash)
+        )
+          throw new Error(
+            'MCP_RUNTIME_RESTART_REQUIRED: this pinned client requests a different runtime; update/restart MCP or explicitly enroll it.'
+          )
         const edge = { registration: params, ready: false }
         edges.set(peer, edge)
         const grant = await register(edge)
         clearTimeout(timeout)
+        updates?.schedule()
         return grant
       }
     )
@@ -550,18 +661,68 @@ export async function startSupervisor(config: PrototypeConfig) {
       if (!edge) throw unavailable('Runtime session is not registered.')
       return register(edge)
     })
-    peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-status') }), async () => ({
-      ...(hub
-        ? await inspect().catch((error) => ({ gated: true, unavailable: String(error) }))
-        : { gated: true, unavailable: 'Hub recovery has not completed.' }),
-      ...lease,
-      supervisorPid: process.pid,
-      phase: journal.phase,
-      active: journal.active,
-      candidate: journal.candidate,
-      failure: journal.failure,
-      hookFault
-    }))
+    peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-status') }), async () => {
+      clearTimeout(timeout)
+      return {
+        ...(hub
+          ? await inspect().catch((error) => ({ gated: true, unavailable: String(error) }))
+          : { gated: true, unavailable: 'Hub recovery has not completed.' }),
+        ...lease,
+        supervisorPid: process.pid,
+        phase: journal.phase,
+        active: journal.active,
+        candidate: journal.candidate,
+        failure: journal.failure,
+        hookFault,
+        updates: updates
+          ? {
+              ...updates.status,
+              pendingReasons: updates.status.candidate
+                ? activationBlockers(updates.status.candidate)
+                : []
+            }
+          : undefined
+      }
+    })
+    peer.setRequestHandler(
+      z.object({
+        method: z.literal('tempad/runtime-check'),
+        params: z.object({ version: z.string() }).strict()
+      }),
+      async ({ params }) => {
+        if (!updates)
+          throw new Error('Release acquisition is unavailable in isolated/local runtimes.')
+        if (transitioning) throw unavailable('Runtime handoff in progress.')
+        clearTimeout(timeout)
+        const candidate = await updates.check(params.version, true)
+        return {
+          candidate,
+          automaticActivation: false,
+          pendingReasons: candidate ? activationBlockers(candidate) : []
+        }
+      }
+    )
+    peer.setRequestHandler(
+      z.object({
+        method: z.literal('tempad/runtime-activate'),
+        params: z.object({ version: z.string(), integrity: z.string() }).strict()
+      }),
+      async ({ params }) => {
+        const candidate = updates?.status.candidate
+        if (
+          !candidate ||
+          candidate.version !== params.version ||
+          candidate.release?.integrity !== params.integrity
+        )
+          throw new Error(
+            'The staged artifact changed; check and confirm its version and integrity again.'
+          )
+        clearTimeout(timeout)
+        const blockers = activationBlockers(candidate)
+        if (blockers.length) return { status: 'staged', reasons: blockers }
+        return update(candidate.entry, candidate)
+      }
+    )
     peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-recover') }), async () => {
       if (transitioning) throw unavailable('Another runtime transition is in progress.')
       clearTimeout(timeout)
@@ -583,6 +744,7 @@ export async function startSupervisor(config: PrototypeConfig) {
   async function close() {
     if (closing) return
     closing = true
+    updates?.close()
     lifetime.abort()
     process.off('SIGTERM', stop)
     process.off('SIGINT', stop)
@@ -597,7 +759,7 @@ export async function startSupervisor(config: PrototypeConfig) {
   }
   try {
     persist(journal)
-    ensureDir(join(config.root, 'run'))
+    ensureDir(paths.runtime)
     await recover()
     rmSync(socketPath, { force: true })
     await listenPrivate(server, socketPath)

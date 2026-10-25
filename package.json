@@ -16,6 +16,8 @@
     "mcp:check-host-context": "pnpm --filter @tempad-dev/shared build && pnpm build:mcp && node packages/mcp-server/scripts/check-host-context.mjs",
     "mcp:check-runtime-prototype": "pnpm --filter @tempad-dev/shared build && pnpm --filter @tempad-dev/mcp exec tsdown --config tsdown.prototype.config.ts && node packages/mcp-server/scripts/check-runtime-prototype.mjs",
     "mcp:check-runtime-switch": "pnpm --filter @tempad-dev/shared build && node packages/mcp-server/scripts/check-runtime-switch.mjs",
+    "mcp:prepare-release": "pnpm --filter @tempad-dev/shared build && pnpm build:mcp && node packages/mcp-server/scripts/prepare-runtime-release.mjs",
+    "mcp:check-runtime-updates": "pnpm --filter @tempad-dev/shared build && pnpm build:mcp && node packages/mcp-server/scripts/check-runtime-updates.mjs",
     "mcp:measure-runtime": "node packages/mcp-server/scripts/measure-runtime.mjs",
     "mcp:measure-hooks": "node packages/mcp-server/scripts/measure-hooks.mjs",
     "screenshots": "pnpm --filter @tempad-dev/extension screenshots",

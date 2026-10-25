@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -13,7 +15,13 @@ import { gzipSync } from 'node:zlib'
 import { describe, expect, it, vi } from 'vitest'
 
 import { readArchive, verifyIntegrity } from '../src/runtime-update/archive'
-import { cacheDirectory, installArchive, verifyCached } from '../src/runtime-update/cache'
+import { retainBundledPackage, verifyReleaseArtifact } from '../src/runtime-update/artifact'
+import {
+  cacheDirectory,
+  installArchive,
+  pruneCache,
+  verifyCached
+} from '../src/runtime-update/cache'
 import {
   compatibilityReasons,
   supportsNode,
@@ -183,7 +191,35 @@ describe('release manifest and dependency closure', () => {
 })
 
 describe('private release cache', () => {
-  it('publishes a complete package and rechecks corrupted cache bytes', () => {
+  it('retains an immutable bootstrap closure independently of npm cache cleanup', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'tp-cache-')))
+    try {
+      const source = join(root, 'source')
+      const { files } = fixture()
+      for (const [path, bytes] of files) {
+        const target = join(source, path)
+        mkdirSync(target.slice(0, target.lastIndexOf('/')), { recursive: true, mode: 0o700 })
+        writeFileSync(target, bytes)
+      }
+      const cache = join(root, 'cache')
+      const artifact = await retainBundledPackage(source, cache)
+      expect(await retainBundledPackage(source, cache)).toEqual(artifact)
+      rmSync(source, { recursive: true })
+      expect(verifyReleaseArtifact(artifact).packageVersion).toBe('0.12.0')
+      const unused = join(cache, 'b'.repeat(64))
+      mkdirSync(unused)
+      symlinkSync(root, join(cache, 'c'.repeat(64)))
+      pruneCache(cache, [artifact])
+      expect(existsSync(unused)).toBe(false)
+      expect(existsSync(artifact.entry)).toBe(true)
+      expect(existsSync(join(cache, 'c'.repeat(64)))).toBe(true)
+      writeFileSync(artifact.entry, 'modified')
+      expect(() => verifyReleaseArtifact(artifact)).toThrow('hash mismatch')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it('publishes a complete package and rechecks corrupted cache bytes', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'tp-cache-')))
     try {
       const { files } = fixture()
@@ -191,14 +227,14 @@ describe('private release cache', () => {
         [...files].map(([path, data]) => ({ path: `package/${path}`, data: data.toString() }))
       )
       const sri = integrity(archive)
-      const installed = installArchive(root, '0.12.0', sri, archive)
+      const installed = await installArchive(root, '0.12.0', sri, archive)
       expect(
         readFileSync(join(installed.directory, 'node_modules/test/package.json'), 'utf8')
       ).toContain('1.0.0')
-      expect(installArchive(root, '0.12.0', sri, archive)).toEqual(installed)
+      expect(await installArchive(root, '0.12.0', sri, archive)).toEqual(installed)
       writeFileSync(join(installed.directory, 'dist/cli.mjs'), 'tampered')
       expect(() => verifyCached(root, '0.12.0', sri)).toThrow('hash mismatch')
-      expect(() => installArchive(root, '0.12.0', sri, archive)).toThrow('hash mismatch')
+      await expect(installArchive(root, '0.12.0', sri, archive)).rejects.toThrow('hash mismatch')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

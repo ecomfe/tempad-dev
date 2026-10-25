@@ -9,7 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
 
 import { hubEnvironment } from '../process-environment'
-import { readRuntimeContract } from '../stable-edge'
+import { contractHashes, readRuntimeContract } from '../stable-edge'
 import { connectSocket, fingerprintBundle } from './processes'
 import { ControlPeer, SocketTransport } from './protocol'
 import { ArtifactSchema } from './state'
@@ -33,7 +33,14 @@ export async function probeArtifact(entry: string) {
   const client = new Client({ name: 'tempad-artifact-probe', version: '1' })
   const control = new ControlPeer()
   let pids: number[] | undefined
-  let result: { artifact: z.infer<typeof ArtifactSchema>; contract: string } | undefined
+  let result:
+    | {
+        artifact: z.infer<typeof ArtifactSchema>
+        contract: string
+        wireHash: string
+        presentationHash: string
+      }
+    | undefined
   let failure: unknown
   try {
     await client.connect(transport, { timeout: 15_000 })
@@ -58,6 +65,7 @@ export async function probeArtifact(entry: string) {
       throw new Error('Local runtime changed during verification.')
     result = {
       artifact,
+      ...contractHashes(contract),
       contract: createHash('sha256')
         .update(JSON.stringify({ ...contract, pages: [...contract.pages] }))
         .digest('hex')

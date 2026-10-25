@@ -10,8 +10,9 @@ import { runtimeIdentity } from '../agent-clients/identity'
 import { ClientBindingSubscribeSchema } from '../client-binding'
 import { getMcpServerConfig } from '../config'
 import { ConsumerTransport } from '../consumer-transport'
+import { releaseManifest } from '../runtime-update/artifact'
 import { endLogging, PACKAGE_VERSION } from '../shared'
-import { startStableEdge } from '../stable-edge'
+import { contractHashes, startStableEdge } from '../stable-edge'
 import {
   connectSocket,
   hubSocketPath,
@@ -29,13 +30,18 @@ import {
   type Grant,
   type Registration
 } from './protocol'
+import { readJournal } from './state'
 
-export async function startPrototypeEdge(config: PrototypeConfig) {
+export async function startPrototypeEdge(
+  config: PrototypeConfig,
+  updates?: Registration['updates']
+) {
   const registration: Registration = {
     sessionId: randomUUID(),
     token: randomUUID(),
     context: captureHostContext(process.env),
-    versions: [...CONTROL_VERSIONS]
+    versions: [...CONTROL_VERSIONS],
+    ...(updates ? { updates } : {})
   }
   let control: ControlPeer | undefined
   let grant: Grant | undefined
@@ -48,6 +54,7 @@ export async function startPrototypeEdge(config: PrototypeConfig) {
   let replacing = false
   let attaching: Promise<void> | undefined
   let openingHubId: string | undefined
+  let frozenEpoch: number | undefined
   const runtimeConfig = getMcpServerConfig()
   const requestTimeoutMs = Math.max(
     REQUEST_TIMEOUT_MS,
@@ -178,6 +185,31 @@ export async function startPrototypeEdge(config: PrototypeConfig) {
 
   const host = new ConsumerTransport()
   edge = await startStableEdge(host, {
+    ...(config.release
+      ? {
+          validateContract: (observed, version, previous) => {
+            const journal = readJournal(config.root)
+            const artifact = [journal?.active, journal?.candidate, journal?.previous].find(
+              (value) => value?.version === version
+            )
+            if (!artifact) throw new Error('The backend is not a retained release artifact.')
+            const manifest = releaseManifest(artifact)
+            const hashes = contractHashes(observed)
+            if (
+              hashes.wireHash !== manifest.wireHash ||
+              hashes.presentationHash !== manifest.presentationHash ||
+              (previous &&
+                (manifest.guidanceEpoch !== frozenEpoch ||
+                  hashes.wireHash !== contractHashes(previous).wireHash))
+            )
+              throw new McpError(
+                -32002,
+                'MCP_RUNTIME_RESTART_REQUIRED: runtime contract or guidance changed.'
+              )
+            frozenEpoch ??= manifest.guidanceEpoch
+          }
+        }
+      : {}),
     version: PACKAGE_VERSION,
     requestTimeoutMs,
     onError: (error) => process.stderr.write(`Runtime edge: ${error.message}\n`),
@@ -200,7 +232,10 @@ export async function startPrototypeEdge(config: PrototypeConfig) {
           timeout: 5000,
           signal
         })
-      const socket = await connectSocket(hubSocketPath(config.root), signal)
+      const socket = await connectSocket(
+        hubSocketPath(config.root, config.directories?.runtime),
+        signal
+      )
       openingHubId = grant!.hubId
       const wire = new SocketTransport(socket)
       try {

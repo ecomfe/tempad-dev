@@ -2,8 +2,7 @@ import { defineConfig } from 'tsdown'
 
 import config from './tsdown.config.ts'
 
-// Build separately so prototype imports cannot split the installed Hub entry or
-// change the runtime fingerprint used by development preflight.
+// Keep the local-only diagnostic entry separate from the verified release payload.
 export default defineConfig({
   ...config,
   entry: ['src/runtime-prototype.ts', 'src/log-transport.ts'],

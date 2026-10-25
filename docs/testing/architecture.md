@@ -41,7 +41,7 @@ For contributor workflow and commands, see `TESTING.md`.
 - Every extension MCP module and Hub runtime module also has a per-file floor of 50% for
   lines/statements/functions and 40% for branches. Broad source globs include new modules
   automatically, so aggregate coverage cannot hide a completely untested core file. The CLI,
-  Hub, and isolated prototype entry launchers remain reported but are excluded from this floor
+  Hub, isolated/managed runtime, and acquisition worker entry launchers remain reported but are excluded from this floor
   because their integration tests run in child processes outside coverage instrumentation. These minimums supplement the existing
   baseline; meeting either gate is not evidence that every behavior is correct.
 - Browser behavior is verified separately in the browser suite. Browser-facing TypeScript still

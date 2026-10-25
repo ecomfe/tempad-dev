@@ -137,6 +137,7 @@ function hasCanvasReadEvidence(tool: ToolName, payload: unknown): boolean {
 
 export async function startHub(
   options: {
+    entryPath?: string
     prototype?: {
       secret: string
       root?: string
@@ -1678,7 +1679,10 @@ export async function startHub(
     designTasks.restore()
     terminalReceipts.restore(designTasks.executionState())
     await cleanSocketPath()
-    hubRuntimeIdentity = createHubRuntimeIdentity(fileURLToPath(import.meta.url), PACKAGE_VERSION)
+    hubRuntimeIdentity = createHubRuntimeIdentity(
+      options.entryPath ?? fileURLToPath(import.meta.url),
+      PACKAGE_VERSION
+    )
     writeHubRuntimeIdentity(HUB_RUNTIME_IDENTITY_PATH, hubRuntimeIdentity)
     await assetHttpServer.start()
     scheduleAssetCleanup()

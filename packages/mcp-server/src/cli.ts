@@ -60,10 +60,6 @@ function shutdownCli(reason: string) {
   process.exit(0)
 }
 
-process.on('SIGINT', () => shutdownCli('SIGINT received.'))
-process.on('SIGTERM', () => shutdownCli('SIGTERM received.'))
-process.stdin.once('end', () => shutdownCli('Consumer stream ended.'))
-
 const HUB_STARTUP_TIMEOUT = 5000
 const CONNECT_RETRY_DELAY = 200
 const FAILED_RESTART_DELAY = 5000
@@ -286,6 +282,19 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
 }
 
 async function main() {
+  try {
+    const { maybeManagedRuntime } = await import('./runtime-update/bootstrap')
+    if (await maybeManagedRuntime(process.argv.slice(2), join(HERE, '..'))) return
+  } catch (error) {
+    process.stderr.write(`TemPad runtime startup failed: ${String(error)}\n`)
+    process.exitCode = 1
+    process.stdin.destroy()
+    endLogging()
+    return
+  }
+  process.on('SIGINT', () => shutdownCli('SIGINT received.'))
+  process.on('SIGTERM', () => shutdownCli('SIGTERM received.'))
+  process.stdin.once('end', () => shutdownCli('Consumer stream ended.'))
   if (
     process.argv.includes('--runtime-status') ||
     process.argv.includes('--resolve-runtime-block')

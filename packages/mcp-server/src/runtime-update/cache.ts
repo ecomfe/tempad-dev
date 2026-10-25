@@ -6,12 +6,16 @@ import {
   mkdtempSync,
   openSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   rmSync,
   writeFileSync
 } from 'node:fs'
-import { dirname, isAbsolute, join } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join, sep } from 'node:path'
+
+import type { Artifact } from '../runtime-prototype/state'
 
 import { IntegritySchema, MANIFEST_PATH } from './manifest'
 import { readInstalledPackage, sha256, verifyArchive, verifyPackage } from './package'
@@ -34,9 +38,36 @@ export function cacheDirectory(cache: string, integrity: string) {
   return join(cache, sha256(integrity))
 }
 
+/** Called by the sole owner after an acquisition worker has exited. */
+export function pruneCache(cache: string, retained: (Artifact | undefined)[]) {
+  privateDirectory(cache)
+  for (const entry of readdirSync(cache, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const path = join(cache, entry.name)
+    if (/^(?:bundled-)?[a-f0-9]{64}$/.test(entry.name)) {
+      if (
+        retained.some(
+          (artifact) =>
+            artifact?.release &&
+            (artifact.release.directory === path ||
+              artifact.release.directory.startsWith(path + sep))
+        )
+      )
+        continue
+      rmSync(path, { recursive: true, force: true })
+    } else if (
+      /^\.(?:install|bundled)-/.test(entry.name) &&
+      Date.now() - lstatSync(path).mtimeMs > 24 * 60 * 60 * 1000
+    ) {
+      rmSync(path, { recursive: true, force: true })
+    }
+  }
+}
+
 export function verifyCached(cache: string, version: string, integrity: string) {
   privateDirectory(cache)
   const directory = cacheDirectory(cache, integrity)
+  lstatSync(directory)
   privateDirectory(directory)
   const archivePath = join(directory, 'archive.tgz')
   const stat = lstatSync(archivePath)
@@ -51,7 +82,39 @@ export function verifyCached(cache: string, version: string, integrity: string) 
   return { directory: packageDir, manifest }
 }
 
-export function installArchive(cache: string, version: string, integrity: string, bytes: Buffer) {
+/** Bound file-system concurrency while durably writing every verified payload file. */
+export async function writePackageFiles(directory: string, files: ReadonlyMap<string, Buffer>) {
+  const entries = [...files]
+  let next = 0
+  const results = await Promise.allSettled(
+    Array.from({ length: 8 }, async () => {
+      while (next < entries.length) {
+        const [path, data] = entries[next++]!
+        const target = join(directory, path)
+        await mkdir(dirname(target), { recursive: true, mode: 0o700 })
+        await writeFile(target, data, { flag: 'wx', mode: 0o600, flush: true })
+      }
+    })
+  )
+  for (const result of results) if (result.status === 'rejected') throw result.reason
+}
+
+export function publishDirectory(staging: string, destination: string) {
+  renameSync(staging, destination)
+  const fd = openSync(dirname(destination), 'r')
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+export async function installArchive(
+  cache: string,
+  version: string,
+  integrity: string,
+  bytes: Buffer
+) {
   const { files } = verifyArchive(bytes, version, integrity)
   privateDirectory(cache)
   const destination = cacheDirectory(cache, integrity)
@@ -65,20 +128,10 @@ export function installArchive(cache: string, version: string, integrity: string
   const staging = mkdtempSync(join(cache, '.install-'))
   try {
     writeFileSync(join(staging, 'archive.tgz'), bytes, { flag: 'wx', mode: 0o600, flush: true })
-    for (const [path, data] of files) {
-      const target = join(staging, 'package', path)
-      mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
-      writeFileSync(target, data, { flag: 'wx', mode: 0o600, flush: true })
-    }
+    await writePackageFiles(join(staging, 'package'), files)
     // Publish only a complete closure. A crash before rename leaves an unused
     // staging directory; a crash afterward is caught by full revalidation.
-    renameSync(staging, destination)
-    const fd = openSync(cache, 'r')
-    try {
-      fsyncSync(fd)
-    } finally {
-      closeSync(fd)
-    }
+    publishDirectory(staging, destination)
     return verifyCached(cache, version, integrity)
   } finally {
     rmSync(staging, { recursive: true, force: true })
