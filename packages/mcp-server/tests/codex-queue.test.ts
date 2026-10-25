@@ -125,6 +125,28 @@ async function fixture(existing?: string) {
   }
 }
 
+async function seedReceipts(f: Awaited<ReturnType<typeof fixture>>, count: number) {
+  // Use the current admission format, without repeating IPC and receipt rewrites for each item.
+  await f.send()
+  const [file] = await readdir(f.directory)
+  const template = JSON.parse(await readFile(join(f.directory, file!), 'utf8'))
+  expect(template).toMatchObject({ status: 'delivered', acceptedAt: expect.any(Number) })
+  await rm(join(f.directory, file!))
+  f.setMessages([])
+  f.request.mockClear()
+  const entries = Array.from({ length: count }, (_, index) => ({
+    path: join(f.directory, `${index.toString(16).padStart(64, '0')}.json`),
+    receipt: { ...template, taskId: `task-${index}`, messageId: `message-${index}` }
+  }))
+  for (let index = 0; index < entries.length; index += 32)
+    await Promise.all(
+      entries
+        .slice(index, index + 32)
+        .map(({ path, receipt }) => writeFile(path, JSON.stringify(receipt)))
+    )
+  return entries
+}
+
 describe('native Codex queue admission', () => {
   it('appends to the server queue without replacing existing native messages', async () => {
     const f = await fixture()
@@ -287,19 +309,7 @@ describe('native Codex queue admission', () => {
 
   it('bounds background receipt reads while eventually revisiting every retained identity', async () => {
     const f = await fixture()
-    for (let index = 0; index < 260; index++) {
-      await writeFile(
-        join(f.directory, `${index.toString(16).padStart(64, '0')}.json`),
-        JSON.stringify({
-          delivery: 'queue',
-          signature: 'signature',
-          status: 'delivered',
-          conversationId: 'thread-a',
-          taskId: `task-${index}`,
-          messageId: `message-${index}`
-        })
-      )
-    }
+    await seedReceipts(f, 260)
     const isCancelled = vi.fn<(taskId: string) => boolean>(() => false)
     await Promise.all([
       f.native.reconcileQueued(isCancelled),
@@ -348,25 +358,21 @@ describe('native Codex queue admission', () => {
 
   it('scans every receipt on explicit Stop even when background reconciliation is batched', async () => {
     const f = await fixture()
-    for (let index = 0; index < 129; index++) {
-      await writeFile(
-        join(f.directory, `${index.toString(16).padStart(64, '0')}.json`),
-        JSON.stringify({
-          delivery: 'queue',
-          signature: 'signature',
-          status: 'pending',
-          conversationId: 'thread-a',
-          taskId: 'task-a',
-          messageId: `message-${index}`
-        })
-      )
-    }
-    f.setMessages([{ id: 'message-128' }, { id: 'user-message' }])
-    await f.native.cancelQueued('task-a')
+    const entries = await seedReceipts(f, 129)
+    const isCancelled = vi.fn<(taskId: string) => boolean>(() => false)
+    await f.native.reconcileQueued(isCancelled)
+    expect(isCancelled).toHaveBeenCalledTimes(128)
+    const scanned = new Set(isCancelled.mock.calls.map(([taskId]) => taskId))
+    const target = entries.find(({ receipt }) => !scanned.has(receipt.taskId))!
+    f.setMessages([{ id: target.receipt.messageId }, { id: 'user-message' }])
+    await f.native.cancelQueued(target.receipt.taskId)
     expect(f.messages()).toEqual([{ id: 'user-message' }])
-    for (const file of await readdir(f.directory)) {
-      expect(JSON.parse(await readFile(join(f.directory, file), 'utf8')).status).toBe('removed')
-    }
+    await Promise.all(
+      entries.map(async ({ path, receipt }) => {
+        const saved = JSON.parse(await readFile(path, 'utf8'))
+        expect(saved).toEqual(path === target.path ? { ...receipt, status: 'removed' } : receipt)
+      })
+    )
     expect(await readdir(f.directory)).toHaveLength(129)
   })
 
