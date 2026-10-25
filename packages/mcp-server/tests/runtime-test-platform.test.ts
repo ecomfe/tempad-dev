@@ -84,12 +84,19 @@ describe('runtime process fixture platform', () => {
   )
 
   it('retains platform discovery variables without inheriting host identity', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
     vi.stubEnv('SystemRoot', 'C:\\Windows')
+    vi.stubEnv('PROGRAMFILES', 'C:\\Program Files')
+    vi.stubEnv('ProgramFiles(x86)', 'C:\\Program Files (x86)')
+    vi.stubEnv('SystemDrive', 'C:')
     vi.stubEnv('CODEX_THREAD_ID', 'unrelated-task')
     vi.stubEnv('TEMPAD_MCP_DEV_CHECKOUT', '/unrelated-checkout')
     const env = fixtureEnvironment('/private-home', '/private-temp')
     expect(windowsEnvironment(env)).toMatchObject({
       SYSTEMROOT: 'C:\\Windows',
+      PROGRAMFILES: 'C:\\Program Files',
+      'PROGRAMFILES(X86)': 'C:\\Program Files (x86)',
+      SYSTEMDRIVE: 'C:',
       HOME: '/private-home',
       USERPROFILE: '/private-home',
       TMPDIR: '/private-temp',

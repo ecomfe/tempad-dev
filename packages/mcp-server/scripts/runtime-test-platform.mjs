@@ -7,6 +7,7 @@ import { basename, dirname, isAbsolute, join, sep } from 'node:path'
 import process from 'node:process'
 import { URL } from 'node:url'
 
+import { platformEnvironment } from '../src/process-environment.ts'
 import { ensurePrivateDirectory, windowsPowerShellEnvironment } from '../src/runtime-platform.ts'
 
 export async function fixtureRoot(prefix) {
@@ -21,11 +22,7 @@ export async function fixtureRoot(prefix) {
 
 export function fixtureEnvironment(home, temp = home) {
   return {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(([key]) =>
-        /^(PATH|SystemRoot|WINDIR|COMSPEC|PATHEXT)$/i.test(key)
-      )
-    ),
+    ...platformEnvironment(process.env),
     HOME: home,
     USERPROFILE: home,
     TMPDIR: temp,

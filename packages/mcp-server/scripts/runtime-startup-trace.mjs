@@ -29,6 +29,7 @@ childProcess.execFileSync = function (file, ...args) {
       `[IO.File]::AppendAllText($env:TEMPAD_RUNTIME_TRACE_PATH, "${stage} $([DateTime]::UtcNow.ToString('o'))\n")\n`
     let source = Buffer.from(args[0][encodedIndex + 1], 'base64').toString('utf16le')
     for (const [boundary, stage] of [
+      ['[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)', 'encoding-set'],
       ['$request = $env:TEMPAD_RUNTIME_ACL_REQUEST | ConvertFrom-Json', 'json-parsed'],
       ['$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User', 'user-resolved'],
       ['$acl = Get-Acl -LiteralPath $request.path', 'acl-read']
@@ -39,7 +40,15 @@ childProcess.execFileSync = function (file, ...args) {
     commandArgs[encodedIndex + 1] = Buffer.from(source, 'utf16le').toString('base64')
     args = [
       commandArgs,
-      { ...args[1], env: { ...(args[1]?.env ?? process.env), TEMPAD_RUNTIME_TRACE_PATH: path } }
+      {
+        ...args[1],
+        env: {
+          ...(args[1]?.env ?? process.env),
+          // Diagnostic control: only built-in Windows PowerShell modules are needed.
+          PSModulePath: join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/Modules'),
+          TEMPAD_RUNTIME_TRACE_PATH: path
+        }
+      }
     ]
   }
   try {

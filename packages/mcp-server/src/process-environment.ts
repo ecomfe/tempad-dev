@@ -22,6 +22,16 @@ const PLATFORM_KEYS = [
   'LC_CTYPE',
   'TZ'
 ] as const
+const WINDOWS_KEYS = [
+  'SystemDrive',
+  'ProgramFiles',
+  'ProgramFiles(x86)',
+  'ProgramW6432',
+  'PROCESSOR_ARCHITECTURE',
+  'USERNAME',
+  'HOMEDRIVE',
+  'HOMEPATH'
+] as const
 const HUB_KEYS = [
   'DEBUG',
   'TEMPAD_MCP_DEV_CHECKOUT',
@@ -44,14 +54,32 @@ const HUB_KEYS = [
 ] as const
 
 function pick(env: NodeJS.ProcessEnv, keys: readonly string[]): NodeJS.ProcessEnv {
+  if (process.platform === 'win32') {
+    const allowed = new Map<string, string>()
+    for (const key of keys) if (!allowed.has(key.toLowerCase())) allowed.set(key.toLowerCase(), key)
+    return Object.fromEntries(
+      Object.entries(env).flatMap(([key, value]) => {
+        const canonical = allowed.get(key.toLowerCase())
+        return canonical && value !== undefined ? [[canonical, value]] : []
+      })
+    )
+  }
   return Object.fromEntries(
     keys.flatMap((key) => (env[key] === undefined ? [] : [[key, env[key]]]))
   )
 }
 
+/** Windows helpers need the OS directory and architecture variables even in a clean environment. */
+export function platformEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return pick(
+    env,
+    process.platform === 'win32' ? [...PLATFORM_KEYS, ...WINDOWS_KEYS] : PLATFORM_KEYS
+  )
+}
+
 /** Never inherit host identities, credentials, NODE_OPTIONS, or arbitrary runtime overrides. */
 export function hubEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return pick(env, [...PLATFORM_KEYS, ...HUB_KEYS])
+  return { ...platformEnvironment(env), ...pick(env, HUB_KEYS) }
 }
 
 export function hostEnvironment(
@@ -61,7 +89,7 @@ export function hostEnvironment(
   const home = win32.normalize(context.home)
   const root = win32.parse(home).root
   return {
-    ...pick(env, PLATFORM_KEYS),
+    ...platformEnvironment(env),
     HOME: context.home,
     USERPROFILE: context.home,
     ...(process.platform === 'win32'
