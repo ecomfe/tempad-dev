@@ -16,8 +16,10 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix:
         node: ['22.x', '24.x']
+        suite: [contracts, prototype, switch, updates]
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
@@ -65,6 +67,7 @@ jobs:
           pnpm build:mcp
 
       - name: Test runtime contracts and platform boundaries
+        if: matrix.suite == 'contracts'
         shell: cmd
         run: |
           call pnpm --filter @tempad-dev/mcp exec vitest run --config vitest.config.ts tests/runtime- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000 > runtime-ci-logs\unit.log 2>&1
@@ -73,6 +76,7 @@ jobs:
           exit /b %test_exit%
 
       - name: Check supervisor recovery and concurrent edges
+        if: matrix.suite == 'prototype'
         shell: cmd
         run: |
           call pnpm mcp:check-runtime-prototype > runtime-ci-logs\prototype.log 2>&1
@@ -81,6 +85,7 @@ jobs:
           exit /b %test_exit%
 
       - name: Check switching, in-flight requests, crashes and rollback
+        if: matrix.suite == 'switch'
         shell: cmd
         run: |
           call pnpm mcp:check-runtime-switch > runtime-ci-logs\switch.log 2>&1
@@ -89,6 +94,7 @@ jobs:
           exit /b %test_exit%
 
       - name: Check verified downloads and automatic activation
+        if: matrix.suite == 'updates'
         shell: cmd
         run: |
           call pnpm mcp:check-runtime-updates > runtime-ci-logs\updates.log 2>&1
@@ -100,7 +106,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: windows-runtime-node-${{ matrix.node }}
+          name: windows-runtime-node-${{ matrix.node }}-${{ matrix.suite }}
           path: runtime-ci-logs
           retention-days: 14
           if-no-files-found: warn

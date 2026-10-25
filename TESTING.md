@@ -122,7 +122,7 @@ preserves LF source bytes for the reviewed manifest hash, asserts the selected N
 and uploads per-step logs. Push a validation branch under `ci/` to run it without publishing
 `main`; it also runs for `main`, pull requests and manual dispatch.
 
-Both Windows jobs must pass on the candidate before release. These checks exercise real
+All Windows matrix jobs must pass on the candidate before release. These checks exercise real
 named pipes, ACLs, child processes, downloads, concurrent edges, in-flight requests, automatic
 activation, crashes and rollback. They do not establish installed Codex/Claude desktop behavior,
 and do not change the Windows limitations of the separate profile/host-context/bridge harnesses.
