@@ -18,14 +18,18 @@ import {
   McpError,
   ResultSchema
 } from '@modelcontextprotocol/sdk/types.js'
+import { setTimeout as delay } from 'node:timers/promises'
 import { isDeepStrictEqual } from 'node:util'
 
 import { runtimeContract } from '../scripts/runtime-contract.mjs'
 import { ClientBindingUpdateSchema, type ClientBindingUpdate } from './client-binding'
+import { isRuntimeUnavailable, unavailable } from './runtime-prototype/protocol'
 
 export interface StableEdgeOptions {
   version: string
   requestTimeoutMs: number
+  /** Retain only requests that the runtime has explicitly not dispatched. */
+  runtimeWaitMs?: number
   open: (initialize: InitializeRequest, signal: AbortSignal) => Promise<Transport>
   register?: (client: Client) => Promise<void>
   onBinding?: (binding: ClientBindingUpdate) => void
@@ -92,6 +96,8 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
   let failure: Error | undefined
   let bufferedBytes = 0
   const buffered: JSONRPCMessage[] = []
+  let waitingRequests = 0
+  let waitingBytes = 0
   let resolveClosed: (error?: Error) => void
   const closed = new Promise<Error | undefined>((resolve) => (resolveClosed = resolve))
 
@@ -106,12 +112,13 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
   function forward(
     target: Client | Server,
     request: Request,
-    extra: RequestHandlerExtra<Request, Notification>
+    extra: RequestHandlerExtra<Request, Notification>,
+    timeout = options.requestTimeoutMs
   ) {
     const progressToken = request.params?._meta?.progressToken
     return target.request(request, ResultSchema, {
       signal: extra.signal,
-      timeout: options.requestTimeoutMs,
+      timeout,
       ...(progressToken !== undefined
         ? {
             onprogress: (progress) => {
@@ -127,12 +134,50 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
     })
   }
 
-  function unavailable() {
-    return new McpError(
-      -32001,
-      'Runtime switching or recovery is in progress; this call was not dispatched.',
-      { code: 'MCP_RUNTIME_UNAVAILABLE', dispatched: false }
-    )
+  async function forwardToRuntime(
+    request: Request,
+    extra: RequestHandlerExtra<Request, Notification>
+  ) {
+    const started = performance.now()
+    const deadline = started + options.requestTimeoutMs
+    const waitUntil = Math.min(deadline, started + (options.runtimeWaitMs ?? 0))
+    const signal = AbortSignal.any([extra.signal, lifetime.signal])
+    let retainedBytes = 0
+    let rejection: unknown = unavailable()
+    try {
+      for (;;) {
+        signal.throwIfAborted()
+        if (performance.now() >= deadline || (retainedBytes && performance.now() >= waitUntil))
+          throw rejection
+        const target = backend
+        if (target) {
+          try {
+            return await forward(target, request, extra, Math.max(1, deadline - performance.now()))
+          } catch (error) {
+            // A dropped connection or any uncertain result may follow a write.
+            // Only the transport's explicit pre-dispatch rejection permits retry.
+            if (!isRuntimeUnavailable(error)) throw error
+            rejection = error
+          }
+        }
+        const remaining = waitUntil - performance.now()
+        if (remaining <= 0) throw rejection
+        if (!retainedBytes) {
+          const bytes = Buffer.byteLength(JSON.stringify(request))
+          if (waitingRequests >= 64 || waitingBytes + bytes > STDIO_DEFAULT_MAX_BUFFER_SIZE)
+            throw unavailable('Runtime wait buffer is full; this call was not dispatched.')
+          waitingRequests++
+          waitingBytes += bytes
+          retainedBytes = bytes
+        }
+        await delay(Math.min(50, remaining), undefined, { signal })
+      }
+    } finally {
+      if (retainedBytes) {
+        waitingRequests--
+        waitingBytes -= retainedBytes
+      }
+    }
   }
 
   async function openBackend(request: InitializeRequest) {
@@ -236,10 +281,7 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
         if (!page) throw new McpError(ErrorCode.InvalidParams, 'Unknown tool catalog cursor.')
         return structuredClone(page)
       })
-      server.fallbackRequestHandler = (request, extra) => {
-        if (!backend) throw unavailable()
-        return forward(backend, request, extra)
-      }
+      server.fallbackRequestHandler = forwardToRuntime
       server.fallbackNotificationHandler = async (notification) => {
         if (!backend) throw unavailable()
         await backend.notification(notification)

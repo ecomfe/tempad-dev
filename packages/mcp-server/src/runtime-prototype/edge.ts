@@ -131,7 +131,7 @@ export async function startPrototypeEdge(
     await control!.request(
       {
         method: 'tempad/runtime-ready',
-        params: { hubId: grant!.hubId, ...(error ? { error } : {}) }
+        params: { hubId: grant!.hubId, waitForRuntime: true, ...(error ? { error } : {}) }
       },
       ResultSchema,
       { timeout: 5000, signal: lifetime }
@@ -288,6 +288,7 @@ export async function startPrototypeEdge(
       : {}),
     version: PACKAGE_VERSION,
     requestTimeoutMs,
+    runtimeWaitMs: 10_000,
     onError: (error) => process.stderr.write(`Runtime edge: ${error.message}\n`),
     onBinding: (binding) => {
       claudeHintRetired = true

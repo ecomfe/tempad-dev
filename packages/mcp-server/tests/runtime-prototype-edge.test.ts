@@ -84,10 +84,16 @@ async function fixture(
     sockets.add(socket)
     const peer = new ControlPeer()
     controls.push(peer)
-    peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-ready') }), () => {
-      ready++
-      return {}
-    })
+    peer.setRequestHandler(
+      z.object({
+        method: z.literal('tempad/runtime-ready'),
+        params: z.object({ waitForRuntime: z.literal(true) })
+      }),
+      () => {
+        ready++
+        return {}
+      }
+    )
     peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-refresh') }), () => ({
       version: CONTROL_VERSIONS[0],
       generation: state.generation,

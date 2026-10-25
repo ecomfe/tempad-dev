@@ -4,6 +4,7 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { STDIO_DEFAULT_MAX_BUFFER_SIZE } from '@modelcontextprotocol/sdk/shared/stdio.js'
 import {
   ErrorCode,
   ListToolsRequestSchema,
@@ -12,14 +13,19 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { RuntimeDataTransport } from '../src/runtime-prototype/protocol'
 import { startStableEdge, type StableEdgeOptions } from '../src/stable-edge'
 
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((close) => close()))
+  vi.restoreAllMocks()
 })
 
-async function fixture(overrides: Partial<StableEdgeOptions> = {}) {
+async function fixture(
+  overrides: Partial<StableEdgeOptions> = {},
+  admit?: (generation: number, method?: string) => boolean
+) {
   const [clientTransport, hostTransport] = InMemoryTransport.createLinkedPair()
   const [edgeTransport, runtimeTransport] = InMemoryTransport.createLinkedPair()
   const runtime = new Server(
@@ -38,9 +44,21 @@ async function fixture(overrides: Partial<StableEdgeOptions> = {}) {
     ]
   }))
   runtime.setRequestHandler(ListToolsRequestSchema, list)
-  await runtime.connect(runtimeTransport)
+  await runtime.connect(
+    admit
+      ? new RuntimeDataTransport(runtimeTransport, { generation: () => 1, role: 'hub', admit })
+      : runtimeTransport
+  )
   const error = vi.fn()
-  const open = vi.fn(async () => edgeTransport)
+  const open = vi.fn(async () =>
+    admit
+      ? new RuntimeDataTransport(edgeTransport, {
+          generation: () => 1,
+          role: 'edge',
+          admit: () => true
+        })
+      : edgeTransport
+  )
   const binding = vi.fn()
   const edge = await startStableEdge(hostTransport, {
     version: '1',
@@ -109,6 +127,138 @@ describe('stable MCP edge', () => {
       expect(f.client.getInstructions()).toBe('Original guidance.')
     }
     expect(register).toHaveBeenCalledTimes(4)
+  })
+
+  it('waits through a short backend replacement while keeping the catalog available', async () => {
+    const f = await fixture({ runtimeWaitMs: 1000 })
+    await f.connect()
+    const catalog = await f.client.listTools()
+    await f.runtime.close()
+    const pending = f.client.request({ method: 'fixture/write' }, ResultSchema)
+    const writes = vi.fn(async () => ({ completed: true }))
+    const next = await replacement(f)
+    next.fallbackRequestHandler = writes
+    expect(await f.client.listTools()).toEqual(catalog)
+    await f.edge.replaceBackend()
+    expect(await pending).toEqual({ completed: true })
+    expect(writes).toHaveBeenCalledOnce()
+  })
+
+  it('waits only after transport-level rejection and dispatches a queued write once', async () => {
+    let gated = false
+    const f = await fixture({ runtimeWaitMs: 1000 }, () => !gated)
+    const writes = vi.fn(async () => ({ completed: true }))
+    f.runtime.fallbackRequestHandler = writes
+    await f.connect()
+    gated = true
+    const pending = f.client.request({ method: 'fixture/write' }, ResultSchema)
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(writes).not.toHaveBeenCalled()
+    gated = false
+    expect(await pending).toEqual({ completed: true })
+    expect(writes).toHaveBeenCalledOnce()
+  })
+
+  it.each(['cancel', 'close'] as const)(
+    'never dispatches a waiting request after host %s',
+    async (reason) => {
+      const f = await fixture({ runtimeWaitMs: 1000 })
+      await f.connect()
+      await f.runtime.close()
+      const abort = new AbortController()
+      const pending = f.client.request({ method: 'fixture/write' }, ResultSchema, {
+        signal: abort.signal
+      })
+      const rejected = expect(pending).rejects.toThrow()
+      if (reason === 'cancel') abort.abort()
+      else await f.client.close()
+      await rejected
+      if (reason === 'cancel') {
+        const next = await replacement(f)
+        const writes = vi.fn(async () => ({}))
+        next.fallbackRequestHandler = writes
+        await f.edge.replaceBackend()
+        await new Promise((resolve) => setTimeout(resolve, 60))
+        expect(writes).not.toHaveBeenCalled()
+      }
+    }
+  )
+
+  it.each([
+    { runtimeWaitMs: 80, requestTimeoutMs: 1000 },
+    { runtimeWaitMs: 1000, requestTimeoutMs: 80 }
+  ])('bounds waiting by both recovery and request deadlines: %o', async (options) => {
+    const f = await fixture(options)
+    await f.connect()
+    await f.runtime.close()
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(0)
+    const pending = f.client.request({ method: 'fixture/write' }, ResultSchema)
+    const rejected = expect(pending).rejects.toMatchObject({
+      data: { code: 'MCP_RUNTIME_UNAVAILABLE', dispatched: false }
+    })
+    await vi.waitFor(() => expect(clock).toHaveBeenCalled())
+    clock.mockReturnValue(80)
+    await rejected
+    clock.mockRestore()
+    const next = await replacement(f)
+    const writes = vi.fn(async () => ({}))
+    next.fallbackRequestHandler = writes
+    await f.edge.replaceBackend()
+    expect(writes).not.toHaveBeenCalled()
+  })
+
+  it.each(['error', 'closed'] as const)(
+    'never retries an uncertain dispatched result: %s',
+    async (result) => {
+      const f = await fixture({ runtimeWaitMs: 1000 })
+      const writes = vi.fn(async () => {
+        if (result === 'closed') await f.runtime.close()
+        throw new McpError(-32001, 'Uncertain result.', {
+          code: 'MCP_RUNTIME_UNAVAILABLE',
+          dispatched: true
+        })
+      })
+      f.runtime.fallbackRequestHandler = writes
+      await f.connect()
+      await expect(f.client.request({ method: 'fixture/write' }, ResultSchema)).rejects.toThrow()
+      expect(writes).toHaveBeenCalledOnce()
+      expect(f.open).toHaveBeenCalledOnce()
+    }
+  )
+
+  it('bounds retained request count and releases cancelled waiters', async () => {
+    const f = await fixture({ runtimeWaitMs: 1000 })
+    await f.connect()
+    await f.runtime.close()
+    const abort = new AbortController()
+    const pending = Array.from({ length: 64 }, () =>
+      f.client.request({ method: 'fixture/write' }, ResultSchema, { signal: abort.signal })
+    )
+    const settled = Promise.allSettled(pending)
+    await expect(f.client.request({ method: 'fixture/overflow' }, ResultSchema)).rejects.toThrow(
+      'Runtime wait buffer is full'
+    )
+    abort.abort()
+    await settled
+    const next = await replacement(f)
+    const writes = vi.fn(async () => ({}))
+    next.fallbackRequestHandler = writes
+    const retry = f.client.request({ method: 'fixture/write' }, ResultSchema)
+    await f.edge.replaceBackend()
+    await retry
+    expect(writes).toHaveBeenCalledOnce()
+  })
+
+  it('bounds retained request bytes independently of request count', async () => {
+    const f = await fixture({ runtimeWaitMs: 1000 })
+    await f.connect()
+    await f.runtime.close()
+    await expect(
+      f.client.request(
+        { method: 'fixture/write', params: { text: 'x'.repeat(STDIO_DEFAULT_MAX_BUFFER_SIZE) } },
+        ResultSchema
+      )
+    ).rejects.toThrow('Runtime wait buffer is full')
   })
 
   it('fails lost writes once, rejects calls during replacement, and preserves the session after a rejected candidate', async () => {
