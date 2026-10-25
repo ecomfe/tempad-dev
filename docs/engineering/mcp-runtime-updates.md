@@ -353,8 +353,12 @@ running -> checking -> staged -> draining -> switching -> verifying -> running
 
 1. **Stage while serving.** Download and self-test without disturbing the current Hub.
 2. **Close admission globally.** Acquire the update lock, pin the connected-client
-   compatibility set, and fence new work in the supervisor and old Hub. Newly connecting
-   edges join this gate. MCP ping and cached tool listing remain available. New business
+   compatibility set, and fence new work in the supervisor and old Hub. Each edge first
+   pauses local dispatch and acknowledges completion of requests already sent; closing
+   the Hub gate alone can lose a pre-dispatch rejection when its data socket exits.
+   Edges without this handshake defer switching. Newly connecting edges join the gate,
+   and an aborted switch resumes the original edges. MCP ping and cached tool listing remain
+   available. New business
    calls wait in a bounded edge buffer for at most ten seconds, within the original request
    deadline. Only explicit pre-dispatch rejection can be retried; unknown outcomes and socket
    failures are not replayed. Host cancellation and closure discard waiting requests. Each edge

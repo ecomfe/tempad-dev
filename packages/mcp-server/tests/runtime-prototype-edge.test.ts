@@ -190,6 +190,7 @@ async function fixture(
     calls,
     notifications,
     publishData,
+    disconnectData: () => runtimes.at(-1)!.close(),
     publishBinding: async (binding: ClientBindingUpdate) => {
       const runtime = runtimes.at(-1)!
       await runtime.notification({ method: 'notifications/tempad/client-binding', params: binding })
@@ -216,6 +217,56 @@ async function fixture(
     exitCode
   }
 }
+
+it.skipIf(process.platform === 'win32')(
+  'keeps its admission barrier across same-Hub data reconnection until its owner resumes it',
+  async () => {
+    const { client, connect, controls, calls, disconnectData, initialized } = await fixture()
+    await connect()
+    const owner = controls.at(-1)!
+    await owner.request(
+      { method: 'tempad/runtime-admission', params: { hubId: state.hubId, paused: true } },
+      ResultSchema
+    )
+    const pending = client.request({ method: 'fixture/write' }, ResultSchema)
+    await disconnectData()
+    await vi.waitFor(() => expect(initialized()).toBe(2))
+    await expect(
+      owner.request(
+        { method: 'tempad/runtime-admission', params: { hubId: randomUUID(), paused: false } },
+        ResultSchema
+      )
+    ).rejects.toMatchObject({ data: { dispatched: false } })
+    expect(calls).not.toHaveBeenCalled()
+    await owner.request(
+      { method: 'tempad/runtime-admission', params: { hubId: state.hubId, paused: false } },
+      ResultSchema
+    )
+    expect(await pending).toMatchObject({ structuredContent: { received: true } })
+    expect(calls).toHaveBeenCalledOnce()
+  }
+)
+
+it.skipIf(process.platform === 'win32').each(['control', 'backend'] as const)(
+  'releases an old admission barrier after a verified %s replacement',
+  async (kind) => {
+    const { client, connect, controls, calls, registrations, replaceHub } = await fixture()
+    await connect()
+    await controls
+      .at(-1)!
+      .request(
+        { method: 'tempad/runtime-admission', params: { hubId: state.hubId, paused: true } },
+        ResultSchema
+      )
+    const pending = client.request({ method: 'fixture/write' }, ResultSchema)
+    if (kind === 'control') {
+      await controls.at(-1)!.close()
+      await vi.waitFor(() => expect(registrations).toHaveLength(2))
+    } else await replaceHub()
+    expect(await pending).toMatchObject({ structuredContent: { received: true } })
+    expect(calls).toHaveBeenCalledOnce()
+  }
+)
 
 it.skipIf(process.platform === 'win32')(
   'reattaches control without reinitializing MCP, inheriting another host or replaying tools',

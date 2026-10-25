@@ -159,6 +159,98 @@ describe('stable MCP edge', () => {
     expect(writes).toHaveBeenCalledOnce()
   })
 
+  it('acknowledges an admission pause only after forwarded attempts settle, excluding queued calls', async () => {
+    const f = await fixture({ runtimeWaitMs: 2000 })
+    const result = Promise.withResolvers<{ completed: boolean }>()
+    const original = vi.fn(() => result.promise)
+    f.runtime.fallbackRequestHandler = original
+    await f.connect()
+    const sent = f.client.request({ method: 'fixture/write' }, ResultSchema)
+    await vi.waitFor(() => expect(original).toHaveBeenCalledOnce())
+    const acknowledged = vi.fn()
+    const barrier = f.edge.pause(new AbortController().signal).then(acknowledged)
+    const queued = f.client.request({ method: 'fixture/write' }, ResultSchema)
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(acknowledged).not.toHaveBeenCalled()
+    expect(original).toHaveBeenCalledOnce()
+    result.resolve({ completed: true })
+    expect(await sent).toEqual({ completed: true })
+    await barrier
+    expect(acknowledged).toHaveBeenCalledOnce()
+    const next = await replacement(f)
+    const writes = vi.fn(async () => ({ replaced: true }))
+    next.fallbackRequestHandler = writes
+    await f.edge.replaceBackend()
+    expect(writes).not.toHaveBeenCalled()
+    f.edge.resume()
+    expect(await queued).toEqual({ replaced: true })
+    expect(writes).toHaveBeenCalledOnce()
+  })
+
+  it('waits for a gated rejection reply before allowing the old endpoint to close', async () => {
+    let gated = false
+    const f = await fixture({ runtimeWaitMs: 2000 }, () => !gated)
+    const writes = vi.fn(async () => ({ original: true }))
+    f.runtime.fallbackRequestHandler = writes
+    await f.connect()
+    const reply = Promise.withResolvers<void>()
+    const held = Promise.withResolvers<void>()
+    const send = f.runtimeTransport.send.bind(f.runtimeTransport)
+    vi.spyOn(f.runtimeTransport, 'send').mockImplementation(async (frame, options) => {
+      if ('params' in frame && (frame.params?.message as { error?: unknown })?.error) {
+        held.resolve()
+        await reply.promise
+      }
+      await send(frame, options)
+    })
+    gated = true
+    const pending = f.client.request({ method: 'fixture/write' }, ResultSchema)
+    await held.promise
+    const acknowledged = vi.fn()
+    const barrier = f.edge.pause(new AbortController().signal).then(acknowledged)
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(acknowledged).not.toHaveBeenCalled()
+    expect(writes).not.toHaveBeenCalled()
+    reply.resolve()
+    await barrier
+    await f.runtime.close()
+    const next = await replacement(f)
+    const replacementWrites = vi.fn(async () => ({ replaced: true }))
+    next.fallbackRequestHandler = replacementWrites
+    await f.edge.replaceBackend()
+    f.edge.resume()
+    expect(await pending).toEqual({ replaced: true })
+    expect(writes).not.toHaveBeenCalled()
+    expect(replacementWrites).toHaveBeenCalledOnce()
+  })
+
+  it('cancels barrier waiting without cancelling an already forwarded write or reviving a cancelled queued call', async () => {
+    const f = await fixture({ runtimeWaitMs: 2000 })
+    const result = Promise.withResolvers<Record<string, unknown>>()
+    const writes = vi.fn(() => result.promise)
+    f.runtime.fallbackRequestHandler = writes
+    await f.connect()
+    const sent = f.client.request({ method: 'fixture/write' }, ResultSchema)
+    await vi.waitFor(() => expect(writes).toHaveBeenCalledOnce())
+    const cancellation = new AbortController()
+    const barrier = f.edge.pause(cancellation.signal)
+    const rejected = expect(barrier).rejects.toThrow('cancel barrier')
+    cancellation.abort(new Error('cancel barrier'))
+    await rejected
+    const queuedCancellation = new AbortController()
+    const queued = f.client.request({ method: 'fixture/write' }, ResultSchema, {
+      signal: queuedCancellation.signal
+    })
+    const queuedRejected = expect(queued).rejects.toThrow()
+    queuedCancellation.abort()
+    await queuedRejected
+    result.resolve({ completed: true })
+    expect(await sent).toEqual({ completed: true })
+    f.edge.resume()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(writes).toHaveBeenCalledOnce()
+  })
+
   it.each(['cancel', 'close'] as const)(
     'never dispatches a waiting request after host %s',
     async (reason) => {

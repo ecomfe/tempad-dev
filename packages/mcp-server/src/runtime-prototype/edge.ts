@@ -61,6 +61,7 @@ export async function startPrototypeEdge(
   let frozenEpoch: number | undefined
   let claudeBinding: ClaudeBinding | undefined
   let claudeHintRetired = false
+  let pausedBy: { peer: ControlPeer; hubId: string } | undefined
   const runtimeConfig = getMcpServerConfig()
   const requestTimeoutMs = Math.max(
     REQUEST_TIMEOUT_MS,
@@ -102,6 +103,26 @@ export async function startPrototypeEdge(
       const previous = control
       control = peer
       ready = true
+      peer.setRequestHandler(
+        z.object({
+          method: z.literal('tempad/runtime-admission'),
+          params: z.object({ hubId: z.uuid(), paused: z.boolean() })
+        }),
+        async ({ params }, extra) => {
+          if (control !== peer || params.hubId !== grant?.hubId || !edge)
+            throw unavailable('Stale runtime admission barrier.')
+          if (params.paused) {
+            pausedBy = { peer, hubId: params.hubId }
+            await edge.pause(extra.signal)
+          } else {
+            pausedBy = undefined
+            edge.resume()
+          }
+          if (control !== peer || params.hubId !== grant?.hubId)
+            throw unavailable('Runtime admission owner changed.')
+          return {}
+        }
+      )
       peer.setNotificationHandler(
         z.object({
           method: z.literal('notifications/tempad/runtime-replaced'),
@@ -111,7 +132,10 @@ export async function startPrototypeEdge(
           grant = params
           ready = true
           if (backendHubId && (backendLost || backendHubId !== params.hubId)) void replaceBackend()
-          else if (backendHubId) await acknowledgeReady()
+          else if (backendHubId) {
+            await acknowledgeReady()
+            resumeVerified()
+          }
         }
       )
       peer.onclose = () => {
@@ -121,18 +145,33 @@ export async function startPrototypeEdge(
       }
       await previous?.close()
       if (backendHubId && (backendLost || backendHubId !== next.hubId)) void replaceBackend()
-      else if (backendHubId) await acknowledgeReady()
+      else if (backendHubId) {
+        await acknowledgeReady()
+        resumeVerified()
+      }
     } catch (error) {
       await peer.close()
       throw error
     }
   }
 
+  function resumeVerified() {
+    // Reconnecting data to the same owner must not undo its active barrier.
+    if (pausedBy && pausedBy.peer === control && pausedBy.hubId === backendHubId) return
+    pausedBy = undefined
+    edge?.resume()
+  }
+
   async function acknowledgeReady(error?: string) {
     await control!.request(
       {
         method: 'tempad/runtime-ready',
-        params: { hubId: grant!.hubId, waitForRuntime: true, ...(error ? { error } : {}) }
+        params: {
+          hubId: grant!.hubId,
+          waitForRuntime: true,
+          admissionBarrier: true,
+          ...(error ? { error } : {})
+        }
       },
       ResultSchema,
       { timeout: 5000, signal: lifetime }
@@ -306,6 +345,7 @@ export async function startPrototypeEdge(
       backendHubId = openingHubId
       backendLost = false
       await acknowledgeReady()
+      resumeVerified()
     },
     open: async (_initialize, hostSignal) => {
       lifetime = hostSignal

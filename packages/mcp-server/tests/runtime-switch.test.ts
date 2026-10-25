@@ -151,6 +151,9 @@ async function fixture(
   let busyOnGate = false
   let refuseStop = false
   let waitForRuntime = true
+  let admissionBarrier = true
+  let onPause: ((signal: AbortSignal) => Promise<void>) | undefined
+  const admissions: boolean[] = []
   const hubs: { pid: number; stop: (exiting?: boolean) => Promise<void>; artifact: Artifact }[] = []
   const launches = new Set<Promise<void>>()
   const launchFailures: unknown[] = []
@@ -277,6 +280,7 @@ async function fixture(
         params: {
           hubId,
           ...(waitForRuntime ? { waitForRuntime: true } : {}),
+          ...(admissionBarrier ? { admissionBarrier: true } : {}),
           ...(peerFailure ? { error: 'Frozen contract mismatch' } : {})
         }
       },
@@ -287,6 +291,17 @@ async function fixture(
     async ({ params }) => {
       await ready(params.hubId)
       peerFailure = false
+    }
+  )
+  edge.setRequestHandler(
+    z.object({
+      method: z.literal('tempad/runtime-admission'),
+      params: z.object({ paused: z.boolean() })
+    }),
+    async ({ params }, extra) => {
+      admissions.push(params.paused)
+      if (params.paused) await onPause?.(extra.signal)
+      return {}
     }
   )
   const grant = await edge.request(
@@ -311,6 +326,14 @@ async function fixture(
     b,
     hubs,
     control,
+    admissions,
+    pauseWith: (handler: (signal: AbortSignal) => Promise<void>) => {
+      onPause = handler
+    },
+    oldAdmission: async () => {
+      admissionBarrier = false
+      await ready(grant.hubId)
+    },
     update: () =>
       control.request(
         { method: 'tempad/runtime-update', params: { entry: b.entry } },
@@ -352,6 +375,55 @@ async function fixture(
     }
   }
 }
+
+it('waits for every edge admission barrier before gating or retiring the old Hub', async () => {
+  const f = await fixture()
+  const barrier = Promise.withResolvers<void>()
+  f.pauseWith(() => barrier.promise)
+  const update = f.update()
+  await vi.waitFor(() => expect(f.admissions).toEqual([true]))
+  expect(await f.status()).toMatchObject({ phase: 'committed', active: f.a, gated: false })
+  expect(f.hubs).toHaveLength(1)
+  barrier.resolve()
+  expect(await update).toMatchObject({ status: 'activated', version: f.b.version })
+})
+
+it('releases paused edges and keeps the old writer when admission fails', async () => {
+  const f = await fixture()
+  f.pauseWith(async () => {
+    throw new Error('Pause could not be established')
+  })
+  expect(await f.update()).toMatchObject({ status: 'staged' })
+  expect(f.admissions).toEqual([true, false])
+  expect(f.hubs).toHaveLength(1)
+  expect(await f.status()).toMatchObject({ active: f.a, gated: false })
+})
+
+it('does not restart the drain budget after an admission barrier uses it up', async () => {
+  const f = await fixture()
+  const now = Date.now()
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
+  f.pauseWith(async () => {
+    clock.mockReturnValue(now + 10_001)
+  })
+  expect(await f.update()).toMatchObject({
+    status: 'staged',
+    reason: expect.stringContaining('drain deadline expired')
+  })
+  clock.mockRestore()
+  expect(f.admissions).toEqual([true, false])
+  expect(f.hubs).toHaveLength(1)
+  expect(await f.status()).toMatchObject({ active: f.a, gated: false })
+})
+
+it('requires explicit barrier support before switching an older edge', async () => {
+  const f = await fixture()
+  await f.oldAdmission()
+  await expect(f.update()).rejects.toThrow('safe backend replacement support')
+  expect(f.admissions).toEqual([])
+  expect(f.hubs).toHaveLength(1)
+  expect(fake.probe).not.toHaveBeenCalled()
+})
 
 it('automatically replaces a compatible idle runtime once', async () => {
   const f = await fixture(undefined, true)

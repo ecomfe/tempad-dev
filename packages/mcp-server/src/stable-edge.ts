@@ -98,6 +98,8 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
   const buffered: JSONRPCMessage[] = []
   let waitingRequests = 0
   let waitingBytes = 0
+  let paused = false
+  const forwarded = new Set<Promise<unknown>>()
   let resolveClosed: (error?: Error) => void
   const closed = new Promise<Error | undefined>((resolve) => (resolveClosed = resolve))
 
@@ -107,6 +109,27 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
     buffered.length = 0
     await Promise.allSettled([backend?.close(), server?.close(), host.close()])
     resolveClosed(failure)
+  }
+
+  async function pause(signal: AbortSignal) {
+    signal = AbortSignal.any([signal, lifetime.signal])
+    signal.throwIfAborted()
+    paused = true
+    // Only attempts already sent to the backend participate. Locally queued
+    // calls must remain queued until this barrier is released.
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => reject(signal.reason)
+      signal.addEventListener('abort', abort, { once: true })
+      void Promise.allSettled([...forwarded]).then(() => {
+        signal.removeEventListener('abort', abort)
+        resolve()
+      })
+      if (signal.aborted) abort()
+    })
+  }
+
+  function resume() {
+    paused = false
   }
 
   function forward(
@@ -150,9 +173,20 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
         if (performance.now() >= deadline || (retainedBytes && performance.now() >= waitUntil))
           throw rejection
         const target = backend
-        if (target) {
+        if (target && !paused) {
           try {
-            return await forward(target, request, extra, Math.max(1, deadline - performance.now()))
+            const attempt = forward(
+              target,
+              request,
+              extra,
+              Math.max(1, deadline - performance.now())
+            )
+            forwarded.add(attempt)
+            try {
+              return await attempt
+            } finally {
+              forwarded.delete(attempt)
+            }
           } catch (error) {
             // A dropped connection or any uncertain result may follow a write.
             // Only the transport's explicit pre-dispatch rejection permits retry.
@@ -346,5 +380,5 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
     } else buffered.push(message)
   }
   await host.start()
-  return { close, closed, replaceBackend }
+  return { close, closed, replaceBackend, pause, resume }
 }

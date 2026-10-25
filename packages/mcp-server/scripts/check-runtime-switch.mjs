@@ -11,7 +11,7 @@ import { execFile } from 'node:child_process'
 import console from 'node:console'
 import { createHash, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { connect, createServer } from 'node:net'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -70,6 +70,18 @@ async function artifact(version, incompatible = false) {
             return JSON.stringify({ ...manifest, version })
         },
         transform(code, id) {
+          if (resolve(id) === join(packageRoot, 'src/runtime-prototype/edge.ts')) {
+            const boundary = 'await edge.pause(extra.signal)'
+            assert.ok(code.includes(boundary), 'fixture edge admission boundary changed')
+            return code.replace(
+              boundary,
+              `const { writeFileSync } = await import('node:fs')
+            const { join } = await import('node:path')
+            const paused = edge.pause(extra.signal)
+            writeFileSync(join(config.root, 'test-admission-paused-' + registration.sessionId), '')
+            await paused`
+            )
+          }
           if (
             version === '0.11.1' &&
             resolve(id) === join(packageRoot, 'src/runtime-prototype/run.ts')
@@ -448,7 +460,7 @@ async function scenario(a, b, mode, incompatible) {
       await lost
     }
     const hooks = []
-    const stopAtGate = mode !== 'normal' && mode !== 'orphan'
+    const stopDuringPause = mode !== 'normal' && mode !== 'orphan'
     let portBarrier
     let newEdge
     if (mode === 'initial-attach') {
@@ -494,8 +506,10 @@ async function scenario(a, b, mode, incompatible) {
     await writeFile(join(root, 'test-release-drain'), '')
     if (mode !== 'orphan') {
       await updateBoundary(
-        async () => (await rpc(root, 'tempad/runtime-status')).gated,
-        'drain gate'
+        async () =>
+          (await readdir(root)).filter((name) => name.startsWith('test-admission-paused-'))
+            .length === 2,
+        'edge admission pause'
       )
       const count = calls.length
       await assert.rejects(
@@ -512,7 +526,7 @@ async function scenario(a, b, mode, incompatible) {
       }
       hooks.push(hook)
       await rpc(root, 'tempad/client-hook', hook, 'run/mcp.sock')
-      if (stopAtGate) {
+      if (stopDuringPause) {
         const requestId = randomUUID()
         extension.send(
           JSON.stringify({
@@ -529,13 +543,16 @@ async function scenario(a, b, mode, incompatible) {
                 frame.result.requestId === requestId &&
                 frame.result.status === 'delivered'
             ),
-          'Stop during drain'
+          'Stop during admission pause'
         )
       }
       extension.send(JSON.stringify({ type: 'toolResult', id: held.id, payload: written }))
       assert.ok(!(await lost).isError)
       if (upload) {
-        const pending = await rpc(root, 'tempad/runtime-status')
+        const pending = await updateBoundary(async () => {
+          const state = await rpc(root, 'tempad/runtime-status')
+          return state.gated && state
+        }, 'Hub drain after edge admission')
         assert.ok(pending.gated && pending.blockers.includes('asset transfers'))
         assert.equal(pending.hubPid, initial.hubPid)
         upload.end(Buffer.from('upload spanning drain').subarray(1))
@@ -614,7 +631,7 @@ async function scenario(a, b, mode, incompatible) {
     const saved = (await record(root, 'state/design-tasks.json')).records.find(
       (value) => value.task.taskId === taskId
     )
-    assert.equal(saved.task.status, mode === 'orphan' || stopAtGate ? 'cancelled' : 'paused')
+    assert.equal(saved.task.status, mode === 'orphan' || stopDuringPause ? 'cancelled' : 'paused')
     if (mode === 'preparing') {
       // The crash precedes shutdown admission. The successor retains the live
       // A Hub and stages B, so the task lease must not change.

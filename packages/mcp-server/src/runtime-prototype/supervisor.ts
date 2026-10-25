@@ -66,6 +66,7 @@ type Edge = {
   ready: boolean
   supportsReplacement?: boolean
   waitForRuntime?: boolean
+  admissionBarrier?: boolean
   error?: string
 }
 
@@ -93,6 +94,7 @@ export async function startSupervisor(config: PrototypeConfig) {
   }
   const peers = new Set<ControlPeer>()
   const edges = new Map<ControlPeer, Edge>()
+  const pausedEdges = new Map<ControlPeer, string>()
   let hub: ControlPeer | undefined
   let lease: Lease | undefined
   let pendingHub:
@@ -183,6 +185,8 @@ export async function startSupervisor(config: PrototypeConfig) {
       )
     if ([...edges.values()].some((edge) => !edge.supportsReplacement))
       reasons.push('An attached MCP client has not finished initialization')
+    if ([...edges.values()].some((edge) => !edge.admissionBarrier))
+      reasons.push('Restart an older MCP client to enable safe runtime handoff')
     return reasons
   }
 
@@ -193,7 +197,10 @@ export async function startSupervisor(config: PrototypeConfig) {
       edges.size > 0 &&
       [...edges.values()].every(
         (edge) =>
-          edge.registration.updates?.policy === 'stable' && edge.waitForRuntime && edge.ready
+          edge.registration.updates?.policy === 'stable' &&
+          edge.waitForRuntime &&
+          edge.admissionBarrier &&
+          edge.ready
       )
     )
   }
@@ -257,12 +264,12 @@ export async function startSupervisor(config: PrototypeConfig) {
       throw unavailable('The Hub is switching or recovering; no call was dispatched.')
     return hub
   }
-  function inspect() {
+  function inspect(timeout = 5000) {
     return requireHub().request({ method: 'tempad/runtime-inspect' }, InspectionSchema, {
-      timeout: 5000
+      timeout
     })
   }
-  async function gate(closed: boolean) {
+  async function gate(closed: boolean, timeout = 5000) {
     if (!closed && (hookFault || hooks?.pending))
       throw unavailable(
         `Lifecycle delivery remains uncertain: ${hookFault ?? 'hooks remain queued'}`
@@ -270,7 +277,7 @@ export async function startSupervisor(config: PrototypeConfig) {
     return requireHub().request(
       { method: 'tempad/runtime-gate', params: { closed } },
       InspectionSchema,
-      { timeout: 5000 }
+      { timeout }
     )
   }
   function publish() {
@@ -508,14 +515,22 @@ export async function startSupervisor(config: PrototypeConfig) {
     }
   }
   async function drain(automatic = false) {
-    const state = await gate(true)
+    const observed = await inspect()
+    const deadline = Math.min(Date.now() + 330_000, observed.deadline)
+    const remaining = () => {
+      const value = deadline - Date.now()
+      if (value <= 0) throw unavailable('Runtime drain deadline expired; switching is deferred.')
+      return Math.min(5000, value)
+    }
+    await pauseEdges(deadline)
+    const state = await gate(true, remaining())
+    remaining()
     if (automatic) {
       const reasons = automaticBlockers(state)
       if (!state.drained || reasons.length)
         throw new Error(`Automatic runtime switch deferred: ${reasons.join(', ')}.`)
       return
     }
-    const deadline = Math.min(Date.now() + 330_000, state.deadline)
     let current = state
     while (!current.drained) {
       if (
@@ -524,8 +539,57 @@ export async function startSupervisor(config: PrototypeConfig) {
       )
         throw new Error(`Runtime switch deferred: ${current.blockers.join(', ')}.`)
       await pause(50)
-      current = await inspect()
+      current = await inspect(remaining())
     }
+    remaining()
+  }
+
+  async function pauseEdges(deadline: number) {
+    if ([...edges.values()].some((edge) => !edge.admissionBarrier))
+      throw new Error('Restart an older MCP client before switching its runtime safely.')
+    const failed = new AbortController()
+    const signal = AbortSignal.any([lifetime.signal, failed.signal])
+    await Promise.allSettled(
+      [...edges.keys()].map(async (peer) => {
+        const hubId = lease!.hubId
+        pausedEdges.set(peer, hubId)
+        try {
+          const remaining = deadline - Date.now()
+          if (remaining <= 0) throw unavailable('Runtime admission barrier deadline expired.')
+          await peer.request(
+            { method: 'tempad/runtime-admission', params: { hubId, paused: true } },
+            ResultSchema,
+            { timeout: remaining, signal }
+          )
+        } catch (error) {
+          if (edges.has(peer)) failed.abort(error)
+        }
+      })
+    )
+    lifetime.signal.throwIfAborted()
+    failed.signal.throwIfAborted()
+  }
+
+  async function resumeEdges() {
+    const pending = [...pausedEdges]
+    pausedEdges.clear()
+    await Promise.all(
+      pending.map(async ([peer, hubId]) => {
+        // A verified replacement or a new control registration releases its own
+        // pause. Only a still-connected old backend needs this abort-path resume.
+        if (!edges.has(peer) || hubId !== lease?.hubId) return
+        try {
+          await peer.request(
+            { method: 'tempad/runtime-admission', params: { hubId, paused: false } },
+            ResultSchema,
+            { timeout: 5000, signal: lifetime.signal }
+          )
+        } catch {
+          // A lost resume reply must recover through a fresh verified registration.
+          await peer.close()
+        }
+      })
+    )
   }
   async function stopHub(automatic = false) {
     const current = lease!
@@ -617,6 +681,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         oldHub: undefined
       })
     await gate(false)
+    await resumeEdges()
   }
 
   async function rollback(error: unknown) {
@@ -726,6 +791,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         await rollback(error)
       } else throw error
     } finally {
+      await resumeEdges()
       transitioning = false
       updates?.schedule()
     }
@@ -746,9 +812,9 @@ export async function startSupervisor(config: PrototypeConfig) {
         { method: 'tempad/runtime-retain', params: { retained: true } },
         ResultSchema
       )
-      if ([...edges.values()].some((edge) => !edge.supportsReplacement))
+      if ([...edges.values()].some((edge) => !edge.supportsReplacement || !edge.admissionBarrier))
         throw new Error(
-          'An attached edge has not confirmed backend replacement support; wait for initialization or restart an older MCP client before switching.'
+          'An attached edge has not confirmed safe backend replacement support; wait for initialization or restart an older MCP client before switching.'
         )
       if (config.release && !released)
         throw new Error('Managed releases accept only a verified staged npm artifact.')
@@ -792,6 +858,7 @@ export async function startSupervisor(config: PrototypeConfig) {
       }
       return { status: 'activated', version: journal.active.version }
     } finally {
+      await resumeEdges()
       transitioning = false
       await hub
         ?.request({ method: 'tempad/runtime-retain', params: { retained: false } }, ResultSchema)
@@ -843,7 +910,8 @@ export async function startSupervisor(config: PrototypeConfig) {
         params: z.object({
           hubId: z.uuid(),
           error: z.string().optional(),
-          waitForRuntime: z.literal(true).optional()
+          waitForRuntime: z.literal(true).optional(),
+          admissionBarrier: z.literal(true).optional()
         })
       }),
       ({ params }) => {
@@ -854,6 +922,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         edge.ready = !params.error
         edge.supportsReplacement = true
         edge.waitForRuntime = params.waitForRuntime === true
+        edge.admissionBarrier = params.admissionBarrier === true
         return {}
       }
     )
