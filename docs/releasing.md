@@ -227,7 +227,8 @@ Legacy/unknown Claude bindings defer switching. Retain the legacy 750 ms hook pa
 only on an explicit unsupported-version reply. The acquisition fixture and Phase 2 fault matrix
 are publication checks, but do not replace Phase 4 installed Codex/Claude acceptance.
 
-Require the [Windows runtime workflow](../.github/workflows/windows-runtime.yml) to pass for the
-candidate on Node 22 and 24 before publishing a manifest that includes `win32`. It exercises real
-ACL checks, named pipes and processes across acquisition, switching and recovery; it does not
-establish Windows desktop-host acceptance. Preserve its logs with the release evidence.
+The publish workflow requires the [Windows runtime workflow](../.github/workflows/windows-runtime.yml)
+to pass all Node 22 and 24 suites at the same commit before publishing a manifest that includes
+`win32`. It exercises real ACL checks, named pipes and processes across acquisition, switching and
+recovery; it does not establish Windows desktop-host acceptance. Preserve its logs with the release
+evidence.

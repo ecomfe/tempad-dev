@@ -114,8 +114,7 @@ export function windowsPowerShellEnvironment(env: NodeJS.ProcessEnv = process.en
 
 // Built-in Windows PowerShell supplies the platform ACL API without an npm/native dependency.
 // JSON stays in a child-only environment value, never executable source or shell arguments.
-// Ignored stdin avoids waiting for EOF from a long-lived MCP stdio session and preserves
-// Unicode paths independently of the Windows console's input code page.
+// Helper input is independent of host stdio and the Windows console's input code page.
 function windowsSecurity(action: 'ensure' | 'inspect' | 'protect', path: string, kind: string) {
   const systemRoot = process.env.SystemRoot
   if (!systemRoot || !isAbsolute(systemRoot))
