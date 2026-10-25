@@ -62,7 +62,8 @@ export async function reinstallInApp(
   }
   // Installation must not proceed until disk state AND stable process exit are verified.
   await afterUninstall()
-  await openPlugin(page)
+  // A local rebuild can leave the open detail page showing the previous manifest.
+  await openPlugin(page, true)
   await main.getByText(version, { exact: true }).waitFor({ state: 'visible' })
   await install.evaluate((element: HTMLElement) => element.click())
   await install.waitFor({ state: 'hidden' })

@@ -95,6 +95,23 @@ describe('plugin UI reinstall ordering (isolated Chromium)', () => {
     expect(afterUninstall).toHaveBeenCalledOnce()
   })
 
+  it('reopens stale local plugin details after verifying runtime exit', async () => {
+    await pluginFixture(false)
+    await page.evaluate((version) => {
+      const displayed = document.querySelector('#detail > p')!
+      displayed.textContent = '0.5.8+codex.previous'
+      document.querySelector('#catalog a')!.addEventListener('click', () => {
+        displayed.textContent = version
+      })
+    }, version)
+    await reinstallInApp(page, version, async () => {
+      expect(await page.locator('#detail > p').textContent()).toBe('0.5.8+codex.previous')
+    })
+    expect(await page.getByRole('button', { name: 'More actions', exact: true }).isVisible()).toBe(
+      true
+    )
+  })
+
   it('returns to plugin details when installation navigates away', async () => {
     await pluginFixture(false, true)
     await reinstallInApp(page, version, async () => {})
