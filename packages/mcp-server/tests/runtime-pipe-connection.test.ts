@@ -30,24 +30,29 @@ beforeEach(() => {
 })
 afterEach(() => vi.useRealTimers())
 
-it('waits for the same-owner default pipe ACL to become private before returning it', async () => {
-  vi.mocked(assertPrivateEndpoint).mockImplementationOnce(() => {
-    throw Object.assign(new Error('not protected yet'), { code: 'EPIPEUNPROTECTED' })
-  })
-  const ready = vi.fn()
-  const connection = connectSocket('\\\\.\\pipe\\test').then((connected) => {
-    ready()
-    connected.write('control secret')
-    return connected
-  })
-  socket.emit('connect')
-  expect(ready).not.toHaveBeenCalled()
-  expect(socket.write).not.toHaveBeenCalled()
-  await vi.advanceTimersByTimeAsync(25)
-  await expect(connection).resolves.toBe(socket)
-  expect(assertPrivateEndpoint).toHaveBeenCalledTimes(2)
-  expect(socket.write).toHaveBeenCalledWith('control secret')
-})
+it.each(['EPIPEUNPROTECTED', 'EBUSY'])(
+  'keeps the same connection while %s resolves, without sending control data',
+  async (code) => {
+    vi.mocked(assertPrivateEndpoint).mockImplementationOnce(() => {
+      throw Object.assign(new Error('not ready yet'), { code })
+    })
+    const ready = vi.fn()
+    const connection = connectSocket('\\\\.\\pipe\\test').then((connected) => {
+      ready()
+      connected.write('control secret')
+      return connected
+    })
+    socket.emit('connect')
+    expect(ready).not.toHaveBeenCalled()
+    expect(assertPrivateEndpoint).not.toHaveBeenCalled()
+    expect(socket.write).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(25)
+    await expect(connection).resolves.toBe(socket)
+    expect(connect).toHaveBeenCalledOnce()
+    expect(assertPrivateEndpoint).toHaveBeenCalledTimes(2)
+    expect(socket.write).toHaveBeenCalledWith('control secret')
+  }
+)
 
 it('rejects a pipe that stays permissive within the existing connection deadline', async () => {
   vi.mocked(assertPrivateEndpoint).mockImplementation(() => {
@@ -67,6 +72,7 @@ it('does not retry foreign owners or unsupported security helpers', async () => 
   })
   const rejected = expect(connectSocket('\\\\.\\pipe\\test')).rejects.toThrow('Unexpected owner')
   socket.emit('connect')
+  await vi.advanceTimersByTimeAsync(0)
   await rejected
   expect(assertPrivateEndpoint).toHaveBeenCalledOnce()
   expect(socket.write).not.toHaveBeenCalled()

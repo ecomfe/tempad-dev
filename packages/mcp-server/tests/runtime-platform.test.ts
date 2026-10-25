@@ -134,7 +134,7 @@ describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
         check()
         await closed
       }
-      await inspect(() => expect(() => assertPrivateEndpoint(path)).toThrow('another account'))
+      await inspect(() => expect(() => assertPrivateEndpoint(path)).toThrow('untrusted'))
       await inspect(() => protectPipe(path))
       await inspect(() => assertPrivateEndpoint(path))
       await new Promise<void>((resolve, reject) => {

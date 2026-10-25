@@ -126,13 +126,16 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
     const timer = setTimeout(() => fail(new Error('Runtime connection timed out.')), 1000)
     socket.once('error', fail)
     const verify = async () => {
+      // The ACL inspector opens a second pipe instance. Let a same-process server
+      // accept this connection and rearm its listener before the blocking inspection.
+      if (isPipe(path)) await delay(0, undefined, { signal })
       while (!socket.destroyed) {
         try {
           if (isPipe(path)) assertPrivateEndpoint(path)
           return
         } catch (error) {
           if (
-            (error as NodeJS.ErrnoException).code !== 'EPIPEUNPROTECTED' ||
+            !['EPIPEUNPROTECTED', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '') ||
             performance.now() >= deadline
           )
             throw error
