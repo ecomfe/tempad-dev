@@ -20,6 +20,7 @@ import config from '../tsdown.config.ts'
 import { runPackageManager } from './package-manager.mjs'
 import { runtimeSourceHash } from './runtime-source-hash.mjs'
 import {
+  FIXTURE_INITIALIZE_TIMEOUT_MS,
   commandArguments,
   fixtureEnvironment,
   fixtureRoot,
@@ -288,7 +289,7 @@ async function client(release, policy = 'off', env = isolationEnv, name = 'relea
   const client = new Client({ name, version: '1' })
   clients.push(client)
   try {
-    await client.connect(transport, { timeout: 60_000 })
+    await client.connect(transport, { timeout: FIXTURE_INITIALIZE_TIMEOUT_MS })
   } catch (error) {
     throw new Error(`${String(error)}\n${diagnostic}`, { cause: error })
   }

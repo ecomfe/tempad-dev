@@ -27,6 +27,7 @@ import { WebSocket } from 'ws'
 import { runtimeEndpoint } from '../src/runtime-platform.ts'
 import config from '../tsdown.prototype.config.ts'
 import {
+  FIXTURE_INITIALIZE_TIMEOUT_MS,
   fixtureEnvironment,
   fixtureNodeArguments,
   fixtureProcesses,
@@ -225,6 +226,7 @@ async function scenario(a, b, mode, incompatible) {
   const root = await fixtureRoot('tp-sw-')
   const clients = []
   const edgePids = []
+  const initializeMs = []
   const claudeStop = mode === 'claude-stop' || mode === 'claude-stop-rollback'
   const claudeSession = randomUUID()
   const claudeTurn = randomUUID()
@@ -247,7 +249,7 @@ async function scenario(a, b, mode, incompatible) {
       timeout: 390000,
       maxBuffer: 4 * 1024 * 1024
     })
-  async function openClient(name, timeout = 15000) {
+  async function openClient(name) {
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: fixtureNodeArguments([a, '--root', root]),
@@ -263,7 +265,9 @@ async function scenario(a, b, mode, incompatible) {
     })
     const client = new Client({ name, version: '1' })
     clients.push(client)
-    await client.connect(transport, { timeout })
+    const started = performance.now()
+    await client.connect(transport, { timeout: FIXTURE_INITIALIZE_TIMEOUT_MS })
+    initializeMs.push(Math.round(performance.now() - started))
     assert.ok(transport.pid)
     edgePids.push(transport.pid)
     return client
@@ -685,6 +689,7 @@ async function scenario(a, b, mode, incompatible) {
       outcome,
       active: settled.active.version,
       initializedClients: clients.length,
+      initializeMs,
       writes: 1
     })
     passed = true
@@ -728,7 +733,7 @@ async function coldAttachment(entry) {
     })
     const client = new Client({ name: 'cold-start', version: '1' })
     clients.push(client)
-    await client.connect(transport, { timeout: 95000 })
+    await client.connect(transport, { timeout: FIXTURE_INITIALIZE_TIMEOUT_MS })
     return { client, pid: transport.pid }
   }
   try {

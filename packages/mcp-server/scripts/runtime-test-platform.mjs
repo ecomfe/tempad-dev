@@ -10,6 +10,10 @@ import { URL } from 'node:url'
 import { platformEnvironment } from '../src/process-environment.ts'
 import { ensurePrivateDirectory, windowsPowerShellEnvironment } from '../src/runtime-platform.ts'
 
+// Initial attachment may use the edge's 90-second recovery budget. Allow five
+// seconds for the SDK exchange without changing any business-request deadline.
+export const FIXTURE_INITIALIZE_TIMEOUT_MS = 95_000
+
 export async function fixtureRoot(prefix) {
   if (process.platform === 'win32') {
     const root = join(tmpdir(), `${prefix}${randomUUID()}`)

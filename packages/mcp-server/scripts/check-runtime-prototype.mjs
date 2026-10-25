@@ -16,6 +16,7 @@ import { WebSocket } from 'ws'
 
 import { runtimeEndpoint } from '../src/runtime-platform.ts'
 import {
+  FIXTURE_INITIALIZE_TIMEOUT_MS,
   fixtureEnvironment,
   fixtureNodeArguments,
   fixtureProcesses as processes,
@@ -90,7 +91,7 @@ async function launch(label) {
   })
   const client = new Client({ name: `prototype-${label}`, version: '1' })
   clients.push(client)
-  await client.connect(transport, { timeout: 15000 })
+  await client.connect(transport, { timeout: FIXTURE_INITIALIZE_TIMEOUT_MS })
   return { client, transport, home }
 }
 function send(message) {
