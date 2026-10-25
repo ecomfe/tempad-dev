@@ -68,6 +68,16 @@ Root:
   `TEMPAD_SWITCH_CASES` selects comma-separated cases for diagnosis; `TEMPAD_KEEP_PROTOTYPE=1`
   retains isolated evidence. It never downloads or updates installed runtimes. Windows and native
   host behavior are outside this harness; CI runs the full matrix on Node 22 and 24.
+- `pnpm mcp:check-runtime-updates` builds complete release archives from the frozen local store,
+  serves them from an isolated loopback registry, and exercises opt-in staging and explicit
+  activation through real CLI/Hub processes. It checks mixed policies sharing one Hub, exact
+  pins, frozen presentation, incompatible epochs, offline operation, corrupt caches, and zero
+  registry requests from checkout builds. Automatic activation stays disabled. CI runs this on
+  Node 22/24; Windows and native host acceptance remain outside this fixture. No installed
+  runtime or public registry is used by the acquisition test.
+- `pnpm mcp:prepare-release --output <absolute-new.tgz> --verify-baseline` builds and verifies
+  the publishable dependency closure and checks the current stable npm baseline. See
+  [release policy](docs/releasing.md#runtime-release-policy) before refreshing the review hash.
 - `pnpm mcp:measure-runtime --output <new.json> --runs 5 [--lockfile <installation-lock>] <package-dir> [...]`
   compares trusted, explicitly supplied local release artifacts in the given version order. It
   performs MCP initialization/catalog reads through fresh CLI/Hub processes and records artifact

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added opt-in verified runtime downloads and explicit version switching on macOS/Linux, with
+  compatibility checks and recovery. Automatic activation stays off; checkout builds never fetch releases.
+
 - Kept potentially running canvas operations blocked across Hub restarts, with verified completion
   and an interactive `--resolve-runtime-block` recovery path that preserves Stop and requires readback.
 

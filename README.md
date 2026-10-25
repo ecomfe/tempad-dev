@@ -104,6 +104,8 @@ For native Codex and Claude marketplace commands and portable Cursor and VS Code
 see the [Agent Plugin guide](./agent-plugin/src/README.md).
 
 All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
+Runtime downloads are optional and activation requires explicit confirmation; see
+[runtime update controls](./packages/mcp-server/README.md#optional-runtime-updates-0120).
 
 See the [upgrade guide](./agent-plugin/src/README.md#upgrading) for minimum versions
 and instructions for updating an existing installation.

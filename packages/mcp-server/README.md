@@ -21,7 +21,33 @@ Requires the TemPad Dev extension, an open panel, and **MCP access** enabled. Ca
 
 For agent-specific setup, open TemPad Dev's **Preferences → Agent integration → Set up agents**. It provides guided paths for Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, and TRAE, plus **Other** for compatible clients not listed.
 
-Supported tools/resources:
+### Optional runtime updates (0.12.0+)
+
+Default installations do not check for or activate runtime updates. On macOS/Linux, add
+`--runtime-updates=stable` after the package argument in your host's MCP configuration to
+enable verified background downloads. The same option applies to plugin-managed and manual
+configurations; checkout builds reject it and never fetch release runtimes. First enrollment
+requires closing all existing TemPad MCP connections once, then restarting them. It preserves
+the release task and asset stores.
+
+In a terminal using the same runtime configuration:
+
+- `npx -y @tempad-dev/mcp@latest --runtime-update-status` shows the active/staged versions and blockers.
+- `npx -y @tempad-dev/mcp@latest --check-runtime-update` checks and stages the latest stable release.
+- `npx -y @tempad-dev/mcp@latest --update-runtime <version>` asks you to confirm the exact version
+  and integrity before switching. Incompatible tool contracts/guidance, unfinished operations,
+  legacy Claude hooks, and attached clients without opt-in prevent activation.
+
+**Automatic activation is disabled.** Downloads and network failures do not replace or stop
+the active Hub. Existing MCP sessions retain their tool descriptions through a compatible switch;
+Figma reconnects and design tasks may require resume/read-back. The running edge and supervisor,
+Node, browser extension, and installed plugin still require their normal upgrade/restart.
+Use `--runtime-updates=off` (or omit the option) to stop background checks when no enrolled
+client remains. To enforce the launch package's exact version, use `--runtime-updates=pinned`
+with a fixed npm version; a conflict reports a restart requirement instead of creating another Hub.
+Windows continues to use the bundled runtime without enrollment.
+
+### Tools and resources
 
 - `get_code`: Tailwind-first JSX/Vue markup plus assets and token references.
 - `get_design_system`: An immutable, deterministic catalog. It returns compact pages of component

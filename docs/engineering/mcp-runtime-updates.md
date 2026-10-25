@@ -1,11 +1,12 @@
 # Updating a running MCP runtime
 
-Status: proposed updater; Phase 0a/0b are implemented and Phase 1 has an isolated bundled-only prototype.
-The installed CLI still uses the existing bridge; automatic updates are not implemented. Design baseline: `74ed70c9`.
+Status: Phases 0–3 are implemented; Phase 4 native acceptance and automatic activation remain pending.
+The default CLI keeps the existing bridge until explicit enrollment. Acquisition is opt-in and
+activation always requires confirmation. Design baseline: `74ed70c9`.
 
 This design is for maintainers implementing runtime updates and preparing compatible
 releases. It owns the proposed process boundary, update transaction, and acceptance
-criteria. [Releasing](../releasing.md) continues to describe the shipped behavior.
+criteria. [Releasing](../releasing.md) owns the implemented artifact and publication policy.
 
 ## Problem and intended experience
 
@@ -203,19 +204,21 @@ to enroll. Existing configurations without the argument keep their current launc
 and add no background acquisition. An edge without opt-in joins the same release Hub but
 defers automatic activation while attached; enrolled edges may still stage a candidate.
 Recheck unanimous consent when closing admission and before commit, including new arrivals.
-Do not switch an exact-version-pinned edge to a different active artifact: report the
+An explicit `--runtime-updates=pinned` edge requires its launch package's version and manifest;
+absence of enrollment is not proof of an npm version pin. Do not switch a pinned edge to a different active artifact: report the
 conflict and required reconnect without starting a competing release Hub.
 This policy controls runtime acquisition; an external `npx` bootstrap
 may still fetch its launch package. Checkout launches use the local Node entry point.
 Build origin, real path, and launch policy are validated together rather than guessing
 from semver, the current directory, or whether `.git` happens to exist.
 
-Once the flag is implemented and published, offer manual enrollment as
+From MCP 0.12.0, offer enrollment as
 `npx -y @tempad-dev/mcp@latest --runtime-updates=stable`, followed by the ordinary one-time
 MCP restart. Keep both root and MCP README languages and the shared installation snippets
 in sync; do not document this as a working command before it ships. Adding the argument
 to the authored plugin manifest requires a stable plugin version increase and regenerated
-targets. Phase 3 still leaves automatic activation disabled regardless of enrollment.
+targets. Phase 3 leaves existing generated plugin and manual setup arguments unchanged: enrollment
+is an explicit host-configuration choice using the same argument, and automatic activation is disabled.
 
 Namespace IPC endpoints, locks, state, assets, activation records, and caches by user
 and profile. Checkout profiles also include a stable hash of the real checkout path.
@@ -294,7 +297,7 @@ Recommended initial defaults, subject to isolated measurement:
   Persist the last check so reconnects and multiple edges do not multiply requests.
 - Only the supervisor checks. A network check never blocks MCP initialization or
   a tool call. Offline operation uses the current verified runtime.
-- Bound metadata requests to ten seconds and installation attempts to two minutes;
+- Bound metadata requests to ten seconds, downloads to two minutes, and the complete acquisition worker to 150 seconds;
   bound response, archive, and extracted sizes. Failure leaves the active runtime intact.
 - Retry failed checks with backoff. Quarantine a failed candidate by version and
   integrity hash rather than attempting the same failing switch in a loop.
@@ -718,8 +721,10 @@ that condition, `--recover-runtime` continues the journal without clearing task 
 The supervisor owns the legacy hook socket while the Hub uses a private data socket. Received
 events enter a durable inbox; task effects and invocation receipts commit together before reply.
 Failed or unconfirmed delivery fences admission. Lost replies can be retried without reapplying
-effects. The prototype bounds each inbox/receipt set at 4,096 identities and fails closed at capacity;
-production retention and receipt-capable plugin rollout remain Phase 3 work. Live legacy Claude
+effects. Each inbox/receipt set is bounded at 4,096 identities and fails closed at capacity.
+Phase 3 adds 24-hour expiry for completed v2 receipts, with a persisted rejection cutoff so
+expired invocations cannot replay even after clock rollback. Incomplete and legacy receipts
+are retained conservatively. Live legacy Claude
 bindings defer even manual switching in this prototype. A legacy hook that exits before its request
 arrives is still unobservable; this implementation does not claim to preserve that event.
 
@@ -757,6 +762,20 @@ process switching and native Codex/Claude acceptance are not claimed by these is
 
 ### Phase 3 — verified release acquisition, activation off by default
 
+Implemented in `src/runtime-update/`, with the Phase 2 transaction shared by the opt-in release
+entry and isolated local harness. The coordinator retains its original edge/supervisor payload,
+current/previous Hub, staged candidate, and interrupted-transaction artifacts. New CLI launches
+use the same release namespace; non-opt-in edges defer switching. Checks run only while enrolled
+edges exist, with persisted backoff and one acquisition worker. Status alone never enrolls a runtime.
+The worker verifies official npm integrity, safe extraction, complete dependency closure, and a
+self-probe before atomic cache publication is eligible for activation. Failed checks leave the
+active Hub available. The release policy is now maintained in [Releasing](../releasing.md#runtime-release-policy).
+
+`mcp:check-runtime-updates` covers real downloads from an isolated local registry, shared ownership,
+explicit activation, preserved session presentation, incompatible epochs, offline operation,
+corrupt caches, and checkout refusal. These process tests do not establish native host acceptance.
+Windows enrollment is disabled. The remaining rollout requirements are:
+
 - Before this phase, publish the backward-compatible hook receiver, then a versioned plugin
   with profile-aware receipt/retry hooks. Allow an installed-plugin upgrade period and verify
   actual capable bindings; an elapsed period or plugin version alone does not establish adoption.
@@ -766,12 +785,10 @@ process switching and native Codex/Claude acceptance are not claimed by these is
   wire hashes, guidance epochs, state compatibility, and failed-candidate quarantine.
 - Show exact reasons for pending updates. Presentation-only safe updates can use frozen
   session text; incompatible guidance/schema changes remain blocked.
-- Implement the authored policy, generated manifest, cumulative guidance review, and CI
-  gates in [Appendix C](#appendix-c-release-policy), then move that implemented policy into
-  [Releasing](../releasing.md).
-  Test skipped releases and epoch changes even when later presentation text reverts.
-- Implement and verify manual/plugin enrollment parity, including pinned launches and conflicting
-  checkout flags. Publish the compatible runtime before updated plugin launch arguments and
+- Maintain the authored policy, generated manifest, cumulative guidance review, and CI
+  gates in [Releasing](../releasing.md#runtime-release-policy). Test skipped releases and epoch
+  changes even when later presentation text reverts.
+- Publish the compatible runtime before updated plugin launch arguments and
   installation guidance; keep the release package specifier at `@tempad-dev/mcp@latest`.
 - Offline starts, sleep/wake, and reconnect storms neither multiply checks nor block tools.
   Checkout runtimes make zero requests even with missing builds or corrupt caches. A release
@@ -938,81 +955,6 @@ Stop, a later turn, and supervisor recovery; Codex remains native-IPC only.
 
 ## Appendix C: Release policy
 
-This policy belongs to the proposal until implemented before Phase 3. It does not describe
-today's build or `publish-mcp.yml`. Move the implemented requirements into
-[Releasing](../releasing.md) at that point, keeping one maintained owner.
-
-### Authorship and release preparation
-
-The MCP release maintainer owns an authored `packages/mcp-server/runtime-policy.json`
-(proposed new source) containing `guidanceEpoch`, `guidanceReview`, and supported control
-protocol versions. Individual PRs flag guidance impact in their review description or a
-label; they do not each edit the release-wide epoch/review record. Include behavior changes
-that affect old instructions even when presentation text is unchanged.
-
-During release preparation, the maintainer aggregates those changes and writes one
-`guidanceReview` for the candidate version. It names the prior stable artifact and records
-the compatible/new-epoch decision and rationale. The release reviewer checks it against
-the complete retained guidance set. A change to the candidate after review requires that
-decision to be revalidated; a copied decision for an older version is insufficient.
-An epoch is not inferred from package semver or a PR label.
-
-The build derives `dist/runtime-manifest.json` from that policy and the built runtime:
-package identity, wire/presentation hashes, guidance epoch, supported protocols, and
-state compatibility. Do not hand-edit generated hashes. Archive the manifest with the
-published artifact's integrity and review reference so skipped-release comparisons use
-the actual packages, not a branch snapshot.
-
-### Guidance and version boundaries
-
-- Keep the epoch only when every previously shipped presentation with that epoch and
-  matching wire contract remains safe and correct for the candidate. Review the retained
-  set of distinct presentations, not just the immediately preceding release.
-- Increase the monotonically growing epoch when old instructions/descriptions require
-  different behavior or omit newly necessary safety steps. Never reuse an old epoch after
-  reverting text or decrement it to make an update eligible.
-- A session compares its frozen wire hash and guidance epoch directly with the candidate.
-  A session on A can skip B and move to C only if those gates match and the other runtime
-  gates pass. If B increased the epoch, C retains that newer epoch even if its text resembles A.
-- Missing declarations or unavailable required historical evidence block automatic
-  eligibility; they are not treated as compatibility. The updater does not infer guidance
-  safety from text diffs. Semantic review remains a human responsibility.
-
-For update policy, a breaking-release boundary is a minor increment before 1.0, the
-transition to 1.0, or a major increment thereafter. For example, 0.11.x → 0.12.0 requires
-explicit approval, while 0.11.0 → 0.11.1 may qualify for automatic activation only after
-all compatibility gates pass. This conservative boundary does not imply that every minor
-release breaks an API. Manual approval still cannot bypass a live session's wire/guidance
-gates or a required coordinated restart.
-
-Approve that boundary through the proposed interactive `--update-runtime <exact-version>`
-command. Approval is scoped to that artifact's version and integrity, not a minor series or
-future releases, and cannot override an attached edge's refusal or other activation gates.
-
-Control-protocol releases must preserve downward negotiation. Support the current and
-previous stable generations once both exist, plus any additional generation until at
-least 90 days after its successor first became stable. Prefer optional capabilities to
-new generations. Removing support requires an explicit migration review at a breaking-release
-boundary as defined above, and must still satisfy that support window. A documented
-security exception must state the affected clients and restart path. There is no routine
-scheduled protocol bump.
-
-### Publication gates
-
-Before publishing an updater-capable artifact to `latest`, CI must verify policy/schema
-completeness, nondecreasing epochs, generated-manifest agreement, the declared baseline,
-and the retained compatibility fixtures. A changed presentation hash without a fresh
-guidance decision for that candidate fails publication; unchanged text does not waive the
-per-release behavior review. Test new edge/old supervisor and old edge/new supervisor for
-every supported control generation, same-epoch updates across skipped releases, and
-rejection across epoch changes. CI enforces declarations and regressions, not prose semantics.
-Release review must separately confirm the cumulative guidance promise.
-
-Before Phase 3, publish the compatible hook receiver followed by the profile-aware,
-receipt/retry plugin payload, with a stable `agent-plugin/src/plugin.json` increase and
-regenerated targets. Adding release update opt-in to plugin launch arguments is also an
-installed-payload change. Publish runtime support before those arguments or new manual
-installation snippets become public; update both README languages and shared installation
-helpers together. Observe actual installed-hook capability through the upgrade period;
-legacy or unknown bindings retain the activation deferral in Appendix B. Wire these checks
-into the publication workflow before automatic release acquisition is enabled.
+The implemented publication gates, cumulative guidance review, release boundaries, and hook
+rollout are maintained in [Releasing](../releasing.md#runtime-release-policy). Automatic activation
+remains disabled until Phase 4 acceptance; passing artifact checks alone does not enable it.

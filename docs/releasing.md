@@ -31,12 +31,13 @@ were prepared before their source changes were committed.
    written to `packages/extension/.output/` with the version from the extension package.
    ZIP packaging rejects checkout profiles; unset `TEMPAD_MCP_DEV_CHECKOUT` before packaging.
    The build log prints the selected profile.
-4. Remove `packages/mcp-server/dist` and rebuild before packing. A working tree that has been
-   built repeatedly has been seen holding a stale hashed shared chunk even though `clean` is
-   configured, and packing from it ships both copies. Then run `npm pack` in `packages/mcp-server`
-   and inspect the tarball: the CLI, Hub, logging worker, exactly one bundled shared chunk, package metadata, and
-   both README languages must be present. Install it outside the
-   workspace and verify MCP initialization and tool discovery on a supported Node.js runtime.
+4. Prepare the reviewed MCP policy below, then run
+   `pnpm mcp:prepare-release --output <absolute-new.tgz> --verify-baseline`.
+   It uses an offline, script-free hoisted deploy from the frozen workspace lock, verifies the
+   complete dependency closure, and probes the packaged runtime outside the workspace.
+   Plain workspace `npm pack` can include pnpm store paths outside the package and is not a
+   publishable runtime. Inspect the verified tarball and its `.tgz.json` manifest/integrity receipt.
+   Check MCP initialization and tool discovery on supported Node.js versions.
    Run `node packages/mcp-server/scripts/check-log-transport.mjs <installed-package-directory>`
    from the checkout to check the shipped logging worker with its installed dependencies.
    Use separate runtime, state, log, and asset directories for the check so an active local Hub is
@@ -67,8 +68,11 @@ that runtime requires disconnecting all TemPad MCP clients before restarting the
 The extension separately waits for Chrome Web Store review and staged rollout. Neither npm nor
 store publication establishes that users are running the update or have reloaded Figma.
 
-The proposed [runtime update design and release policy](engineering/mcp-runtime-updates.md)
-are not implemented and do not change these restart requirements.
+MCP 0.12.0 adds optional verified downloads and explicit switching on macOS/Linux. Default
+plugin/manual configurations remain unenrolled; their launch argument is unchanged. First
+enrollment still requires the coordinated restart above. Automatic activation is disabled;
+the [runtime design](engineering/mcp-runtime-updates.md) separates these implemented controls
+from the native acceptance and automatic activation work in Phase 4.
 
 | Hub change                                          | Release requirement                                                                                           |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -149,8 +153,9 @@ version available before exposing the new plugin on `main`.
    the later acceptance evidence preceding the original findings.
 3. Merge the checked MCP runtime change to `main` before dispatching `publish-mcp.yml`
    with `tag=latest`; publication workflows reject other branches. Keep plugin changes that
-   require that runtime in a separate follow-up until publication is verified. Its `prepublishOnly` hook rebuilds the
-   package before npm publication. Confirm that both the exact package version and
+   require that runtime in a separate follow-up until publication is verified. The workflow publishes
+   only the verified tarball with scripts disabled; directory publication is rejected by
+   `prepublishOnly`. Confirm the published integrity, exact package version, and
    `npm view @tempad-dev/mcp@latest version` match the checked package manifest. A `next` publication may be used for
    isolated candidate testing; it neither completes the migration nor changes release plugin
    configurations away from `latest`.
@@ -165,3 +170,42 @@ version available before exposing the new plugin on `main`.
 Use the [plugin upgrade guide](../agent-plugin/src/README.md#upgrading) for existing
 installations. It covers the Node.js requirement, extension reload, plugin/skill update, stable MCP
 configuration, client reconnection, and target-tab selection.
+
+## Runtime release policy
+
+The release maintainer owns `packages/mcp-server/runtime-policy.json`. PRs identify guidance
+impact in review; release preparation aggregates it into one decision, rationale, candidate
+version, and current stable baseline version/integrity. Review the cumulative set of shipped
+instructions and descriptions sharing the epoch, including behavior changes with unchanged
+text. Keep the epoch only if that guidance remains valid; otherwise increase it. Never reuse
+an earlier epoch after reverting text. Hash equality cannot establish semantic compatibility.
+
+After review and final source formatting, obtain the candidate hash with
+`node packages/mcp-server/scripts/prepare-runtime-release.mjs --source-hash` and record it in
+`guidanceReview.sourceHash`. Any covered source/contract/lock change invalidates the review.
+The packager derives wire/presentation and file hashes from the built runtime, checks compiled
+control/extension protocol declarations, validates the complete dependency closure and Node
+requirements, and verifies the baseline against npm `latest`. Missing historical manifests are
+allowed only for the first epoch; that release requires a coordinated restart. CI archives the
+exact tarball and manifest receipt, then confirms npm serves that same integrity.
+
+Each same-epoch release promises compatibility with all earlier presentations in that epoch,
+including skipped releases. Session wire hashes and epochs must match, state must remain readable
+in both directions, and the released extension adapters must remain available. The current control
+protocol is 1; retirement is blocked by the packager. Future retirement needs a separate migration
+review: retain the current and previous stable generations and at least 90 days after a successor
+becomes stable. Breaking boundaries are 0.x minor changes, 1.0, and later major changes.
+
+All Phase 3 switches require interactive `--update-runtime <exact-version>` confirmation of that
+artifact's version and integrity; approval never covers future releases or bypasses compatibility
+or attached-client policy. No timer activates a downloaded artifact. Existing and plugin-managed
+configurations use the same optional `--runtime-updates=stable` argument. Keep generated plugin
+arguments and shared installation snippets unenrolled until a separately reviewed default change;
+checkout configurations must never carry release enrollment. Publish runtime support before its
+user instructions or any changed plugin arguments become public.
+
+Publish the compatible hook receiver before Agent Plugin 0.5.9's receipt/retry payload. Current
+bindings must demonstrate v2 capability; plugin version or elapsed rollout time is not evidence.
+Legacy/unknown Claude bindings defer switching. Retain the legacy 750 ms hook path and downgrade
+only on an explicit unsupported-version reply. The acquisition fixture and Phase 2 fault matrix
+are publication checks, but do not replace Phase 4 installed Codex/Claude acceptance.

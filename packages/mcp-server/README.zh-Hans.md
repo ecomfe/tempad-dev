@@ -19,7 +19,28 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 
 如需针对不同 agent 配置，请打开 TemPad Dev 的 **Preferences → Agent integration → Set up agents**。界面提供 Codex、Cursor、Claude Code、Gemini、VS Code、OpenCode 和 TRAE 的引导路径；未列出的兼容客户端可选择 **Other**。
 
-支持的工具和资源：
+### 可选的运行时更新（0.12.0+）
+
+默认安装不会检查或激活运行时更新。在 macOS/Linux 上，可在宿主的 MCP 配置中，包名参数后
+添加 `--runtime-updates=stable`，启用经过校验的后台下载。插件管理的配置与手动配置使用同一
+参数；checkout 开发构建会拒绝它，且不会获取线上运行时。首次启用需关闭所有现有 TemPad
+MCP 连接，再重新启动；已有 release 任务和资源存储保持不变。
+
+在使用相同运行配置的终端中：
+
+- `npx -y @tempad-dev/mcp@latest --runtime-update-status`：查看运行版本、候选版本和阻止切换的原因。
+- `npx -y @tempad-dev/mcp@latest --check-runtime-update`：检查并暂存最新稳定版。
+- `npx -y @tempad-dev/mcp@latest --update-runtime <version>`：确认具体版本及完整性摘要后切换。
+  工具契约或指导语不兼容、操作尚未结束、旧版 Claude hook，或仍有未启用更新的客户端连接时，均不会激活。
+
+**自动激活保持关闭。** 下载与网络故障不会替换或停止正在使用的 Hub。兼容切换时，已有 MCP
+会话保留原有工具说明；Figma 会重新连接，设计任务可能需要 resume 和读回。正在运行的入口进程、
+supervisor、Node、浏览器扩展和已安装插件仍需按原方式升级或重启。
+使用 `--runtime-updates=off`（或省略参数），最后一个启用更新的客户端断开后就会停止后台检查。
+若必须严格使用启动包的版本，请在固定 npm 版本的配置中加 `--runtime-updates=pinned`；
+与当前 Hub 冲突时会提示重启，不会另起一个 Hub。Windows 继续使用随包运行时，不启用此机制。
+
+### 工具和资源
 
 - `get_code`：以 Tailwind 优先的 JSX/Vue 标记输出，并附带资源和变量引用。
 - `get_design_system`：创建不可变、确定性的紧凑目录，按资源类型平衡分页返回可访问页面的

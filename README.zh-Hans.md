@@ -101,6 +101,7 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
 [Agent Plugin 指南](./agent-plugin/src/README.zh-Hans.md)。
 
 所有 plugin 和直接使用 `npx` 的配置路径都使用 `@tempad-dev/mcp@latest`。
+运行时下载需主动启用，版本切换需明确确认，详见[运行时更新控制](./packages/mcp-server/README.zh-Hans.md#可选的运行时更新0120)。
 
 最低版本要求和既有安装的更新步骤请参阅[升级指南](./agent-plugin/src/README.zh-Hans.md#升级)。
 
