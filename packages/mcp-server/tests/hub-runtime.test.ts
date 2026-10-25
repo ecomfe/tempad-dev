@@ -241,12 +241,30 @@ it('includes pending native actions and transfers in the runtime drain boundary'
       LeaseSchema
     )
     const inspect = () => peer.request({ method: 'tempad/runtime-inspect' }, ResultSchema)
-    expect(await inspect()).toMatchObject({ drained: true, blockers: [] })
+    expect(await inspect()).toMatchObject({
+      drained: true,
+      blockers: [],
+      shutdown: {
+        storesOwned: true,
+        shuttingDown: false,
+        consumers: 0,
+        recoveryConnections: 0,
+        retained: false,
+        pendingConnections: 0,
+        waitingForFirstConsumer: true,
+        pendingOperations: 0,
+        pendingReceipts: 0,
+        nativeActions: false,
+        designBindings: 0,
+        assetTransfers: 0
+      }
+    })
     native.mockReturnValue(true)
     const pending = await inspect()
     expect(pending).toMatchObject({
       drained: false,
-      blockers: ['native feedback or queue removal']
+      blockers: ['native feedback or queue removal'],
+      shutdown: { nativeActions: true }
     })
     expect(Number(pending.deadline)).toBeGreaterThan(Date.now() + 300000)
     await peer.request({ method: 'tempad/runtime-gate', params: { closed: true } }, ResultSchema)
@@ -256,9 +274,22 @@ it('includes pending native actions and transfers in the runtime drain boundary'
     native.mockReturnValue(false)
     const assets = vi.mocked(createAssetHttpServer).mock.results.at(-1)!.value
     Object.assign(assets, { pendingTransfers: 1 })
-    expect(await inspect()).toMatchObject({ drained: false, blockers: ['asset transfers'] })
+    expect(await inspect()).toMatchObject({
+      drained: false,
+      blockers: ['asset transfers'],
+      shutdown: { assetTransfers: 1 }
+    })
     Object.assign(assets, { pendingTransfers: 0 })
     expect(await inspect()).toMatchObject({ drained: true })
+    await peer.request(
+      { method: 'tempad/runtime-retain', params: { retained: true } },
+      ResultSchema
+    )
+    expect(await inspect()).toMatchObject({ shutdown: { retained: true } })
+    await peer.request(
+      { method: 'tempad/runtime-retain', params: { retained: false } },
+      ResultSchema
+    )
   } finally {
     await peer.close()
   }
@@ -291,6 +322,7 @@ it('requires initialized clients for automatic switches and records activity bet
         },
         ResultSchema
       )
+      expect(await inspect()).toMatchObject({ shutdown: { pendingConnections: 1 } })
       const data = connect(fixture.socketPath)
       consumerSockets.push(data)
       await once(data, 'connect')
@@ -304,6 +336,13 @@ it('requires initialized clients for automatic switches and records activity bet
         }) + '\n'
       )
       await attached
+      expect(await inspect()).toMatchObject({
+        shutdown: {
+          pendingConnections: 0,
+          consumers: clients.filter((client) => client.transport).length + 1,
+          waitingForFirstConsumer: false
+        }
+      })
       expect((await inspect()).autoBlockers).not.toEqual([])
       const client = new Client({ name, version: '1' })
       clients.push(client)

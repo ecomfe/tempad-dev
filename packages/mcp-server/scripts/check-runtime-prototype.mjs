@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import console from 'node:console'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -378,6 +378,20 @@ try {
   )
   passed = true
 } catch (error) {
+  const diagnostic = {}
+  try {
+    diagnostic.processes = fixtureProcesses()
+    diagnostic.status = await probe(runtimeEndpoint(root, 'supervisor.sock'), {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tempad/runtime-status'
+    })
+  } catch (inspectionError) {
+    diagnostic.error = String(inspectionError)
+  }
+  await writeFile(join(root, 'failure-status.json'), JSON.stringify(diagnostic, null, 2)).catch(
+    (inspectionError) => console.error(`Could not save failure status: ${inspectionError}`)
+  )
   await preserveFixtureEvidence(root, `${error.stack}\n${stderr}`)
   throw new Error(`${error.message}\n${stderr}\nRoot: ${root}`, { cause: error })
 } finally {

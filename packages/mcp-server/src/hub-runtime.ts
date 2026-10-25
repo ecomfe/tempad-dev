@@ -173,7 +173,7 @@ export async function startHub(
     allowedExtensionOrigins
   } = getMcpServerConfig(RUNTIME_PROFILE)
   const extensionOriginPolicy = createExtensionOriginPolicy(allowedExtensionOrigins)
-  const runtimeControl = options.prototype
+  const runtimeControl: HubControl | undefined = options.prototype
     ? new HubControl(options.prototype.secret, undefined, {
         paused: options.prototype.paused,
         inspect: handoffStatus,
@@ -341,6 +341,21 @@ export async function startHub(
       autoBlockers,
       idleForMs: Math.max(0, performance.now() - Math.max(lastActivity, agentClients.lastActivity)),
       version: PACKAGE_VERSION,
+      shutdown: {
+        storesOwned,
+        shuttingDown,
+        consumers: consumerCount,
+        recoveryConnections,
+        retained: runtimeControl?.keepAlive() ?? false,
+        pendingConnections: runtimeControl?.pendingConnections() ?? 0,
+        waitingForFirstConsumer:
+          !hadConsumer && performance.now() - prototypeStartedAt < RECOVER_MS,
+        pendingOperations: designTasks.pendingOperationCount,
+        pendingReceipts: terminalReceipts.pendingCount,
+        nativeActions: agentClients.hasPendingActions,
+        designBindings: pendingDesignBindings.size,
+        assetTransfers: assetHttpServer.pendingTransfers
+      },
       // Native adapters and downloads have no shared absolute deadline. Give
       // them the bounded drain window; expiry defers switching, never kills work.
       deadline:
