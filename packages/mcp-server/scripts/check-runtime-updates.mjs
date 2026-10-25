@@ -34,6 +34,7 @@ const exec = promisify(execFile)
 const source = fileURLToPath(new URL('..', import.meta.url))
 const repo = join(source, '../..')
 const sourceHash = runtimeSourceHash(repo)
+if (process.env.TEMPAD_RUNTIME_EVIDENCE_DIR) await import('./runtime-startup-trace.mjs')
 const root = await fixtureRoot('tp-release-test-')
 const packaged = join(root, 'source.tgz')
 const clients = []
