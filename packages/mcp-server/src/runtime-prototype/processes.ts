@@ -112,6 +112,7 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
   return new Promise((resolve, reject) => {
     const socket = connect(path)
     const deadline = performance.now() + 1000
+    let pendingInspection: Error | undefined
     const cleanup = () => {
       clearTimeout(timer)
       signal?.removeEventListener('abort', abort)
@@ -123,7 +124,10 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
       reject(error)
     }
     const abort = () => fail(new Error('Runtime connection cancelled.'))
-    const timer = setTimeout(() => fail(new Error('Runtime connection timed out.')), 1000)
+    const timer = setTimeout(
+      () => fail(pendingInspection ?? new Error('Runtime connection timed out.')),
+      1000
+    )
     socket.once('error', fail)
     const verify = async () => {
       // The ACL inspector opens a second pipe instance. Let a same-process server
@@ -139,6 +143,7 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
             performance.now() >= deadline
           )
             throw error
+          pendingInspection = error instanceof Error ? error : new Error(String(error))
           await delay(25, undefined, { signal })
         }
       }
@@ -167,7 +172,7 @@ export async function waitForSocket(path: string, signal?: AbortSignal) {
       return await connectSocket(path, signal)
     } catch (error) {
       signal?.throwIfAborted()
-      if (!unavailableSocket(error)) throw error
+      if (!unavailableSocket(error) && !isSocketProtectionPending(error)) throw error
       await delay(100, undefined, { signal })
     }
   } while (performance.now() < until)
@@ -176,6 +181,11 @@ export async function waitForSocket(path: string, signal?: AbortSignal) {
 
 export function unavailableSocket(error: unknown) {
   return ['ENOENT', 'ECONNREFUSED', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '')
+}
+
+export function isSocketProtectionPending(error: unknown) {
+  // The endpoint exists; callers may wait, but must not infer that its owner is absent.
+  return (error as NodeJS.ErrnoException).code === 'EPIPEUNPROTECTED'
 }
 
 export async function supervisorConnection(config: PrototypeConfig, signal: AbortSignal) {
@@ -188,7 +198,8 @@ export async function supervisorConnection(config: PrototypeConfig, signal: Abor
       return await supervisorConnectionAttempt(config, attemptSignal)
     } catch (error) {
       signal.throwIfAborted()
-      if (!deadline.aborted && !isRuntimeUnavailable(error)) throw error
+      if (!deadline.aborted && !isRuntimeUnavailable(error) && !isSocketProtectionPending(error))
+        throw error
       await delay(200, undefined, { signal: attemptSignal }).catch(() => {})
     }
   }

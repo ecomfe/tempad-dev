@@ -26,6 +26,7 @@ import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
 import { createHubRuntimeIdentity } from '../src/runtime-identity'
 import { cleanupEndpoint, runtimeEndpoint } from '../src/runtime-platform'
+import * as processes from '../src/runtime-prototype/processes'
 import {
   connectSocket,
   fingerprintBundle,
@@ -49,6 +50,14 @@ import { PACKAGE_VERSION } from '../src/shared'
 
 const platformModule = '../scripts/runtime-test-platform.mjs'
 const { fixtureRoot } = await import(platformModule)
+
+it('waits for an existing Hub to protect its pipe instead of launching a replacement', async () => {
+  vi.spyOn(processes, 'connectSocket').mockRejectedValueOnce(
+    Object.assign(new Error('ACL protection pending'), { code: 'EPIPEUNPROTECTED' })
+  )
+  await fixture()
+  expect(fake.launch).not.toHaveBeenCalled()
+})
 
 function endpointClosed(path: string) {
   return new Promise<boolean>((resolve, reject) => {

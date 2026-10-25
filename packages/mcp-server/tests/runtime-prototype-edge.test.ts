@@ -344,6 +344,23 @@ it.skipIf(process.platform === 'win32')(
 )
 
 it.skipIf(process.platform === 'win32')(
+  'waits for data pipe protection without replaying initialization or tools',
+  async () => {
+    const connectSocket = vi
+      .spyOn(processes, 'connectSocket')
+      .mockRejectedValueOnce(
+        Object.assign(new Error('ACL protection pending'), { code: 'EPIPEUNPROTECTED' })
+      )
+    const { connect, initialized, client, calls } = await fixture()
+    await connect()
+    expect(connectSocket).toHaveBeenCalledTimes(2)
+    expect(initialized()).toBe(1)
+    await client.request({ method: 'tools/call', params: { name: 'write' } }, ResultSchema)
+    expect(calls).toHaveBeenCalledOnce()
+  }
+)
+
+it.skipIf(process.platform === 'win32')(
   'does not retry filesystem ENOENT from supervisor startup',
   async () => {
     const error = Object.assign(new Error('Missing verified release artifact'), { code: 'ENOENT' })

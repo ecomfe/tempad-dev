@@ -24,6 +24,7 @@ import {
   connectSocket,
   fingerprintBundle,
   hubSocketPath,
+  isSocketProtectionPending,
   runtimePaths,
   supervisorSocketPath,
   launch,
@@ -335,18 +336,20 @@ export async function startSupervisor(config: PrototypeConfig) {
     try {
       socket = await connectSocket(hubSocketPath(config.root, paths.runtime), lifetime.signal)
     } catch (error) {
-      if (!allowLaunch || !unavailableSocket(error)) throw error
-      const identityPath = join(paths.runtime, 'hub-runtime.json')
-      if (existsSync(identityPath)) {
-        const previous = parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
-        if (!previous || alive(previous.processId))
-          throw new Error('Hub process ownership is uncertain; no replacement was started.', {
-            cause: error
-          })
+      if (!isSocketProtectionPending(error)) {
+        if (!allowLaunch || !unavailableSocket(error)) throw error
+        const identityPath = join(paths.runtime, 'hub-runtime.json')
+        if (existsSync(identityPath)) {
+          const previous = parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
+          if (!previous || alive(previous.processId))
+            throw new Error('Hub process ownership is uncertain; no replacement was started.', {
+              cause: error
+            })
+        }
+        await waitForWriters()
+        lifetime.signal.throwIfAborted()
+        launch(config, 'hub', artifact)
       }
-      await waitForWriters()
-      lifetime.signal.throwIfAborted()
-      launch(config, 'hub', artifact)
       socket = await waitForSocket(hubSocketPath(config.root, paths.runtime), lifetime.signal)
     }
     const peer = new ControlPeer()
