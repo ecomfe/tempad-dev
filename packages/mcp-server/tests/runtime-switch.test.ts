@@ -1,6 +1,11 @@
 import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import {
+  CLIENT_HOOK_RETENTION_MS,
+  ClientHookParamsSchema,
+  type ClientHook
+} from '@tempad-dev/shared'
 import { randomUUID } from 'node:crypto'
-import { EventEmitter } from 'node:events'
+import { EventEmitter, once } from 'node:events'
 import { mkdtemp, mkdir, writeFile, realpath, rm } from 'node:fs/promises'
 import { createServer, type Socket } from 'node:net'
 import { join } from 'node:path'
@@ -14,6 +19,9 @@ vi.mock('../src/runtime-prototype/processes', async (load) => ({
   launch: fake.launch
 }))
 import { captureHostContext } from '../src/agent-clients/host-context'
+import { AgentClients } from '../src/agent-clients/registry'
+import { DesignTaskStore } from '../src/design-task-store'
+import { DesignTasks } from '../src/design-tasks'
 import { createHubRuntimeIdentity } from '../src/runtime-identity'
 import {
   connectSocket,
@@ -35,7 +43,7 @@ afterEach(async () => {
   vi.clearAllMocks()
 })
 
-async function fixture() {
+async function fixture(hook?: (input: ClientHook) => Record<string, unknown>) {
   const root = await realpath(await mkdtemp('/tmp/tp-switch-test-'))
   await mkdir(join(root, 'run'), { mode: 0o700 })
   cleanups.push(() => rm(root, { recursive: true, force: true }))
@@ -118,6 +126,11 @@ async function fixture() {
         setTimeout(() => void stop(), 5)
         return {}
       })
+      if (hook)
+        peer.setRequestHandler(
+          z.object({ method: z.literal('tempad/runtime-hook'), params: ClientHookParamsSchema }),
+          ({ params }) => hook(params)
+        )
       peer.fallbackRequestHandler = async () => ({})
       void peer.connect(new SocketTransport(socket))
     })
@@ -186,6 +199,7 @@ async function fixture() {
   await ready(grant.hubId)
   return {
     root,
+    config,
     shutdown: () => shutdown('SIGTERM'),
     a,
     b,
@@ -207,6 +221,114 @@ async function fixture() {
     }
   }
 }
+
+it.skipIf(process.platform === 'win32')(
+  'recovers a supervisor with an expired admitted hook without replay or loss of Stop',
+  async () => {
+    let now = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    let available = false
+    let tasks!: DesignTasks
+    const applied = vi.fn((input: ClientHook) => clients.clientHook(input))
+    const f = await fixture((input) => {
+      if (!available) throw new Error('Hub outcome unavailable after crash')
+      return tasks.applyHook(
+        input.invocationId,
+        input,
+        () => applied(input),
+        () => clients.retireHook(input)
+      )
+    })
+    const store = new DesignTaskStore(join(f.root, 'tasks.json'))
+    tasks = new DesignTasks({ store, createId: randomUUID, now: () => now })
+    const session = {
+      sessionId: 'figma',
+      fileKey: 'file',
+      fileName: 'File',
+      pageId: '0:1',
+      busy: false
+    }
+    const task = tasks.begin('owner', 'extension', session, 'Work', 'begin', {
+      kind: 'claude',
+      name: 'Claude',
+      sessionId: 'old-session'
+    })
+    tasks.stop(task.task.taskId, 'cancelled', { sessionId: 'old-session' })
+    const input: ClientHook = {
+      version: 2,
+      kind: 'claude',
+      sessionId: 'old-session',
+      event: 'Stop',
+      invocationId: randomUUID(),
+      issuedAt: now,
+      profile: { kind: 'release' }
+    }
+    const request = async (params: ClientHook) => {
+      const socket = await connectSocket(join(f.root, 'run/mcp.sock'))
+      const reply = once(socket, 'data')
+      socket.write(
+        JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tempad/client-hook', params }) + '\n'
+      )
+      try {
+        return JSON.parse(String((await reply)[0]))
+      } finally {
+        socket.destroy()
+      }
+    }
+    expect((await request(input)).result.receipt.state).toBe('accepted')
+    await vi.waitFor(async () =>
+      expect(await f.status()).toMatchObject({
+        gated: true,
+        hookFault: expect.stringContaining('after crash')
+      })
+    )
+    f.shutdown()
+    await vi.waitFor(async () =>
+      expect(
+        await import('node:fs').then((fs) => fs.existsSync(join(f.root, 'supervisor.sock')))
+      ).toBe(false)
+    )
+
+    now += CLIENT_HOOK_RETENTION_MS + 1
+    tasks = new DesignTasks({ store, createId: randomUUID, now: () => now })
+    tasks.restore()
+    const clients = new AgentClients(tasks)
+    available = true
+    const stops = new Set(process.listeners('SIGTERM'))
+    await startSupervisor(f.config)
+    const stop = process.listeners('SIGTERM').find((listener) => !stops.has(listener))!
+    cleanups.push(async () => {
+      clients.close()
+      stop('SIGTERM')
+      await vi.waitFor(async () =>
+        expect(
+          await import('node:fs').then((fs) => fs.existsSync(join(f.root, 'supervisor.sock')))
+        ).toBe(false)
+      )
+    })
+    const control = new ControlPeer()
+    await control.connect(new SocketTransport(await connectSocket(join(f.root, 'supervisor.sock'))))
+    cleanups.push(() => control.close())
+    expect(await control.request({ method: 'tempad/runtime-status' }, ResultSchema)).toMatchObject({
+      gated: false,
+      phase: 'committed'
+    })
+    expect(applied).not.toHaveBeenCalled()
+    const fresh = {
+      ...input,
+      sessionId: 'fresh-session',
+      invocationId: randomUUID(),
+      issuedAt: now,
+      event: 'UserPromptSubmit' as const
+    }
+    expect((await request(fresh)).result.receipt.state).toBe('accepted')
+    await vi.waitFor(() => expect(applied).toHaveBeenCalledExactlyOnceWith(fresh))
+    expect(tasks.find(task.task.taskId)).toMatchObject({
+      task: { status: 'cancelled' },
+      claudeStopNotice: { sessionId: 'old-session' }
+    })
+  }
+)
 
 it.skipIf(process.platform === 'win32').each([false, true])(
   'rolls back an active failure using current data (socket closes before exit: %s)',

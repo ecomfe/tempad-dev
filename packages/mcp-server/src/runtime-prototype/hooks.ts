@@ -9,13 +9,20 @@ import { z } from 'zod'
 
 import { ClientHookRequestSchema, type ClientHook } from '../agent-clients/hooks'
 import { writeDurableJson } from '../durable-json'
-import { HOOK_RECEIPT_LIMIT, hookCutoff, hookSignature } from '../hook-receipts'
+import {
+  ExpiredHookError,
+  HOOK_RECEIPT_LIMIT,
+  hookCutoff,
+  hookSignature,
+  isExpiredHookResult
+} from '../hook-receipts'
 import { listenPrivate } from './processes'
 import { readPrivateJson } from './state'
 
 const InboxSchema = z.array(
   z.object({
     input: ClientHookRequestSchema.shape.params,
+    retired: z.literal('expired').optional(),
     result: z.record(z.string(), z.unknown()).optional()
   })
 )
@@ -40,8 +47,12 @@ export async function startHookGateway(
   let flushing: Promise<void> | undefined
   let closed = false
   const sockets = new Set<import('node:net').Socket>()
+  const retained = (entry: (typeof entries)[number]) =>
+    (!entry.result && !entry.retired) || entry.input.version !== 2 || entry.input.issuedAt > cutoff
   const capacityFailure = () =>
-    entries.length >= HOOK_RECEIPT_LIMIT ? new Error('Hook inbox capacity reached.') : undefined
+    entries.filter(retained).length >= HOOK_RECEIPT_LIMIT
+      ? new Error('Hook inbox capacity reached.')
+      : undefined
   function save(next: typeof entries) {
     if (closed) throw new Error('The hook inbox owner has closed.')
     try {
@@ -56,13 +67,16 @@ export async function startHookGateway(
     if (flushing) return flushing
     const run = async () => {
       while (true) {
-        const entry = entries.find((value) => !value.result)
+        const entry = entries.find((value) => !value.result && !value.retired)
         if (!entry) return
         const result = await deliver(entry.input).catch((error: unknown) => {
           onFault(error)
           throw error
         })
-        save(entries.map((value) => (value === entry ? { ...value, result } : value)))
+        const retired = isExpiredHookResult(result)
+        if (retired && entry.input.version === 2) cutoff = Math.max(cutoff, entry.input.issuedAt)
+        const outcome = retired ? { retired: 'expired' as const } : { result }
+        save(entries.map((value) => (value === entry ? { ...value, ...outcome } : value)))
         onFault(capacityFailure())
       }
     }
@@ -133,10 +147,8 @@ export async function startHookGateway(
           if (input.version === 2 && input.profile.kind !== 'release')
             throw new Error('Lifecycle hook belongs to a different runtime profile.')
           cutoff = hookCutoff(input, cutoff)
-          const retained = entries.filter(
-            (entry) => !entry.result || entry.input.version !== 2 || entry.input.issuedAt > cutoff
-          )
-          if (retained.length !== entries.length) save(retained)
+          const live = entries.filter(retained)
+          if (live.length !== entries.length) save(live)
           const existing = entries.find((entry) => entry.input.invocationId === input.invocationId)
           if (existing && hookSignature(existing.input) !== hookSignature(input))
             throw new Error('Lifecycle invocation identity changed.')
@@ -173,7 +185,17 @@ export async function startHookGateway(
                   : result
             }) + '\n'
           )
-        })().catch(() => socket.destroy())
+        })().catch((error: unknown) => {
+          if (error instanceof ExpiredHookError)
+            socket.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: message.id,
+                error: { code: -32001, message: error.message }
+              }) + '\n'
+            )
+          else socket.destroy()
+        })
         return
       }
     })

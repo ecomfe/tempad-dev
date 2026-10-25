@@ -10,6 +10,7 @@ export type ClientHookResult = {
 }
 type Session = {
   active: boolean
+  issuedAt?: number
   turnId?: string
   receiptCapable?: boolean
 }
@@ -43,6 +44,15 @@ export class ClientHooks {
     if (session) session.active = false
   }
 
+  /** Expiry is loss of old evidence, never a replay of the historical event. */
+  retire(input: ClientHook): boolean {
+    const key = scope(input.kind, input.sessionId)
+    const session = this.sessions.get(key)
+    if (input.version !== 2 || (session?.issuedAt ?? 0) > input.issuedAt) return false
+    this.sessions.delete(key)
+    return true
+  }
+
   /** Undefined rejects the event; an empty result accepts it without model-facing output. */
   handle(input: ClientHook): ClientHookResult | undefined {
     const key = scope(input.kind, input.sessionId)
@@ -66,6 +76,10 @@ export class ClientHooks {
     }
     const notice = this.takeStopNotice(input)
     if (notice.staleTurn) return
+    session.issuedAt = Math.max(
+      session.issuedAt ?? 0,
+      input.version === 2 ? input.issuedAt : Date.now()
+    )
     if (input.event === 'UserPromptSubmit' || input.turnId) session.turnId = input.turnId
     session.receiptCapable = input.version === 2
 

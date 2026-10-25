@@ -157,6 +157,16 @@ export class AgentClients {
     return result
   }
 
+  retireHook(input: ClientHook): void {
+    if (input.kind !== 'claude' || !this.hooks.retire(input)) return
+    // Require fresh lifecycle evidence to reclaim this session. SessionEnd's
+    // cleanup pauses tasks without removing Stop or pending-execution fences.
+    this.event('hook', {
+      method: 'notifications/tempad/client-event',
+      params: { event: 'SessionEnd', kind: input.kind, sessionId: input.sessionId }
+    })
+  }
+
   event(connectionId: string, input: unknown): void {
     const { params } = ClientEventSchema.parse(input)
     if (params.event === 'connect') {

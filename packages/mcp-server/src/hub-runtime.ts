@@ -64,6 +64,7 @@ import { DesignTaskStore } from './design-task-store'
 import { DesignTasks, resolveDesignTarget, type DesignTaskRecord } from './design-tasks'
 import { ExtensionRegistry } from './extension-registry'
 import { attachExtensionSocket } from './extension-socket'
+import { isExpiredHookResult } from './hook-receipts'
 import MCP_INSTRUCTIONS from './instructions.md?raw'
 import { extensionUpgradeRequired, legacyToolPayload } from './legacy-extension'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
@@ -282,9 +283,14 @@ export async function startHub(
       throw new Error('Lifecycle hook belongs to a different runtime profile.')
     const result =
       durable || input.version === 2
-        ? designTasks.applyHook(input.invocationId, input, () => agentClients.clientHook(input))
+        ? designTasks.applyHook(
+            input.invocationId,
+            input,
+            () => agentClients.clientHook(input),
+            durable ? () => agentClients.retireHook(input) : undefined
+          )
         : agentClients.clientHook(input)
-    return input.version === 2
+    return input.version === 2 && !isExpiredHookResult(result)
       ? { ...result, receipt: { version: 2, invocationId: input.invocationId, state: 'applied' } }
       : result
   }

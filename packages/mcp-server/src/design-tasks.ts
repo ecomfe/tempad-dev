@@ -23,7 +23,14 @@ import type { ExtensionConnection } from './types'
 import { codexStoreKey } from './agent-clients/host-context'
 import { nativeFeedback } from './agent-clients/types'
 import { HISTORY_RETENTION_MS } from './history-retention'
-import { HOOK_RECEIPT_LIMIT, hookCutoff, hookSignature, type HookReceipt } from './hook-receipts'
+import {
+  EXPIRED_HOOK_RESULT,
+  ExpiredHookError,
+  HOOK_RECEIPT_LIMIT,
+  hookCutoff,
+  hookSignature,
+  type HookReceipt
+} from './hook-receipts'
 import { extensionUpgradeRequired } from './legacy-extension'
 
 type TerminalStatus = Exclude<DesignTask['status'], 'active' | 'stopping'>
@@ -479,38 +486,59 @@ export class DesignTasks {
   applyHook(
     invocationId: string,
     input: unknown,
-    apply: () => Record<string, unknown>
+    apply: () => Record<string, unknown>,
+    retireExpired?: () => void
   ): Record<string, unknown> {
+    const signature = hookSignature(input)
+    const existing = this.hookReceipts.get(invocationId)
+    if (existing && existing.signature !== signature)
+      throw new Error('Lifecycle invocation ID was reused with different content.')
     const parsed = ClientHookParamsSchema.safeParse(input)
+    let expired = false
     if (parsed.success) {
-      this.hookReceiptCutoff = hookCutoff(parsed.data, this.hookReceiptCutoff, this.now())
+      try {
+        this.hookReceiptCutoff = hookCutoff(parsed.data, this.hookReceiptCutoff, this.now())
+      } catch (error) {
+        if (!(error instanceof ExpiredHookError) || !retireExpired) throw error
+        this.hookReceiptCutoff = error.cutoff
+        expired = true
+      }
       for (const [id, receipt] of this.hookReceipts)
         if (
+          id !== invocationId &&
           receipt.issuedAt !== undefined &&
           receipt.issuedAt <= this.hookReceiptCutoff &&
-          !receipt.error
+          (!receipt.error || receipt.retired)
         )
           this.hookReceipts.delete(id)
     }
-    const signature = hookSignature(input)
-    const existing = this.hookReceipts.get(invocationId)
-    if (existing) {
-      if (existing.signature !== signature)
-        throw new Error('Lifecycle invocation ID was reused with different content.')
+    if (existing && (!expired || existing.retired)) {
       this.flush()
-      if (existing.error) throw new Error(`Lifecycle effect remains uncertain: ${existing.error}`)
+      if (existing.error && !existing.retired)
+        throw new Error(`Lifecycle effect remains uncertain: ${existing.error}`)
       return existing.result
     }
-    if (this.hookReceipts.size >= HOOK_RECEIPT_LIMIT)
+    if (!existing && this.hookReceipts.size >= HOOK_RECEIPT_LIMIT)
       throw new Error(
         'Runtime hook receipt capacity reached. Preserve the runtime state for diagnosis.'
       )
     if (this.applyingHook) throw new Error('A lifecycle transaction is already in progress.')
-    const receipt: HookReceipt = { invocationId, signature, result: {}, recordedAt: this.now() }
+    const receipt: HookReceipt = existing ?? {
+      invocationId,
+      signature,
+      result: {},
+      recordedAt: this.now()
+    }
     if (parsed.success && parsed.data.version === 2) receipt.issuedAt = parsed.data.issuedAt
     this.applyingHook = true
     try {
-      receipt.result = apply()
+      if (expired) {
+        // Retire uncertain lifecycle intent only with its session/task fences in
+        // the same snapshot. Never replay it or report that it was applied.
+        retireExpired!()
+        receipt.retired = 'expired'
+        receipt.result = EXPIRED_HOOK_RESULT
+      } else receipt.result = apply()
       return receipt.result
     } catch (error) {
       receipt.error = String(error).slice(0, 1000)
