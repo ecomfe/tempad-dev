@@ -53,6 +53,7 @@ export const JournalSchema = z
     version: z.literal(1),
     revision: z.number().int().nonnegative(),
     phase: z.enum(['committed', 'preparing', 'old-stopped', 'candidate-ready']),
+    coldStart: z.literal(true).optional(),
     active: ArtifactSchema,
     candidate: ArtifactSchema.optional(),
     previous: ArtifactSchema.optional(),

@@ -1,0 +1,220 @@
+import { randomUUID } from 'node:crypto'
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
+import lockfile from 'proper-lockfile'
+import { z } from 'zod'
+
+import { writeDurableJson } from '../durable-json'
+import { readHubRuntimeIdentity } from '../runtime-identity'
+import {
+  connectSocket,
+  fingerprintBundle,
+  hubSocketPath,
+  runtimePaths,
+  supervisorSocketPath,
+  unavailableSocket,
+  withStartupLock
+} from '../runtime-prototype/processes'
+import {
+  ConfigSchema,
+  JournalSchema,
+  readJournal,
+  readPrivateJson,
+  writeJournal,
+  type PrototypeConfig
+} from '../runtime-prototype/state'
+import { HUB_LOCK_STALE_MS } from '../shared'
+import { releaseManifest, retainBundledPackage, verifyReleaseArtifact } from './artifact'
+import { privateDirectory } from './cache'
+import { coldCompatibilityReasons, compareVersions, type RuntimeManifest } from './manifest'
+
+const SnapshotSchema = z.object({ config: ConfigSchema, journal: JournalSchema }).strict()
+const IntentSchema = SnapshotSchema.extend({ before: SnapshotSchema }).strict()
+const EdgeSchema = z.object({ pid: z.number().int().positive() }).strict()
+
+function controlVersion(config: PrototypeConfig) {
+  return releaseManifest({
+    entry: config.entry,
+    bundle: config.bundle,
+    version: JSON.parse(readFileSync(join(config.release!.directory, 'package.json'), 'utf8'))
+      .version,
+    release: config.release
+  }).packageVersion
+}
+
+function alive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    throw error
+  }
+}
+
+/** Called only with startup.lock held, before any control owner is launched. */
+export async function resumeColdStart(config: PrototypeConfig): Promise<PrototypeConfig> {
+  const path = join(config.root, 'cold-start.json')
+  const intent = readPrivateJson(path, IntentSchema)
+  if (intent) {
+    const candidate = intent.journal.candidate
+    const saved = readPrivateJson(join(config.root, 'prototype.json'), ConfigSchema)
+    const journal = readJournal(config.root)
+    const matches = (actual: unknown, before: unknown, after: unknown) =>
+      [before, after].some((value) => JSON.stringify(actual) === JSON.stringify(value))
+    if (
+      intent.config.secret !== config.secret ||
+      JSON.stringify(intent.config.directories) !== JSON.stringify(config.directories) ||
+      !intent.journal.coldStart ||
+      !candidate ||
+      candidate.entry !== intent.config.entry ||
+      candidate.bundle !== intent.config.bundle ||
+      !matches(saved, intent.before.config, intent.config) ||
+      !matches(journal, intent.before.journal, intent.journal)
+    )
+      throw new Error('Cold runtime upgrade intent does not match this namespace.')
+    if (hasLiveEdges(config.root) || (await hasOwner(config)))
+      throw new Error('Cold runtime upgrade cannot resume while a prior owner is still alive.')
+    verifyReleaseArtifact(candidate)
+    // The intent remains until both metadata files are durable. A crash between
+    // writes resumes this same decision; task/receipt snapshots are never restored.
+    writeJournal(config.root, intent.journal)
+    writeDurableJson(join(config.root, 'prototype.json'), intent.config)
+    rmSync(path)
+  }
+  return {
+    ...ConfigSchema.parse(readPrivateJson(join(config.root, 'prototype.json'), ConfigSchema)),
+    root: config.root
+  }
+}
+
+function hasLiveEdges(root: string) {
+  const directory = join(root, 'edges')
+  privateDirectory(directory)
+  let live = false
+  for (const name of readdirSync(directory).filter((name) => name.endsWith('.json'))) {
+    const path = join(directory, name)
+    const edge = readPrivateJson(path, EdgeSchema)!
+    // PID reuse conservatively postpones migration, never expires a living edge.
+    if (alive(edge.pid)) live = true
+    else rmSync(path)
+  }
+  return live
+}
+
+async function hasOwner(config: PrototypeConfig) {
+  const paths = runtimePaths(config)
+  for (const path of [supervisorSocketPath(config), hubSocketPath(config.root, paths.runtime)]) {
+    try {
+      const socket = await connectSocket(path)
+      socket.destroy()
+      return true
+    } catch (error) {
+      if (!unavailableSocket(error)) throw error
+    }
+  }
+  const identityPath = join(paths.runtime, 'hub-runtime.json')
+  if (existsSync(identityPath)) {
+    const identity = readHubRuntimeIdentity(identityPath)
+    if (!identity || alive(identity.processId)) return true
+  }
+  const supervisor = readPrivateJson(
+    join(config.root, 'supervisor.json'),
+    z.object({ pid: z.number().int().positive() }).passthrough()
+  )
+  if (supervisor && alive(supervisor.pid)) return true
+  const deadline = performance.now() + HUB_LOCK_STALE_MS + 5000
+  do {
+    const locks = await Promise.all(
+      (
+        [
+          [join(config.root, 'supervisor.lock'), undefined, 5000],
+          [join(paths.runtime, 'hub.lock'), undefined, HUB_LOCK_STALE_MS],
+          [paths.state, join(paths.state, '.tempad-hub-writer.lock'), HUB_LOCK_STALE_MS],
+          [paths.assets, join(paths.assets, '.tempad-hub-writer.lock'), HUB_LOCK_STALE_MS]
+        ] as const
+      ).map(
+        async ([path, lockfilePath, stale]) =>
+          existsSync(path) &&
+          lockfile.check(path, {
+            stale,
+            ...(lockfilePath ? { lockfilePath } : {})
+          })
+      )
+    )
+    if (locks.every((held) => !held)) return false
+    await delay(100)
+  } while (performance.now() < deadline)
+  return true
+}
+
+/** An installed CLI may advance a fully stopped runtime, never an attached session. */
+export async function prepareManagedEdge(
+  original: PrototypeConfig,
+  packageDir: string,
+  installed: RuntimeManifest
+) {
+  return withStartupLock(
+    original.root,
+    async () => {
+      let config = await resumeColdStart(original)
+      const journal = readJournal(config.root)
+      if (
+        journal?.phase === 'committed' &&
+        compareVersions(installed.packageVersion, controlVersion(config)) > 0 &&
+        compareVersions(installed.packageVersion, journal.active.version) >= 0 &&
+        !hasLiveEdges(config.root) &&
+        !(await hasOwner(config))
+      ) {
+        const reasons = coldCompatibilityReasons(releaseManifest(journal.active), installed)
+        if (reasons.length) throw new Error(`Cold runtime upgrade refused: ${reasons.join('; ')}.`)
+        const candidate = await retainBundledPackage(packageDir, join(config.root, 'cache'))
+        candidate.bundle = fingerprintBundle(candidate.entry)
+        if (
+          candidate.version === journal.active.version &&
+          candidate.release?.manifestHash !== journal.active.release?.manifestHash
+        )
+          throw new Error(
+            'An installed version cannot replace different bytes of the same release.'
+          )
+        if (journal.failedBundles.includes(candidate.bundle))
+          throw new Error('The installed runtime was quarantined after an earlier failure.')
+        const { root, ...saved } = config
+        writeDurableJson(join(root, 'cold-start.json'), {
+          before: { config: saved, journal },
+          config: {
+            ...saved,
+            entry: candidate.entry,
+            bundle: candidate.bundle,
+            release: candidate.release
+          },
+          journal: {
+            ...journal,
+            revision: journal.revision + 1,
+            phase: 'old-stopped',
+            candidate,
+            coldStart: true,
+            oldHub: undefined,
+            failure: undefined
+          }
+        })
+        config = await resumeColdStart(config)
+      }
+      const directory = join(config.root, 'edges')
+      privateDirectory(directory)
+      const path = join(directory, `${randomUUID()}.json`)
+      writeDurableJson(path, { pid: process.pid })
+      const close = () => rmSync(path, { force: true })
+      process.once('exit', close)
+      return {
+        config,
+        close: () => {
+          process.off('exit', close)
+          close()
+        }
+      }
+    },
+    true
+  )
+}

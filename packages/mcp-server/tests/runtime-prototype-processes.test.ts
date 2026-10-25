@@ -124,6 +124,15 @@ describe.skipIf(process.platform === 'win32')('isolated prototype processes', ()
     expect(() => connectSocket(path)).toThrow('untrusted')
   })
 
+  it('marks only endpoint availability exhaustion as retryable startup failure', async () => {
+    const config = await fixture()
+    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValue(5001)
+    await expect(waitForSocket(join(config.root, 'absent'))).rejects.toMatchObject({
+      code: -32001,
+      data: { code: 'MCP_RUNTIME_UNAVAILABLE', dispatched: false }
+    })
+  })
+
   it('renews one Hub lease, negotiates registrations and closes with its Hub', async () => {
     const config = await fixture()
     let now = 0

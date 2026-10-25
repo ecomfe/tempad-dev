@@ -17,6 +17,7 @@ import {
   connectSocket,
   hubSocketPath,
   supervisorConnection,
+  unavailableSocket,
   type PrototypeConfig
 } from './processes'
 import {
@@ -27,6 +28,7 @@ import {
   REQUEST_TIMEOUT_MS,
   RuntimeDataTransport,
   SocketTransport,
+  unavailable,
   type Grant,
   type Registration
 } from './protocol'
@@ -67,17 +69,17 @@ export async function startPrototypeEdge(
     ].map((value) => value + 10_000)
   )
 
-  function attachControl(): Promise<void> {
+  function attachControl(signal = lifetime): Promise<void> {
     // A lost Hub can close data and control at the same time. Both recovery
     // paths must share registration, or a duplicate control peer pins updates.
-    attaching ??= openControl().finally(() => {
+    attaching ??= openControl(signal).finally(() => {
       attaching = undefined
     })
     return attaching
   }
 
-  async function openControl() {
-    const socket = await supervisorConnection(config, lifetime)
+  async function openControl(signal: AbortSignal) {
+    const socket = await supervisorConnection(config, signal)
     const peer = new ControlPeer()
     peer.onerror = () => void peer.close()
     try {
@@ -87,11 +89,11 @@ export async function startPrototypeEdge(
         GrantSchema,
         {
           timeout: 5000,
-          signal: lifetime
+          signal
         }
       )
       if (!peer.transport) throw new Error('Supervisor closed during registration.')
-      lifetime.throwIfAborted()
+      signal.throwIfAborted()
       grant = next
       const previous = control
       control = peer
@@ -183,6 +185,74 @@ export async function startPrototypeEdge(
     }
   }
 
+  async function openTransport(signal: AbortSignal) {
+    if (!control?.transport || !ready) await attachControl(signal)
+    else
+      grant = await control.request({ method: 'tempad/runtime-refresh' }, GrantSchema, {
+        timeout: 5000,
+        signal
+      })
+    const socket = await connectSocket(
+      hubSocketPath(config.root, config.directories?.runtime),
+      signal
+    )
+    openingHubId = grant!.hubId
+    const wire = new SocketTransport(socket)
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const id = randomUUID()
+        const timeout = setTimeout(
+          () => finish(new Error('Runtime data attachment timed out.')),
+          5000
+        )
+        const abort = () => finish(new Error('Runtime data attachment cancelled.'))
+        const finish = (error?: Error) => {
+          clearTimeout(timeout)
+          signal.removeEventListener('abort', abort)
+          if (error) reject(error)
+          else resolve()
+        }
+        wire.onclose = () => finish(new Error('Runtime data socket closed.'))
+        wire.onerror = finish
+        wire.onmessage = (message: JSONRPCMessage) => {
+          if (!('method' in message) && message.id === id)
+            finish(
+              'error' in message
+                ? new McpError(message.error.code, message.error.message, message.error.data)
+                : undefined
+            )
+          else finish(new Error('Unexpected runtime attachment response.'))
+        }
+        signal.addEventListener('abort', abort, { once: true })
+        if (signal.aborted) {
+          abort()
+          return
+        }
+        void wire
+          .start()
+          .then(() =>
+            wire.send({
+              jsonrpc: '2.0',
+              id,
+              method: 'tempad/runtime-attach',
+              params: { sessionId: registration.sessionId, token: registration.token }
+            })
+          )
+          .catch(finish)
+      })
+      return new RuntimeDataTransport(wire, {
+        generation: () => grant!.generation,
+        admit: (generation) => ready && grant?.generation === generation,
+        role: 'edge',
+        timeoutMs: requestTimeoutMs,
+        started: true
+      })
+    } catch (error) {
+      await wire.close()
+      throw error
+    }
+  }
+
   const host = new ConsumerTransport()
   edge = await startStableEdge(host, {
     ...(config.release
@@ -224,68 +294,29 @@ export async function startPrototypeEdge(
       backendLost = false
       await acknowledgeReady()
     },
-    open: async (_initialize, signal) => {
-      lifetime = signal
-      if (!control?.transport || !ready) await attachControl()
-      else
-        grant = await control.request({ method: 'tempad/runtime-refresh' }, GrantSchema, {
-          timeout: 5000,
-          signal
-        })
-      const socket = await connectSocket(
-        hubSocketPath(config.root, config.directories?.runtime),
-        signal
-      )
-      openingHubId = grant!.hubId
-      const wire = new SocketTransport(socket)
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const id = randomUUID()
-          const timeout = setTimeout(
-            () => finish(new Error('Runtime data attachment timed out.')),
-            5000
-          )
-          const abort = () => finish(new Error('Runtime data attachment cancelled.'))
-          const finish = (error?: Error) => {
-            clearTimeout(timeout)
-            signal.removeEventListener('abort', abort)
-            if (error) reject(error)
-            else resolve()
-          }
-          wire.onclose = () => finish(new Error('Runtime data socket closed.'))
-          wire.onerror = finish
-          wire.onmessage = (message: JSONRPCMessage) => {
-            if (!('method' in message) && message.id === id)
-              finish('error' in message ? new Error(message.error.message) : undefined)
-            else finish(new Error('Unexpected runtime attachment response.'))
-          }
-          signal.addEventListener('abort', abort, { once: true })
-          if (signal.aborted) {
-            abort()
-            return
-          }
-          void wire
-            .start()
-            .then(() =>
-              wire.send({
-                jsonrpc: '2.0',
-                id,
-                method: 'tempad/runtime-attach',
-                params: { sessionId: registration.sessionId, token: registration.token }
-              })
-            )
-            .catch(finish)
-        })
-        return new RuntimeDataTransport(wire, {
-          generation: () => grant!.generation,
-          admit: (generation) => ready && grant?.generation === generation,
-          role: 'edge',
-          timeoutMs: requestTimeoutMs,
-          started: true
-        })
-      } catch (error) {
-        await wire.close()
-        throw error
+    open: async (_initialize, hostSignal) => {
+      lifetime = hostSignal
+      const startup = backendHubId ? undefined : AbortSignal.timeout(RECOVER_MS)
+      const signal = startup ? AbortSignal.any([hostSignal, startup]) : hostSignal
+      // Retry only pre-MCP admission. Initialization and business requests are
+      // never replayed, and permanent compatibility/ownership failures escape.
+      for (;;) {
+        try {
+          return await openTransport(signal)
+        } catch (error) {
+          hostSignal.throwIfAborted()
+          const transient =
+            unavailableSocket(error) ||
+            (error instanceof McpError &&
+              error.code === -32001 &&
+              (error.data as { code?: unknown } | undefined)?.code === 'MCP_RUNTIME_UNAVAILABLE' &&
+              (error.data as { dispatched?: unknown }).dispatched === false)
+          if (!startup || (!startup.aborted && !transient)) throw error
+          if (!startup.aborted) await delay(200, undefined, { signal }).catch(() => {})
+          hostSignal.throwIfAborted()
+          if (startup.aborted)
+            throw unavailable('Runtime startup recovery timed out; retry the MCP connection.')
+        }
       }
     },
     register: async (client) => {

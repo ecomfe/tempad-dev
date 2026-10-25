@@ -10,7 +10,7 @@ import { parseHubRuntimeIdentity } from '../runtime-identity'
 import { releaseManifest, verifyReleaseArtifact } from '../runtime-update/artifact'
 import { pruneCache } from '../runtime-update/cache'
 import { acquireRelease, ReleaseUpdates } from '../runtime-update/manager'
-import { compatibilityReasons } from '../runtime-update/manifest'
+import { coldCompatibilityReasons, compatibilityReasons } from '../runtime-update/manifest'
 import { ensureDir, ensureFile, HUB_LOCK_STALE_MS, PACKAGE_VERSION } from '../shared'
 import { startHookGateway } from './hooks'
 import { LeaseSchema } from './hub-control'
@@ -440,16 +440,25 @@ export async function startSupervisor(config: PrototypeConfig) {
     await reattach()
     await hooks?.flush()
     if (journal.candidate?.release && journal.phase !== 'committed') {
-      const blockers = activationBlockers(journal.candidate)
+      const blockers = journal.coldStart
+        ? coldCompatibilityReasons(
+            releaseManifest(journal.active),
+            releaseManifest(journal.candidate)
+          )
+        : activationBlockers(journal.candidate)
       if (blockers.length) throw new Error(blockers.join('; '))
     }
     if (journal.phase !== 'committed')
       persist({
         ...journal,
         phase: 'committed',
+        coldStart: undefined,
         ...(journal.candidate
           ? {
-              previous: journal.active,
+              previous:
+                journal.candidate.bundle === journal.active.bundle
+                  ? journal.previous
+                  : journal.active,
               active: journal.candidate,
               candidate: undefined,
               failure: undefined
@@ -463,7 +472,10 @@ export async function startSupervisor(config: PrototypeConfig) {
   async function rollback(error: unknown) {
     journal = readJournal(config.root) ?? journal
     const failed = journal.candidate ?? journal.active
-    const fallback = journal.phase === 'committed' ? journal.previous : journal.active
+    const fallback =
+      journal.phase === 'committed' || journal.candidate?.bundle === journal.active.bundle
+        ? journal.previous
+        : journal.active
     if (!fallback) throw error
     if (hub && lease && alive(lease.hubPid)) {
       await drain()
@@ -472,6 +484,7 @@ export async function startSupervisor(config: PrototypeConfig) {
     persist({
       ...journal,
       phase: 'old-stopped',
+      coldStart: undefined,
       active: fallback,
       candidate: undefined,
       previous: undefined,

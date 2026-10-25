@@ -31,6 +31,7 @@ import {
 } from '../shared'
 import { retainBundledPackage } from './artifact'
 import { privateDirectory } from './cache'
+import { prepareManagedEdge } from './cold-start'
 import { MANIFEST_PATH, ManifestSchema, VersionSchema } from './manifest'
 import { sha256 } from './package'
 
@@ -219,11 +220,16 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
       endLogging()
     }
   } else {
-    await startPrototypeEdge(config, {
-      policy: intent.policy,
-      version: installed.packageVersion,
-      manifestHash
-    })
+    const prepared = await prepareManagedEdge(config, packageDir, installed)
+    try {
+      await startPrototypeEdge(prepared.config, {
+        policy: intent.policy,
+        version: installed.packageVersion,
+        manifestHash
+      })
+    } finally {
+      prepared.close()
+    }
   }
   return true
 }

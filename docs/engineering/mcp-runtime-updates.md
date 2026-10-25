@@ -495,6 +495,15 @@ that control update. Unknown edge versions and their restart requirement remain 
 and quarantined candidates do not recommend a restart. No host context or session tokens
 are included in this projection.
 
+After every MCP edge and runtime owner has exited, launching a newer installed release
+advances both the retained control component and the Hub using those local verified bytes.
+The startup lock serializes migration and edge registration; live edge records prevent an
+owner crash from being mistaken for a cold restart. An interrupted metadata migration
+resumes its recorded decision without restoring task or receipt snapshots. Cold replacement
+may cross a wire/guidance boundary, but still requires state/extension compatibility and a
+common control protocol for binary rollback. It never downgrades, retries quarantined bytes,
+or activates a downloaded candidate merely because it is staged.
+
 The extension's integration status may display a concise pending-update or recovery
 message through a negotiated status capability. Older extensions keep the existing
 wire shape. Do not inject recurring upgrade reminders into model prompts or tool results.
@@ -724,14 +733,21 @@ Following a crash, the existing writer-lock expiry can delay recovery by about a
 Failed fallback startup retries for up to 90 seconds only when no process still owns the
 runtime. A persistent port conflict or uncertain owner keeps admission closed; after fixing
 that condition, `--recover-runtime` continues the journal without clearing task or execution fences.
+First attachment also waits up to 90 seconds for explicit transient admission failures;
+permanent compatibility errors fail immediately. This does not extend a host's shorter
+initialization deadline and never replays MCP initialization or business requests.
 
 The supervisor owns the legacy hook socket while the Hub uses a private data socket. Received
 events enter a durable inbox; task effects and invocation receipts commit together before reply.
 Failed or unconfirmed delivery fences admission. Lost replies can be retried without reapplying
 effects. Each inbox/receipt set is bounded at 4,096 identities and fails closed at capacity.
 Phase 3 adds 24-hour expiry for completed v2 receipts, with a persisted rejection cutoff so
-expired invocations cannot replay even after clock rollback. Incomplete and legacy receipts
-are retained conservatively. Live legacy Claude
+expired invocations cannot replay even after clock rollback. An expired pending v2 event
+is retired by the Hub with its session/task invalidation durably recorded; newer lifecycle
+evidence, Stop notices and execution fences survive. The inbox records a terminal expired
+outcome rather than an applied acknowledgment, allowing subsequent events and recovery to
+proceed. Unconfirmed retirement still fences admission; legacy receipts remain retained.
+Live legacy Claude
 bindings defer even manual switching in this prototype. A legacy hook that exits before its request
 arrives is still unobservable; this implementation does not claim to preserve that event.
 

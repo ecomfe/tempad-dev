@@ -18,6 +18,7 @@ import lockfile from 'proper-lockfile'
 import { hubEnvironment } from '../process-environment'
 import { verifyReleaseArtifact } from '../runtime-update/artifact'
 import { assertTrustedSocket, ensureFile, ensureDir } from '../shared'
+import { unavailable } from './protocol'
 import { ConfigSchema, readJournal, type Artifact, type PrototypeConfig } from './state'
 export type { PrototypeConfig } from './state'
 
@@ -150,7 +151,7 @@ export async function waitForSocket(path: string, signal?: AbortSignal) {
       await delay(100, undefined, { signal })
     }
   } while (performance.now() < until)
-  throw new Error('Runtime process did not publish its endpoint.')
+  throw unavailable('Runtime process has not published its endpoint yet.')
 }
 
 export function unavailableSocket(error: unknown) {
@@ -164,28 +165,42 @@ export async function supervisorConnection(config: PrototypeConfig, signal: Abor
   } catch (error) {
     if (!unavailableSocket(error)) throw error
   }
-  const lockPath = join(config.root, 'startup.lock')
-  ensureFile(lockPath)
-  let unlock: (() => Promise<void>) | undefined
   try {
-    unlock = await lockfile.lock(lockPath, { retries: 0, stale: 10000 })
+    return await withStartupLock(config.root, async () => {
+      try {
+        return await connectSocket(path, signal)
+      } catch (error) {
+        if (!unavailableSocket(error)) throw error
+      }
+      signal.throwIfAborted()
+      // Another cold launch may have promoted the retained control artifact while
+      // this edge waited. Never launch the stale snapshot supplied by the caller.
+      if (config.release) {
+        const { resumeColdStart } = await import('../runtime-update/cold-start')
+        config = await resumeColdStart(config)
+      }
+      const owner = join(config.root, 'supervisor.lock')
+      // A supervisor may be waiting for a crashed Hub's writer lease before it can
+      // publish its endpoint. Repeated edge retries must not spawn losing owners.
+      if (!existsSync(owner) || !(await lockfile.check(owner, { stale: 5000 })))
+        launch(config, 'supervisor')
+      return await waitForSocket(path, signal)
+    })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ELOCKED') throw error
     return waitForSocket(path, signal)
   }
+}
+
+export async function withStartupLock<T>(root: string, action: () => Promise<T>, wait = false) {
+  const path = join(root, 'startup.lock')
+  ensureFile(path)
+  const unlock = await lockfile.lock(path, {
+    retries: wait ? { retries: 900, factor: 1, minTimeout: 100, maxTimeout: 100 } : 0,
+    stale: 10_000
+  })
   try {
-    try {
-      return await connectSocket(path, signal)
-    } catch (error) {
-      if (!unavailableSocket(error)) throw error
-    }
-    signal.throwIfAborted()
-    const owner = join(config.root, 'supervisor.lock')
-    // A supervisor may be waiting for a crashed Hub's writer lease before it can
-    // publish its endpoint. Repeated edge retries must not spawn losing owners.
-    if (!existsSync(owner) || !(await lockfile.check(owner, { stale: 5000 })))
-      launch(config, 'supervisor')
-    return await waitForSocket(path, signal)
+    return await action()
   } finally {
     await unlock()
   }

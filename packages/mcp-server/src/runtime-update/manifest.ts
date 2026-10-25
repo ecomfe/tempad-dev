@@ -108,6 +108,19 @@ export function compatibilityReasons(active: RuntimeManifest, next: RuntimeManif
   return reasons
 }
 
+/** Cold replacement has no frozen MCP sessions, but must retain safe state/rollback access. */
+export function coldCompatibilityReasons(active: RuntimeManifest, next: RuntimeManifest) {
+  const reasons = compatibilityReasons(active, next).filter(
+    (reason) =>
+      reason !== 'MCP contract changed; restart MCP' &&
+      reason !== 'Guidance epoch changed; restart MCP' &&
+      reason !== 'Control component restart required'
+  )
+  if (!active.controlProtocols.some((value) => next.controlProtocols.includes(value)))
+    reasons.push('No common control protocol for binary rollback')
+  return reasons
+}
+
 export function validatePolicyBaseline(current: RuntimeManifest, baseline?: RuntimeManifest) {
   const review = current.guidanceReview
   if (compareVersions(current.packageVersion, review.baseline.version) <= 0)

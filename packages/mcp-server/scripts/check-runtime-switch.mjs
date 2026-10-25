@@ -57,6 +57,17 @@ async function artifact(version, incompatible = false) {
             return JSON.stringify({ ...manifest, version })
         },
         transform(code, id) {
+          if (version === '0.11.1' && id === join(packageRoot, 'src/runtime-prototype/run.ts')) {
+            const boundary = "const { startHub } = await import('../hub-runtime')"
+            assert.ok(code.includes(boundary), 'fixture Hub startup boundary changed')
+            return code.replace(
+              boundary,
+              `
+              if ((await import('node:fs')).existsSync(join(root, 'test-delay-hub')))
+                await new Promise(resolve => setTimeout(resolve, 2000))
+              ${boundary}`
+            )
+          }
           if (id === join(packageRoot, 'src/runtime-prototype/supervisor.ts')) {
             const boundary = 'writeJournal(config.root, value)'
             assert.ok(code.includes(boundary), 'fixture handoff boundary changed')
@@ -207,32 +218,32 @@ async function scenario(a, b, mode, incompatible) {
       timeout: 390000,
       maxBuffer: 4 * 1024 * 1024
     })
+  async function openClient(name, timeout = 15000) {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [a, '--root', root],
+      stderr: 'pipe',
+      env: {
+        PATH: process.env.PATH,
+        HOME: root,
+        TMPDIR: root,
+        TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS: origin,
+        TEMPAD_MCP_AUTO_ACTIVATE_GRACE: '10'
+      }
+    })
+    transport.stderr.on('data', (chunk) => {
+      stderr = (stderr + chunk).slice(-20000)
+    })
+    const client = new Client({ name, version: '1' })
+    clients.push(client)
+    await client.connect(transport, { timeout })
+    assert.ok(transport.pid)
+    edgePids.push(transport.pid)
+    return client
+  }
   try {
-    for (let index = 0; index < 2; index++) {
-      const transport = new StdioClientTransport({
-        command: process.execPath,
-        args: [a, '--root', root],
-        stderr: 'pipe',
-        env: {
-          PATH: process.env.PATH,
-          HOME: root,
-          TMPDIR: root,
-          TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS: origin,
-          TEMPAD_MCP_AUTO_ACTIVATE_GRACE: '10'
-        }
-      })
-      transport.stderr.on('data', (chunk) => {
-        stderr = (stderr + chunk).slice(-20000)
-      })
-      const client = new Client({
-        name: claudeStop && index === 0 ? 'claude-code' : `switch-${index}`,
-        version: '1'
-      })
-      clients.push(client)
-      await client.connect(transport, { timeout: 15000 })
-      assert.ok(transport.pid)
-      edgePids.push(transport.pid)
-    }
+    for (let index = 0; index < 2; index++)
+      await openClient(claudeStop && index === 0 ? 'claude-code' : `switch-${index}`)
     const initial = await record(root, 'supervisor.json')
     const endpoints = await record(root, 'endpoints.json')
     const catalog = await clients[0].listTools()
@@ -369,6 +380,19 @@ async function scenario(a, b, mode, incompatible) {
     const hooks = []
     const stopAtGate = mode !== 'normal' && mode !== 'orphan'
     let portBarrier
+    let newEdge
+    if (mode === 'initial-attach') {
+      await writeFile(join(root, 'test-delay-hub'), '')
+      newEdge = (async () => {
+        await until(
+          async () => (await record(root, 'switch.json'))?.phase === 'old-stopped',
+          'delayed replacement startup'
+        )
+        const client = await openClient('during-handoff')
+        assert.deepEqual(await client.listTools(), catalog)
+      })()
+      void newEdge.catch(() => {})
+    }
     if (
       ['preparing', 'old-stopped', 'candidate-ready', 'committed', 'port-conflict'].includes(mode)
     ) {
@@ -450,6 +474,7 @@ async function scenario(a, b, mode, incompatible) {
     }
     const outcome = await update
     await portBarrier
+    await newEdge
     const settled = await until(
       async () => {
         try {
@@ -462,7 +487,7 @@ async function scenario(a, b, mode, incompatible) {
       'committed runtime and attached edges',
       90000
     )
-    if (mode === 'normal' || mode === 'orphan' || claudeStop)
+    if (mode === 'normal' || mode === 'orphan' || mode === 'initial-attach' || claudeStop)
       assert.equal(outcome.status, 'activated', JSON.stringify(outcome))
     if (mode === 'port-conflict')
       assert.equal(outcome.status, 'rolled-back', JSON.stringify(outcome))
@@ -604,7 +629,7 @@ async function scenario(a, b, mode, incompatible) {
       mode,
       outcome,
       active: settled.active.version,
-      initializedClients: 2,
+      initializedClients: clients.length,
       writes: 1
     })
     passed = true
@@ -629,15 +654,77 @@ async function scenario(a, b, mode, incompatible) {
       await rm(root, { recursive: true, force: true })
   }
 }
+
+async function coldAttachment(entry) {
+  const root = await realpath(await mkdtemp('/tmp/tp-sw-cold-'))
+  const clients = []
+  let passed = false
+  let stderr = ''
+  async function openClient() {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [entry, '--root', root],
+      stderr: 'pipe',
+      env: { PATH: process.env.PATH, HOME: root, TMPDIR: root }
+    })
+    transport.stderr.on('data', (chunk) => {
+      stderr = (stderr + chunk).slice(-20000)
+    })
+    const client = new Client({ name: 'cold-start', version: '1' })
+    clients.push(client)
+    await client.connect(transport, { timeout: 95000 })
+    return { client, pid: transport.pid }
+  }
+  try {
+    const first = await openClient()
+    const catalog = await first.client.listTools()
+    const initial = await record(root, 'supervisor.json')
+    // Kill the edge first so its established recovery cannot publish an endpoint.
+    // Leave real writer leases intact; a fresh edge must wait for cold recovery.
+    process.kill(first.pid, 'SIGKILL')
+    await first.client.close()
+    process.kill(initial.pid, 'SIGKILL')
+    process.kill(initial.hubPid, 'SIGKILL')
+    await until(() => !alive(initial.pid) && !alive(initial.hubPid), 'cold process exit')
+    const started = performance.now()
+    const second = await openClient()
+    const elapsed = performance.now() - started
+    assert.ok(elapsed > 5000, `Cold recovery did not exercise the endpoint wait: ${elapsed}ms`)
+    assert.deepEqual(await second.client.listTools(), catalog)
+    await second.client.ping()
+    results.push({
+      mode: 'cold-attach',
+      elapsedMs: Math.round(elapsed),
+      initializedClients: 1,
+      writes: 0
+    })
+    passed = true
+  } catch (error) {
+    throw new Error(`cold-attach: ${error.message}\n${stderr}\nRoot: ${root}`, { cause: error })
+  } finally {
+    await Promise.allSettled(clients.map((client) => client.close()))
+    for (const pid of ownedProcesses(root)) {
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch (error) {
+        if (error.code !== 'ESRCH') console.error(`Fixture cleanup failed: ${error.message}`)
+      }
+    }
+    await until(() => !ownedProcesses(root).some(alive), 'cold fixture cleanup', 5000)
+    if (passed && !process.env.TEMPAD_KEEP_PROTOTYPE)
+      await rm(root, { recursive: true, force: true })
+  }
+}
 try {
   const a = await artifact('0.11.0')
   const b = await artifact('0.11.1')
   const incompatible = await artifact('0.11.2', true)
   for (const mode of (
     process.env.TEMPAD_SWITCH_CASES ??
-    'normal,orphan,preparing,old-stopped,candidate-ready,committed,port-conflict,claude-stop,claude-stop-rollback'
+    'normal,orphan,preparing,old-stopped,candidate-ready,committed,port-conflict,claude-stop,claude-stop-rollback,initial-attach,cold-attach'
   ).split(',')) {
-    await scenario(a, b, mode, incompatible)
+    if (mode === 'cold-attach') await coldAttachment(a)
+    else await scenario(a, b, mode, incompatible)
     console.log(`Runtime switch case passed: ${mode}`)
   }
   console.log(JSON.stringify({ valid: true, cases: results }, null, 2))

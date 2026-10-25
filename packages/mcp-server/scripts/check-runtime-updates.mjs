@@ -242,6 +242,15 @@ async function client(release, policy = 'off') {
   }
   return client
 }
+function exited(pid) {
+  try {
+    process.kill(pid, 0)
+    return false
+  } catch (error) {
+    if (error.code === 'ESRCH') return true
+    throw error
+  }
+}
 try {
   await exec(
     process.execPath,
@@ -382,6 +391,36 @@ try {
   online = true
   await assert.rejects(request('tempad/runtime-check', { version: c.version }), /hash mismatch/)
   await first.ping()
+
+  // A local restart is the escape hatch for a guidance/contract boundary. It must
+  // promote both control and Hub without a registry check or losing durable state.
+  await control.close()
+  await first.close()
+  await until(() => runtimePids.every(exited), 'all old runtime owners exited', 15_000)
+  online = false
+  const networkBeforeRestart = requests.length
+  const [restarted, concurrent] = await Promise.all([client(c, 'pinned'), client(c, 'pinned')])
+  control = new ControlPeer()
+  await control.connect(new SocketTransport(await connectSocket(join(root, 'run/supervisor.sock'))))
+  const cold = await status()
+  runtimePids = [cold.supervisorPid, cold.hubPid]
+  assert.equal(cold.active.version, c.version)
+  assert.equal(cold.controlComponents.supervisor.version, c.version)
+  assert.equal(cold.controlComponents.restartRequired, false)
+  assert.equal(cold.updates.automaticActivation, false)
+  assert.equal(requests.length, networkBeforeRestart, 'cold adoption uses only installed bytes')
+  assert.equal(await readFile(join(root, 'assets/preserved.txt'), 'utf8'), 'pre-enrollment asset')
+  const savedControl = JSON.parse(
+    await readFile(join(root, 'state/runtime/prototype.json'), 'utf8')
+  )
+  assert.equal(savedControl.release.manifestHash, verify.sha256(JSON.stringify(c.manifest)))
+  const coldJournal = JSON.parse(await readFile(join(root, 'state/runtime/switch.json'), 'utf8'))
+  assert.equal(coldJournal.previous.version, b.version)
+  assert.equal(coldJournal.coldStart, undefined)
+  await concurrent.close()
+  await restarted.ping()
+  await assert.rejects(client(a, 'pinned'), /pinned client requests a different runtime/)
+  assert.equal((await status()).hubPid, cold.hubPid, 'an old CLI cannot downgrade the owner')
   assert.equal(runtimeSourceHash(repo), sourceHash, 'Runtime sources changed during acceptance.')
   succeeded = true
   console.log(
@@ -402,7 +441,11 @@ try {
         'offline-runtime',
         'checkout-zero-network',
         'corrupt-cache',
-        'legacy-migration-guard'
+        'legacy-migration-guard',
+        'cold-guidance-upgrade',
+        'concurrent-cold-upgrade',
+        'cold-upgrade-offline',
+        'old-cli-no-downgrade'
       ]
     })
   )
@@ -414,20 +457,7 @@ try {
   await new Promise((resolve) => registry.close(resolve))
   verify.endLogging()
   if (runtimePids.length)
-    await until(
-      () =>
-        runtimePids.every((pid) => {
-          try {
-            process.kill(pid, 0)
-            return false
-          } catch (error) {
-            if (error.code === 'ESRCH') return true
-            throw error
-          }
-        }),
-      'release runtime shutdown',
-      15_000
-    )
+    await until(() => runtimePids.every(exited), 'release runtime shutdown', 15_000)
   // The worker/probe must close its own processes. Keep failed evidence intact.
   if (succeeded && !process.env.TEMPAD_KEEP_PROTOTYPE)
     await rm(root, { recursive: true, force: true })

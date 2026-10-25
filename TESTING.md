@@ -66,6 +66,8 @@ Root:
   extension. It checks draining, fixed asset endpoints, a disconnected write and late receipt,
   crashes at all four journal phases, port conflicts, rollback retaining a later Stop, and
   pending Claude Stop notices surviving both switching and rollback with durable hook retries.
+  New edges also attach during a delayed handoff and after real stale writer leases expire;
+  the fixture's initialization deadline exceeds the edge's 90-second recovery bound.
   `TEMPAD_SWITCH_CASES` selects comma-separated cases for diagnosis; `TEMPAD_KEEP_PROTOTYPE=1`
   retains isolated evidence. It never downloads or updates installed runtimes. Windows and native
   host behavior are outside this harness; CI runs the full matrix on Node 22 and 24.
@@ -73,7 +75,9 @@ Root:
   serves them from an isolated loopback registry, and exercises opt-in staging and explicit
   activation through real CLI/Hub processes. It checks mixed policies sharing one Hub, exact
   pins, frozen presentation, incompatible epochs, offline operation, corrupt caches, and zero
-  registry requests from checkout builds. Automatic activation stays disabled. CI runs this on
+  registry requests from checkout builds. After all owners exit, concurrent installed-release
+  launches upgrade both control and Hub across an epoch boundary without registry access or
+  allowing an older CLI to downgrade them. Automatic activation stays disabled. CI runs this on
   Node 22/24; Windows and native host acceptance remain outside this fixture. No installed
   runtime or public registry is used by the acquisition test.
 - `pnpm mcp:prepare-release --output <absolute-new.tgz> --verify-baseline` builds and verifies
