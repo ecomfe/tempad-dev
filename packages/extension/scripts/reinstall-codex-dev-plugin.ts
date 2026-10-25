@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { chromium } from 'playwright'
 
+import {
+  nativeFixtureRuntimeEntries,
+  readNativeRuntimeFixture
+} from '../../../scripts/native-runtime-fixture.mjs'
 import { listRuntimeProcesses, resolveCodexExecutable } from './agent-authoring-runtime-preflight'
 import {
   assertCdpOwner,
@@ -173,6 +177,18 @@ async function stopCheckoutRuntime() {
   const entries = ['cli.mjs', 'hub.mjs'].map((name) =>
     join(repoRoot, 'packages/mcp-server/dist', name)
   )
+  let fixtureMarker
+  try {
+    fixtureMarker = JSON.parse(await readFile(join(pluginRoot, 'runtime-fixture.json'), 'utf8'))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  if (fixtureMarker)
+    entries.push(
+      ...nativeFixtureRuntimeEntries(
+        readNativeRuntimeFixture(fixtureMarker.descriptor, repoRoot, { allowStaleSource: true })
+      )
+    )
   const matching = async () => checkoutRuntimeProcesses(await listRuntimeProcesses(), entries)
   const stopped = await stopRuntimeProcesses(matching, (pid) => process.kill(pid, 'SIGTERM'))
   console.log(

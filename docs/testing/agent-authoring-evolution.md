@@ -288,6 +288,13 @@ remains readable but is not required.
 
 Before every live dispatch:
 
+For native runtime-switch acceptance only, the explicit
+[local release-test fixture](../../TESTING.md#native-runtime-switch-acceptance) replaces the
+usual checkout launch below. The generated dev plugin records its private descriptor;
+preflight verifies that configuration and the active immutable Hub rather than assuming
+`dist/hub.mjs`. Keep the same native installation and read-back requirements, and restore the
+ordinary checkout plugin and extension after the probe. This fixture never fetches online releases.
+
 1. Build the affected packages when the change needs them and generate the
    development plugin when a generator input changed:
 

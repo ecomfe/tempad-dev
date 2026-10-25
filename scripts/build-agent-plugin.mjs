@@ -9,8 +9,14 @@ import {
 } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseArgs } from 'node:util'
 
 import { checkoutProfile } from '../agent-plugin/src/clients/shared/runtime-profile.mjs'
+import {
+  nativeFixtureServer,
+  readNativeRuntimeFixture,
+  shellQuote
+} from './native-runtime-fixture.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const srcRoot = join(root, 'agent-plugin/src')
@@ -20,6 +26,9 @@ const devName = 'tempad-dev-dev'
 const devMaxAssetStoreBytes = 1024 * 1024 * 1024
 const pluginSchema = 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json'
 const mcpSchema = 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json'
+const { values } = parseArgs({ options: { 'runtime-fixture': { type: 'string' } } })
+const fixturePath = values['runtime-fixture']
+const fixture = fixturePath ? readNativeRuntimeFixture(fixturePath, root) : undefined
 
 const manifest = readJson(join(srcRoot, 'plugin.json'))
 const portableMcp = readJson(join(srcRoot, 'mcp.json'))
@@ -133,31 +142,40 @@ function buildDev(marketplaces) {
     },
     {
       mcpServers: {
-        [devName]: {
-          command: 'node',
-          args: [join(root, 'packages/mcp-server/dist/cli.mjs')],
-          tool_timeout_sec: codexMcpSettings.tool_timeout_sec,
-          env: {
-            TEMPAD_MCP_DEV_CHECKOUT: root,
-            TEMPAD_MCP_MAX_ASSET_STORE_BYTES: String(devMaxAssetStoreBytes)
-          }
-        }
+        [devName]: fixture
+          ? nativeFixtureServer(fixture, codexMcpSettings.tool_timeout_sec)
+          : {
+              command: 'node',
+              args: [join(root, 'packages/mcp-server/dist/cli.mjs')],
+              tool_timeout_sec: codexMcpSettings.tool_timeout_sec,
+              env: {
+                TEMPAD_MCP_DEV_CHECKOUT: root,
+                TEMPAD_MCP_MAX_ASSET_STORE_BYTES: String(devMaxAssetStoreBytes)
+              }
+            }
       }
     }
   )
 
-  const checkout = realpathSync(root)
-  writeJson(join(devRoot, 'clients/shared/runtime-profile.json'), {
-    checkout,
-    id: checkoutProfile(checkout).id,
-    serverName: devName
-  })
+  if (fixture) writeJson(join(devRoot, 'runtime-fixture.json'), { descriptor: fixturePath })
+  else {
+    const checkout = realpathSync(root)
+    writeJson(join(devRoot, 'clients/shared/runtime-profile.json'), {
+      checkout,
+      id: checkoutProfile(checkout).id,
+      serverName: devName
+    })
+  }
   const hooks = readJson(join(devRoot, 'clients/claude/hooks.json'))
   for (const entries of Object.values(hooks.hooks)) {
     for (const entry of entries) {
-      for (const hook of entry.hooks)
-        hook.command +=
-          ' --runtime-profile "${CLAUDE_PLUGIN_ROOT}/clients/shared/runtime-profile.json"'
+      for (const hook of entry.hooks) {
+        if (fixture)
+          hook.command = `TEMPAD_MCP_RUNTIME_DIR=${shellQuote(fixture.env.TEMPAD_MCP_RUNTIME_DIR)} ${hook.command}`
+        else
+          hook.command +=
+            ' --runtime-profile "${CLAUDE_PLUGIN_ROOT}/clients/shared/runtime-profile.json"'
+      }
     }
   }
   writeJson(join(devRoot, 'clients/claude/hooks.json'), hooks)

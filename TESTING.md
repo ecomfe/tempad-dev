@@ -103,6 +103,44 @@ Root:
 - `pnpm agent-eval:log <start|finish|abandon|check|summary>` (retain the small amount
   of provenance needed to trust a live authoring run)
 
+### Native runtime switch acceptance
+
+Use the [authoring runbook](docs/testing/agent-authoring-evolution.md) for installed-host
+replacement, preflight and native calls. The following opt-in fixture tests the packaged
+release path without fetching or publishing a release. It requires macOS/Linux, a short new
+private directory, and unused release discovery ports; it never stops another port owner.
+
+```sh
+node packages/mcp-server/scripts/native-runtime-fixture.mjs --root /tmp/tp-native-example --prepare
+node packages/mcp-server/scripts/native-runtime-fixture.mjs --root /tmp/tp-native-example --serve
+# In another terminal, use the canonical descriptor path printed by --prepare:
+pnpm agent-plugin:build --runtime-fixture /private/tmp/tp-native-example/runtime-fixture.json
+pnpm build:ext
+```
+
+Preparation deploys frozen dependencies offline and verifies complete immutable A/B archives.
+The fixture changes only package identity and the compiled registry origin to a fixed loopback
+server; normal discovery, bootstrap, staging, consent and handoff logic remain in use. Both
+packages are private and point publication at the fixture registry. Never publish these archives.
+The ignored dev plugin routes Codex, Claude and its hooks to the same private release-test
+namespace. It does not change any generated release target or the default checkout configuration.
+Use a release-profile extension for this fixture, not a checkout-profile build.
+
+After replacing the plugin and reloading the extension, require preflight and a native MCP read.
+Observe staged-only behavior before explicitly invoking the initial package's CLI with
+`--update-runtime <candidate-version>` and the descriptor's four `TEMPAD_MCP_*_DIR` values.
+Confirm the exact version in its TTY. Record stable host/edge identities, changed Hub identity,
+native feedback/lifecycle/Stop, subsequent canvas work, and `automaticActivation: false`.
+The registry request log records only local acquisition. This establishes installed-host behavior
+for the local candidate; official-registry provenance and cross-version release compatibility
+remain separate checks. Do not count synthetic SDK clients as native-host acceptance.
+
+When finished, uninstall the fixture plugin and confirm its CLI/Hub/supervisor processes have
+stopped before shutting down the registry. Regenerate the ordinary plugin with
+`pnpm agent-plugin:build`, rebuild the extension with `TEMPAD_MCP_DEV_CHECKOUT="$PWD"`, and follow
+the same installation/preflight workflow to restore checkout development. Retain evidence outside
+version control. Never reuse a fixture root for different source bytes.
+
 Per package:
 
 - `pnpm --filter @tempad-dev/extension test:run` (includes Worker dependency checks and the real

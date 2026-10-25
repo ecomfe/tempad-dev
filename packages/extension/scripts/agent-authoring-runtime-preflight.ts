@@ -4,12 +4,17 @@ import { existsSync } from 'node:fs'
 import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, normalize, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { promisify } from 'node:util'
+import { isDeepStrictEqual, promisify } from 'node:util'
 
 import {
   resolveRuntimeProfile,
   runtimeDirectories
 } from '../../../agent-plugin/src/clients/shared/runtime-profile.mjs'
+import {
+  nativeFixtureHubEntry,
+  nativeFixtureServer,
+  readNativeRuntimeFixture
+} from '../../../scripts/native-runtime-fixture.mjs'
 
 const execFileAsync = promisify(execFile)
 const defaultRepoRoot = fileURLToPath(new URL('../../../', import.meta.url))
@@ -33,6 +38,7 @@ export interface RuntimeProcess {
 interface RuntimePaths {
   cli: string
   hub: string
+  managed?: boolean
 }
 
 interface EnabledPlugin {
@@ -358,7 +364,11 @@ export function evaluateRuntimeProcesses(
   issues: PreflightIssue[]
 } {
   const cli = processes.filter((process) => processRunsRuntimeEntry(process, paths.cli))
-  const hub = processes.filter((process) => processRunsRuntimeEntry(process, paths.hub))
+  const hub = processes.filter(
+    (process) =>
+      processRunsRuntimeEntry(process, paths.hub) &&
+      (!paths.managed || /\s--role hub(?:\s|$)/.test(process.command))
+  )
   const issues: PreflightIssue[] = []
 
   if (cli.length === 0 && hub.length === 0) {
@@ -436,6 +446,20 @@ async function resolveRuntimeConfiguration(checkout: string): Promise<RuntimeCon
   }
   const cliArgument = server.args[0]
   const cli = normalize(isAbsolute(cliArgument) ? cliArgument : resolve(pluginRoot, cliArgument))
+  const fixtureMarker = await readOptionalJson(join(pluginRoot, 'runtime-fixture.json'))
+  if (fixtureMarker) {
+    const marker = objectValue(fixtureMarker, 'Native runtime fixture marker')
+    if (typeof marker.descriptor !== 'string') fail('Missing native fixture descriptor.')
+    const fixture = readNativeRuntimeFixture(marker.descriptor, checkout)
+    const expected = nativeFixtureServer(fixture, server.tool_timeout_sec)
+    if (!isDeepStrictEqual(server, expected))
+      fail('The generated native fixture MCP configuration differs from its descriptor.')
+    return {
+      generatedVersion: manifest.version,
+      hubRuntimeIdentityPath: join(fixture.env.TEMPAD_MCP_RUNTIME_DIR, 'hub-runtime.json'),
+      paths: { cli, hub: nativeFixtureHubEntry(fixture), managed: true }
+    }
+  }
   const expectedCli = resolve(checkout, 'packages/mcp-server/dist/cli.mjs')
   const sameCheckout =
     cli === expectedCli ||

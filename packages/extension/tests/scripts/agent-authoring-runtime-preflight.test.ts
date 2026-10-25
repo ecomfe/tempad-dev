@@ -37,6 +37,25 @@ function runtimeProcess(path: string, pid: number, startedAtMs: number) {
 }
 
 describe('agent authoring runtime preflight', () => {
+  it('counts only the managed Hub role, not its shared-entry supervisor', () => {
+    const entry = '/private/runtime/package/dist/managed-runtime.mjs'
+    const edge = runtimeProcess(paths.cli, 1, 1)
+    const hub = {
+      ...runtimeProcess(entry, 2, 1),
+      command: `/usr/bin/node ${entry} --root /private/runtime --role hub`
+    }
+    const supervisor = {
+      ...runtimeProcess(entry, 3, 1),
+      command: `/usr/bin/node ${entry} --root /private/runtime --role supervisor`
+    }
+    expect(
+      evaluateRuntimeProcesses({ cli: paths.cli, hub: entry, managed: true }, [
+        edge,
+        hub,
+        supervisor
+      ])
+    ).toEqual({ cli: [edge], hub: [hub], issues: [] })
+  })
   it.each([
     { copiedManifest: false, symlinkCheckout: false, relativeRuntime: false },
     { copiedManifest: true, symlinkCheckout: false, relativeRuntime: false },

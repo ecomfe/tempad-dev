@@ -802,7 +802,12 @@ Windows enrollment is disabled. The remaining rollout requirements are:
   Hub with no enrolled edge makes no background requests; a mixed-policy release Hub may
   stage for an enrolled edge but cannot activate while a non-opt-in edge remains attached.
 
-### Phase 4 — enable compatible automatic updates
+### Phase 4 — native acceptance before automatic activation
+
+Automatic activation remains disabled. Use the isolated
+[native fixture](../../TESTING.md#native-runtime-switch-acceptance) to exercise local packaged
+candidates through installed hosts; changing the registry origin for this probe does not
+establish official-registry provenance or compatibility with every host version.
 
 - Run the full preceding matrix and frozen released-extension compatibility checks against
   the packaged candidate. Measure switch latency and deferral rates before promising a target.
