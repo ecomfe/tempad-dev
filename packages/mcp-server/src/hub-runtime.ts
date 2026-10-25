@@ -73,6 +73,14 @@ import {
   writeHubRuntimeIdentity,
   type HubRuntimeIdentity
 } from './runtime-identity'
+import { HubControl } from './runtime-prototype/hub-control'
+import {
+  IdSchema,
+  RECOVER_MS,
+  RuntimeDataTransport,
+  SocketTransport,
+  type Registration
+} from './runtime-prototype/protocol'
 import { createExtensionOriginPolicy } from './security'
 import {
   ASSET_DIR,
@@ -123,7 +131,7 @@ function hasCanvasReadEvidence(tool: ToolName, payload: unknown): boolean {
   )
 }
 
-export async function startHub(): Promise<void> {
+export async function startHub(options: { prototype?: { secret: string } } = {}): Promise<void> {
   const SHUTDOWN_TIMEOUT = 2000
   const SOCKET_PROBE_TIMEOUT_MS = 300
   const EXACT_SESSION_READ_TOOLS = new Set<ToolName>([
@@ -147,6 +155,9 @@ export async function startHub(): Promise<void> {
     allowedExtensionOrigins
   } = getMcpServerConfig(RUNTIME_PROFILE)
   const extensionOriginPolicy = createExtensionOriginPolicy(allowedExtensionOrigins)
+  const runtimeControl = options.prototype ? new HubControl(options.prototype.secret) : undefined
+  const runtimeDataSockets = new Map<string, Socket>()
+  if (options.prototype) wsPortCandidates.splice(0, wsPortCandidates.length, 0)
 
   log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Hub starting...')
 
@@ -201,9 +212,25 @@ export async function startHub(): Promise<void> {
   const pendingDesignBindings = new Map<string, Promise<void>>()
   const designTaskTimer = setInterval(() => {
     if (storesOwned && !shuttingDown) designTasks.sweep()
+    if (
+      runtimeControl &&
+      storesOwned &&
+      !shuttingDown &&
+      consumerCount === 0 &&
+      runtimeControl.pendingConnections() === 0 &&
+      (hadConsumer || performance.now() - prototypeStartedAt >= RECOVER_MS) &&
+      designTasks.pendingOperationCount === 0 &&
+      terminalReceipts.pendingCount === 0 &&
+      !agentClients.hasPendingActions &&
+      pendingDesignBindings.size === 0 &&
+      assetHttpServer.pendingTransfers === 0
+    )
+      shutdown()
   }, 1000)
   designTaskTimer.unref()
   let consumerCount = 0
+  let hadConsumer = false
+  const prototypeStartedAt = performance.now()
   type TimeoutHandle = ReturnType<typeof setTimeout>
   let selectedWsPort = 0
   let releaseHubLock: (() => Promise<void>) | null = null
@@ -1279,6 +1306,7 @@ export async function startHub(): Promise<void> {
     clearInterval(clientCapabilityTimer)
     clearInterval(assetCleanupTimer)
     agentClients.close()
+    void runtimeControl?.close()
     log.info('Hub is shutting down...')
     consumerSessions.forEach((session) => {
       session.close().catch((err) => {
@@ -1307,13 +1335,25 @@ export async function startHub(): Promise<void> {
     unrefTimer(timer)
   }
 
-  function attachConsumer(sock: Socket): void {
-    const ownerId = randomUUID()
+  function attachConsumer(sock: Socket, registration?: Registration): void {
+    const ownerId = registration?.sessionId ?? randomUUID()
+    if (registration) {
+      runtimeDataSockets.set(ownerId, sock)
+      agentClients.registerContext(ownerId, registration.context)
+    }
     const mcp = createMcpServer(ownerId)
     consumerSessions.add(mcp)
     consumerCount++
+    hadConsumer = true
     log.info(`Consumer connected. Total: ${consumerCount}`)
-    const transport = new ConsumerTransport(sock, sock)
+    const transport =
+      registration && runtimeControl
+        ? new RuntimeDataTransport(new SocketTransport(sock), {
+            generation: () => runtimeControl.currentGeneration,
+            admit: (generation) => runtimeControl.admits(ownerId, generation),
+            role: 'hub'
+          })
+        : new ConsumerTransport(sock, sock)
     mcp.connect(transport).catch((err) => {
       log.error({ err }, 'Failed to attach MCP transport.')
       consumerSessions.delete(mcp)
@@ -1327,6 +1367,8 @@ export async function startHub(): Promise<void> {
     })
     const closeConsumer = async () => {
       agentClients.disconnect(ownerId)
+      runtimeDataSockets.delete(ownerId)
+      runtimeControl?.forget(ownerId)
       await transport
         .close()
         .catch((closeErr) => log.warn({ err: closeErr }, 'Transport close failed.'))
@@ -1336,7 +1378,7 @@ export async function startHub(): Promise<void> {
       consumerSessions.delete(mcp)
       consumerCount--
       log.info(`Consumer disconnected. Remaining: ${consumerCount}`)
-      if (consumerCount === 0) {
+      if (consumerCount === 0 && !runtimeControl) {
         log.info('Last consumer disconnected. Shutting down.')
         shutdown()
       }
@@ -1383,6 +1425,52 @@ export async function startHub(): Promise<void> {
           sock.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, ...reply }) + '\n')
           return
         }
+        if (runtimeControl) {
+          if ('method' in message && message.method === 'tempad/runtime-acquire') {
+            clearTimeout(timeout)
+            sock.unshift(buffer)
+            buffer = Buffer.alloc(0)
+            void runtimeControl
+              .attach(sock)
+              .then(() => sock.resume())
+              .catch(onError)
+            return
+          }
+          if (
+            'method' in message &&
+            'id' in message &&
+            message.method === 'tempad/runtime-attach'
+          ) {
+            const sessionId = IdSchema.parse(message.params?.sessionId)
+            const token = IdSchema.parse(message.params?.token)
+            const registration = runtimeControl.claimSession(sessionId, token)
+            if (runtimeDataSockets.has(sessionId))
+              throw new Error('Runtime session already has a data connection.')
+            clearTimeout(timeout)
+            incomingSockets.delete(sock)
+            sock.off('error', onError)
+            sock.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }) + '\n')
+            const remainder = buffer.subarray(newline + 1)
+            if (remainder.length) sock.unshift(remainder)
+            buffer = Buffer.alloc(0)
+            attachConsumer(sock, registration)
+            sock.resume()
+            return
+          }
+          if ('id' in message)
+            sock.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: message.id,
+                error: {
+                  code: -32002,
+                  message: 'MCP_RUNTIME_RESTART_REQUIRED: reconnect through the stable MCP edge.'
+                }
+              }) + '\n'
+            )
+          else sock.destroy()
+          return
+        }
         clearTimeout(timeout)
         incomingSockets.delete(sock)
         sock.off('error', onError)
@@ -1406,6 +1494,7 @@ export async function startHub(): Promise<void> {
     await acquireStoreLocks()
     assetStore = createAssetStore()
     assetHttpServer = createAssetHttpServer(assetStore, {
+      ...(runtimeControl ? { admit: () => runtimeControl.available() } : {}),
       authorizeExtensionOrigin: (origin) =>
         extensionRegistry.getActive()?.origin === origin.toLowerCase()
     })
@@ -1487,6 +1576,10 @@ export async function startHub(): Promise<void> {
     const startedWebSocket = await startWebSocketServer()
     wss = startedWebSocket.server
     selectedWsPort = startedWebSocket.port
+    if (hubRuntimeIdentity) {
+      hubRuntimeIdentity.wsPort = selectedWsPort
+      writeHubRuntimeIdentity(HUB_RUNTIME_IDENTITY_PATH, hubRuntimeIdentity)
+    }
     return startedWebSocket.server
   }
 
@@ -1667,6 +1760,19 @@ export async function startHub(): Promise<void> {
             status: 'accepted',
             message: action.action === 'stop' ? 'Stopping design task…' : 'Sending feedback…'
           })
+        if (
+          runtimeControl &&
+          !runtimeControl.available() &&
+          !['stop', 'done'].includes(action.action)
+        ) {
+          reply({
+            requestId: action.requestId,
+            taskId: action.taskId,
+            status: 'failed',
+            message: 'Runtime recovery is in progress; feedback was not dispatched.'
+          })
+          return
+        }
         void agentClients
           .action(action, accepted)
           .then(reply)

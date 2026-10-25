@@ -233,6 +233,7 @@ beforeEach(() => {
   vi.mocked(createAssetHttpServer).mockReturnValue({
     start: assetStart,
     stop: assetStop,
+    pendingTransfers: 0,
     getBaseUrl: () => 'http://127.0.0.1:0'
   } as ReturnType<typeof createAssetHttpServer>)
   websocket = new WebSocketServer({ noServer: true })
@@ -914,6 +915,7 @@ describe('Hub runtime module', () => {
         vi.mocked(createAssetHttpServer).mockReturnValue({
           start: assetStart,
           stop: assetStop,
+          pendingTransfers: 0,
           getBaseUrl: () => `http://127.0.0.1:${address.port}`
         } as ReturnType<typeof createAssetHttpServer>)
         const { startHub } = await loadRuntime()

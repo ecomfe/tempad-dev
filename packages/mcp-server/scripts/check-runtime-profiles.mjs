@@ -2,6 +2,7 @@ import { MCP_CHECKOUT_PORT_CANDIDATES, MCP_PORT_CANDIDATES } from '@tempad-dev/s
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import console from 'node:console'
+import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -113,13 +114,18 @@ async function checkProfiles(overrides) {
     child.stdin.write(
       JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n'
     )
-    await waitFor(async () => Boolean(await identity(record)), 'Hub identity was not published')
-    const hub = await identity(record)
+    const hub = await waitFor(async () => {
+      const value = await identity(record)
+      return value?.wsPort && value
+    }, 'Hub identity and WebSocket port were not published')
     assert.equal(hub.entryPath, join(local ? targetPackage : packageRoot, 'dist/hub.mjs'))
-    const port = await waitFor(async () => {
-      const logs = await readLogs(paths.log)
-      return Number(logs.match(/WebSocket server ready\.[\s\S]*?port: (\d+)/)?.[1])
-    }, 'Hub WebSocket port was not logged')
+    assert.equal(
+      hub.runtimeFingerprint,
+      createHash('sha256')
+        .update(await readFile(hub.entryPath))
+        .digest('hex')
+    )
+    const port = hub.wsPort
     assert.ok(
       (local ? MCP_CHECKOUT_PORT_CANDIDATES : MCP_PORT_CANDIDATES).includes(port),
       `${local ? 'Checkout' : 'Release'} Hub bound the wrong port: ${port}`

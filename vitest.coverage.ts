@@ -25,9 +25,12 @@ export const CORE_COVERAGE_THRESHOLDS = {
 } as const
 
 export const EXTENSION_CORE_COVERAGE_FILES = ['mcp/**/*.ts'] as const
-// CLI and Hub launchers are exercised in child processes, outside instrumentation.
+// CLI/Hub launchers, including the isolated prototype entry, run in child processes.
 // Include every other top-level module and every nested runtime module.
-export const MCP_CORE_COVERAGE_FILES = ['src/!(cli.ts|hub.ts)', 'src/*/**/*.ts'] as const
+export const MCP_CORE_COVERAGE_FILES = [
+  'src/!(cli.ts|hub.ts|runtime-prototype.ts)',
+  'src/*/**/*.ts'
+] as const
 
 export const AGENT_RUNTIME_FILES = [
   'agent-plugin/src/clients/shared/runtime-paths.mjs',

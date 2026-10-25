@@ -19,6 +19,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   getExtensionRuntimeIssues,
   createHubRuntimeIdentity,
+  parseHubRuntimeIdentity,
   readHubRuntimeIdentity,
   removeHubRuntimeIdentityIfOwned,
   writeHubRuntimeIdentity
@@ -40,6 +41,9 @@ describe('runtime identity', () => {
     writeHubRuntimeIdentity(identityPath, identity)
     expect(readHubRuntimeIdentity(identityPath)).toEqual(identity)
     expect(JSON.parse(readFileSync(identityPath, 'utf8'))).toEqual(identity)
+    expect(parseHubRuntimeIdentity({ ...identity, wsPort: 6220 })?.wsPort).toBe(6220)
+    for (const wsPort of [0, 65536, 1.5, '6220'])
+      expect(parseHubRuntimeIdentity({ ...identity, wsPort })).toBeNull()
 
     const legacyIdentity = JSON.parse(JSON.stringify(identity)) as Record<string, unknown>
     delete legacyIdentity.activeExtension

@@ -14,6 +14,22 @@ function decode(id: RequestId): RequestId {
   return typeof id === 'string' && id.startsWith(STRING_ID) ? id.slice(STRING_ID.length) : id
 }
 
+export function encodeConsumerMessage(message: JSONRPCMessage): JSONRPCMessage {
+  if ('method' in message && 'id' in message) return { ...message, id: encode(message.id) }
+  if ('method' in message && message.method === 'notifications/cancelled') {
+    const id = message.params?.requestId
+    if (typeof id === 'string' || typeof id === 'number')
+      return { ...message, params: { ...message.params, requestId: encode(id) } }
+  }
+  return message
+}
+
+export function decodeConsumerMessage(message: JSONRPCMessage): JSONRPCMessage {
+  return !('method' in message) && message.id !== undefined
+    ? { ...message, id: decode(message.id) }
+    : message
+}
+
 /** SDK 1.32 ignores cancellation of falsy request IDs. Keep wire IDs unchanged
  * while giving its existing cancellation machinery nonempty, collision-free IDs. */
 export class ConsumerTransport extends StdioServerTransport {
@@ -24,13 +40,7 @@ export class ConsumerTransport extends StdioServerTransport {
     this.started = true
     const receive = this.onmessage
     this.onmessage = (message) => {
-      if ('method' in message && 'id' in message) message = { ...message, id: encode(message.id) }
-      else if ('method' in message && message.method === 'notifications/cancelled') {
-        const id = message.params?.requestId
-        if (typeof id === 'string' || typeof id === 'number')
-          message = { ...message, params: { ...message.params, requestId: encode(id) } }
-      }
-      receive?.(message)
+      receive?.(encodeConsumerMessage(message))
     }
     await super.start()
   }
@@ -38,8 +48,6 @@ export class ConsumerTransport extends StdioServerTransport {
   override send(message: JSONRPCMessage): Promise<void> {
     // Server-initiated requests and their incoming responses use the server's
     // independent ID space. Only replies to client requests need decoding.
-    if (!('method' in message) && message.id !== undefined)
-      message = { ...message, id: decode(message.id) }
-    return super.send(message)
+    return super.send(decodeConsumerMessage(message))
   }
 }

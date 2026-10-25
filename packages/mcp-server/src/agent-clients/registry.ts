@@ -47,6 +47,7 @@ export class AgentClients {
     { signature: string; pending: Promise<DesignActionResult>; settledAt?: number }
   >()
   private readonly feedbackSignals = new Map<string, AbortController>()
+  private readonly pendingRemovals = new Set<Promise<void>>()
   private readonly lifecycle?: Pick<
     CodexAppLifecycle,
     'watch' | 'state' | 'retain' | 'interrupt' | 'close'
@@ -81,6 +82,13 @@ export class AgentClients {
     )
       throw new Error('Register MCP host context before using tools.')
     this.contexts.set(connectionId, context)
+  }
+
+  get hasPendingActions(): boolean {
+    return (
+      this.pendingRemovals.size > 0 ||
+      [...this.actions.values()].some((action) => action.settledAt === undefined)
+    )
   }
 
   private onNativeState(
@@ -637,7 +645,9 @@ export class AgentClients {
 
   cancelFeedback(taskId: string): Promise<void> {
     this.abortFeedback(taskId)
-    return this.codex?.cancelQueued(taskId) ?? Promise.resolve()
+    const pending = this.codex?.cancelQueued(taskId) ?? Promise.resolve()
+    this.pendingRemovals.add(pending)
+    return pending.finally(() => this.pendingRemovals.delete(pending))
   }
 
   disconnect(connectionId: string): void {

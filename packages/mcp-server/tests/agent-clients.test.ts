@@ -562,6 +562,36 @@ describe('client identity and capabilities', () => {
 })
 
 describe('bound client actions', () => {
+  it.each([false, true])(
+    'keeps native queue removal pending until it settles (failure=%s)',
+    async (failure) => {
+      const tasks = new DesignTasks({ createId: () => 'unused' })
+      const codex = new CodexAppFeedback('/unused')
+      let resolve!: () => void
+      let reject!: (error: Error) => void
+      vi.spyOn(codex, 'cancelQueued')
+        .mockResolvedValue(undefined)
+        .mockReturnValueOnce(
+          new Promise<void>((yes, no) => {
+            resolve = yes
+            reject = no
+          })
+        )
+      const clients = new AgentClients(tasks, codex)
+      expect(clients.hasPendingActions).toBe(false)
+      const cancelled = clients.cancelFeedback('task')
+      const settled = Promise.allSettled([cancelled])
+      expect(clients.hasPendingActions).toBe(true)
+      if (failure) reject(new Error('Native queue unavailable'))
+      else resolve()
+      expect((await settled)[0]!.status).toBe(failure ? 'rejected' : 'fulfilled')
+      expect(clients.hasPendingActions).toBe(false)
+      await clients.cancelFeedback('other')
+      expect(clients.hasPendingActions).toBe(false)
+      clients.close()
+    }
+  )
+
   it.each(['queue', 'steer', 'continue'] as const)(
     'rejects %s comments without native delivery even when hooks are active',
     async (mode) => {
@@ -656,8 +686,10 @@ describe('bound client actions', () => {
       true
     )
     const pending = f.clients.action(f.action({ action: 'stop', feedback: undefined }))
+    expect(f.clients.hasPendingActions).toBe(true)
     expect(f.record.task.status).toBe('stopping')
     expect((await pending).status).toBe('delivered')
+    expect(f.clients.hasPendingActions).toBe(false)
     f.tasks.finishOperation('write', 'extension-a')
     expect(f.record.task.status).toBe('cancelled')
     expect(() => f.tasks.resume(f.record.task.taskId, f.owner, 0, session)).toThrow(

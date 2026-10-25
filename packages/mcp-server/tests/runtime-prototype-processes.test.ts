@@ -1,0 +1,191 @@
+import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { EventEmitter } from 'node:events'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { createServer, type Socket } from 'node:net'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('node:child_process', () => ({ spawn: vi.fn() }))
+
+import { captureHostContext } from '../src/agent-clients/host-context'
+import { HubControl } from '../src/runtime-prototype/hub-control'
+import {
+  connectSocket,
+  hasHubRecord,
+  launch,
+  listenPrivate,
+  prototypeConfig,
+  supervisorConnection,
+  waitForSocket,
+  type PrototypeConfig
+} from '../src/runtime-prototype/processes'
+import { ControlPeer, GrantSchema, SocketTransport } from '../src/runtime-prototype/protocol'
+import { startSupervisor } from '../src/runtime-prototype/supervisor'
+import { SOCK_PATH } from '../src/shared'
+
+const cleanup: (() => Promise<unknown>)[] = []
+afterEach(async () => {
+  for (const close of cleanup.splice(0).reverse()) await close()
+  vi.restoreAllMocks()
+  vi.mocked(spawn).mockReset()
+})
+
+async function fixture() {
+  const root = await realpath(await mkdtemp('/tmp/tp-process-'))
+  cleanup.push(() => rm(root, { recursive: true, force: true }))
+  const entry = join(root, 'runtime-prototype.mjs')
+  await writeFile(entry, 'export const fixture = true')
+  return prototypeConfig(root, entry)
+}
+
+async function listener(path: string, accept: (socket: Socket) => void = () => {}) {
+  const sockets = new Set<Socket>()
+  const server = createServer((socket) => {
+    sockets.add(socket)
+    socket.once('close', () => sockets.delete(socket))
+    accept(socket)
+  })
+  cleanup.push(async () => {
+    for (const socket of sockets) socket.destroy()
+    if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+  await listenPrivate(server, path)
+  return server
+}
+
+describe.skipIf(process.platform === 'win32')('isolated prototype processes', () => {
+  it('pins the complete local bundle and refuses mutations or an exposed configuration', async () => {
+    const config = await fixture()
+    expect(prototypeConfig(config.root, config.entry)).toEqual(config)
+    await writeFile(join(config.root, 'imported.mjs'), 'export const value = 2')
+    expect(() => prototypeConfig(config.root, config.entry)).toThrow('bundle changed')
+    await rm(join(config.root, 'imported.mjs'))
+    await chmod(join(config.root, 'prototype.json'), 0o644)
+    expect(() => prototypeConfig(config.root, config.entry)).toThrow('untrusted')
+    expect(hasHubRecord(config.root)).toBe(false)
+    await mkdir(join(config.root, 'run'))
+    await writeFile(join(config.root, 'run/hub-runtime.json'), '{}')
+    expect(hasHubRecord(config.root)).toBe(true)
+  })
+
+  it('starts only its pinned entry with a sanitized environment', async () => {
+    const config = await fixture()
+    const child = Object.assign(new EventEmitter(), { unref: vi.fn() }) as unknown as ChildProcess
+    vi.mocked(spawn).mockReturnValue(child)
+    vi.stubEnv('CODEX_THREAD_ID', 'must-not-inherit')
+    vi.stubEnv('NODE_OPTIONS', '--require=must-not-run')
+    try {
+      expect(launch(config, 'hub')).toBe(child)
+      expect(spawn).toHaveBeenCalledWith(
+        process.execPath,
+        [config.entry, '--root', config.root, '--role', 'hub'],
+        {
+          detached: true,
+          stdio: 'ignore',
+          env: expect.not.objectContaining({
+            CODEX_THREAD_ID: expect.anything(),
+            NODE_OPTIONS: expect.anything()
+          })
+        }
+      )
+      expect(child.unref).toHaveBeenCalledOnce()
+      expect(vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env).not.toHaveProperty('NODE_OPTIONS')
+      expect(vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env).not.toHaveProperty('CODEX_THREAD_ID')
+      child.emit('error', new Error('Start failed'))
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('elects one startup owner and reuses an existing private endpoint', async () => {
+    const config = await fixture()
+    const path = join(config.root, 'supervisor.sock')
+    const child = Object.assign(new EventEmitter(), { unref: vi.fn() }) as unknown as ChildProcess
+    let listening: Promise<unknown> | undefined
+    vi.mocked(spawn).mockImplementation(() => {
+      listening = listener(path)
+      return child
+    })
+    const signal = new AbortController().signal
+    const sockets = await Promise.all([
+      supervisorConnection(config, signal),
+      supervisorConnection(config, signal)
+    ])
+    await listening
+    expect(spawn).toHaveBeenCalledOnce()
+    sockets.push(await supervisorConnection(config, signal))
+    sockets.push(await waitForSocket(path))
+    expect(spawn).toHaveBeenCalledOnce()
+    sockets.forEach((socket) => socket.destroy())
+    const abort = new AbortController()
+    abort.abort()
+    await expect(connectSocket(path, abort.signal)).rejects.toThrow('cancelled')
+    await expect(waitForSocket(join(config.root, 'absent'), abort.signal)).rejects.toThrow()
+    await chmod(path, 0o666)
+    expect(() => connectSocket(path)).toThrow('untrusted')
+  })
+
+  it('renews one Hub lease, negotiates registrations and closes with its Hub', async () => {
+    const config = await fixture()
+    let now = 0
+    const control = new HubControl(config.secret, () => now)
+    await listener(SOCK_PATH, (socket) => {
+      void control.attach(socket)
+    })
+    cleanup.push(async () => {
+      await control.close()
+    })
+    await startSupervisor(config)
+    const path = join(config.root, 'supervisor.sock')
+    const peer = new ControlPeer()
+    await peer.connect(new SocketTransport(await connectSocket(path)))
+    cleanup.push(() => peer.close())
+    const params = {
+      sessionId: randomUUID(),
+      token: randomUUID(),
+      context: captureHostContext({ HOME: config.root, TMPDIR: config.root }),
+      versions: [1, 2]
+    }
+    const first = peer.request({ method: 'tempad/runtime-hello', params }, GrantSchema)
+    const duplicate = expect(
+      peer.request({ method: 'tempad/runtime-hello', params }, GrantSchema)
+    ).rejects.toThrow('only once')
+    const grant = await first
+    await duplicate
+    expect(grant).toMatchObject({ generation: 1, hubId: control.hubId, version: 1 })
+    const incompatible = new ControlPeer()
+    await incompatible.connect(new SocketTransport(await connectSocket(path)))
+    cleanup.push(() => incompatible.close())
+    await expect(
+      incompatible.request(
+        { method: 'tempad/runtime-hello', params: { ...params, versions: [2] } },
+        ResultSchema
+      )
+    ).rejects.toThrow('MCP_RUNTIME_RESTART_REQUIRED')
+    // A real renewal crosses the interval; shutdown must also remove its endpoint and lock.
+    now = 9000
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    now = 11000
+    expect(control.available()).toBe(true)
+    const closed = new Promise<void>((resolve) => {
+      peer.onclose = resolve
+    })
+    await control.close()
+    await closed
+    await vi.waitFor(async () =>
+      expect(
+        await readFile(join(config.root, 'supervisor.json')).catch(() => undefined)
+      ).toBeUndefined()
+    )
+  })
+
+  it('does not recreate a lost Hub with a prior ownership record', async () => {
+    const config: PrototypeConfig = await fixture()
+    await mkdir(join(config.root, 'run'))
+    await writeFile(join(config.root, 'run/hub-runtime.json'), '{}')
+    await expect(startSupervisor(config)).rejects.toThrow('Hub was lost')
+    expect(spawn).not.toHaveBeenCalled()
+  })
+})

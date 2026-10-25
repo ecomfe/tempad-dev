@@ -48,6 +48,52 @@ afterEach(() => {
 })
 
 describe('asset-http-server', () => {
+  it('fences new transfers during recovery without affecting authentication or admitted uploads', async () => {
+    const store = createStoreMock()
+    let admit = true
+    const body = Buffer.from('admitted asset')
+    const hash = createHash('sha256').update(body).digest('hex')
+    const filename = `${hash}.png`
+    const server = createAssetHttpServer(store, { admit: () => admit })
+    await server.start()
+    createdPaths.push(join(ASSET_DIR, filename))
+    const url = `${server.getBaseUrl()}/assets/${filename}`
+    const upload = request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png', 'Content-Length': body.length }
+    })
+    const uploaded = new Promise<number | undefined>((resolve, reject) => {
+      upload.once('error', reject)
+      upload.once('response', (response) => {
+        response.resume()
+        resolve(response.statusCode)
+      })
+    })
+    void uploaded.catch(() => {})
+    try {
+      expect(server.pendingTransfers).toBe(0)
+      upload.write(body.subarray(0, 1))
+      await vi.waitFor(() => expect(server.pendingTransfers).toBe(1))
+      store.get.mockClear()
+      admit = false
+      expect((await fetch(url)).status).toBe(503)
+      expect(
+        (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body }))
+          .status
+      ).toBe(503)
+      expect(store.get).not.toHaveBeenCalled()
+      upload.end(body.subarray(1))
+      expect(await uploaded).toBe(201)
+      await vi.waitFor(() => expect(server.pendingTransfers).toBe(0))
+      admit = true
+      expect((await fetch(url)).status).toBe(404)
+      expect(store.get).toHaveBeenCalledWith(hash)
+    } finally {
+      upload.destroy()
+      server.stop()
+    }
+  })
+
   it('uploads and downloads an image subtype with a hyphen through its generated filename', async () => {
     const store = createStoreMock()
     const records = new Map<string, ReturnType<AssetStore['get']>>()

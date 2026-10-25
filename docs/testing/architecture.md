@@ -40,9 +40,9 @@ For contributor workflow and commands, see `TESTING.md`.
   behavioral coverage; do not remove baseline files or lower its floor to pass a change.
 - Every extension MCP module and Hub runtime module also has a per-file floor of 50% for
   lines/statements/functions and 40% for branches. Broad source globs include new modules
-  automatically, so aggregate coverage cannot hide a completely untested core file. The CLI and
-  Hub launchers remain reported but are excluded from this floor because their integration tests
-  run in child processes outside coverage instrumentation. These minimums supplement the existing
+  automatically, so aggregate coverage cannot hide a completely untested core file. The CLI,
+  Hub, and isolated prototype entry launchers remain reported but are excluded from this floor
+  because their integration tests run in child processes outside coverage instrumentation. These minimums supplement the existing
   baseline; meeting either gate is not evidence that every behavior is correct.
 - Browser behavior is verified separately in the browser suite. Browser-facing TypeScript still
   appears in the node coverage report; that report does not measure Vue templates or native host behavior.

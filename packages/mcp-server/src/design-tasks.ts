@@ -399,6 +399,10 @@ export class DesignTasks {
     return this.operations.has(requestId)
   }
 
+  get pendingOperationCount(): number {
+    return this.operations.size
+  }
+
   find(taskId: string): DesignTaskRecord | undefined {
     this.sweep()
     return this.records.get(taskId)

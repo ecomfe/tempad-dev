@@ -55,6 +55,12 @@ Root:
   CI runs it alongside profile isolation.
   It refuses Windows for the same fixed-pipe constraint; it does not connect to installed hosts.
   Native adapter and real Hub socket tests separately cover routing and persisted host contexts.
+- `pnpm mcp:check-runtime-prototype` builds a bundled-only prototype in a private Unix root,
+  using ephemeral WebSocket/HTTP ports and a synthetic extension. It checks two initialized
+  edges, supervisor crash recovery without replacing the Hub or replaying a write, admission
+  fencing, Stop, host-context isolation, legacy hook routing, and last-client shutdown. It
+  reports startup/recovery timings and process RSS. The installed CLI and live runtimes are
+  unchanged; there are no downloads or version switches. Windows is not supported by this harness.
 - `pnpm mcp:measure-runtime --output <new.json> --runs 5 [--lockfile <installation-lock>] <package-dir> [...]`
   compares trusted, explicitly supplied local release artifacts in the given version order. It
   performs MCP initialization/catalog reads through fresh CLI/Hub processes and records artifact

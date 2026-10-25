@@ -14,6 +14,7 @@
     "mcp:check-bridge": "pnpm --filter @tempad-dev/shared build && pnpm --filter @tempad-dev/mcp check:bridge-compatibility",
     "mcp:check-profiles": "pnpm --filter @tempad-dev/shared build && pnpm build:mcp && node packages/mcp-server/scripts/check-runtime-profiles.mjs",
     "mcp:check-host-context": "pnpm --filter @tempad-dev/shared build && pnpm build:mcp && node packages/mcp-server/scripts/check-host-context.mjs",
+    "mcp:check-runtime-prototype": "pnpm --filter @tempad-dev/shared build && pnpm --filter @tempad-dev/mcp exec tsdown --config tsdown.prototype.config.ts && node packages/mcp-server/scripts/check-runtime-prototype.mjs",
     "mcp:measure-runtime": "node packages/mcp-server/scripts/measure-runtime.mjs",
     "mcp:measure-hooks": "node packages/mcp-server/scripts/measure-hooks.mjs",
     "screenshots": "pnpm --filter @tempad-dev/extension screenshots",

@@ -94,6 +94,9 @@ jobs:
       - name: Check CLI host context isolation
         run: node packages/mcp-server/scripts/check-host-context.mjs
 
+      - name: Check isolated runtime supervisor
+        run: pnpm mcp:check-runtime-prototype
+
   typescript-compatibility:
     runs-on: ubuntu-latest
     steps:

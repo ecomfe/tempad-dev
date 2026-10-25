@@ -1,7 +1,7 @@
 # Updating a running MCP runtime
 
-Status: proposed updater; Phase 0a isolation and 0b host contexts are implemented with the validation limits below.
-No supervisor or automatic update mechanism is implemented. Design baseline: `74ed70c9`.
+Status: proposed updater; Phase 0a/0b are implemented and Phase 1 has an isolated bundled-only prototype.
+The installed CLI still uses the existing bridge; automatic updates are not implemented. Design baseline: `74ed70c9`.
 
 This design is for maintainers implementing runtime updates and preparing compatible
 releases. It owns the proposed process boundary, update transaction, and acceptance
@@ -62,11 +62,12 @@ and restart guidance instead of completing this architecture merely because it i
 
 ```text
 Host A <-- MCP stdio --> CLI edge A --+
-                                    +--> Supervisor --> Hub generation N
-Host B <-- MCP stdio --> CLI edge B --+                     |-- Figma WebSocket server
-                                                          |-- asset HTTP server
-                                                          |-- tools and host adapters
-                                                          +-- task and asset stores
+                                    +-- data --> Hub generation N
+Host B <-- MCP stdio --> CLI edge B --+              |-- Figma WebSocket server
+                                                   |-- asset HTTP server
+                                                   |-- tools and host adapters
+                                                   +-- task and asset stores
+Edges <-- control --> Supervisor -- lease/lifecycle --> Hub
 ```
 
 | Component                                    | Owns                                                                                                                                   | Does not own                                                                                  |
@@ -88,7 +89,7 @@ metadata, client identity, cancellation, progress, and structured errors must su
 the internal hop unchanged in meaning.
 
 The internal protocol needs explicit version negotiation and bounded frames. Each
-call carries an edge-session ID, request ID, supervisor generation, original metadata,
+data connection binds an edge-session ID; each call carries its request ID, supervisor generation, original metadata,
 and remaining deadline. Generation changes must not reset deadlines, confuse equal
 request IDs from different clients, or authorize a conversation from an arbitrary
 claimed ID. The Hub still verifies native identity through the existing host adapters.
@@ -453,9 +454,10 @@ replace a still-live supervisor. The successor checks the activation journal, pr
 identity, the Hub control lease defined below, and store locks, then attaches to the live Hub or recovers a
 dead one. Edges re-register their session, versioned host context, and pending request IDs
 without asking the host to initialize again. Every routed frame carries the control
-generation, fencing stale owners. Completed-but-undelivered replies remain bounded in
-the Hub until edge acknowledgment;
-unrecoverable write results become unknown outcomes, never retries. Exhausted recovery
+generation, fencing stale owners. The independent edge/Hub data connection can deliver
+accepted results during control recovery without supervisor buffering. If that connection
+is also lost, unrecoverable write results become unknown outcomes, never retries; durable
+execution ownership and result recovery require Phase 2. Exhausted recovery
 reports unavailability while preserving the host session; it does not create a second writer.
 
 The **Hub control lease** is issued and checked by the Hub that holds the store locks.
@@ -634,6 +636,39 @@ full-device flush or platform-wide load behavior. Those measurements and install
 receipt/retry acceptance remain gates before automatic activation, not claims from this probe.
 
 ### Phase 1 — stable edge and supervisor, bundled runtime only
+
+The isolated `runtime-prototype.mjs` entry now implements this topology with control protocol 1.
+It requires a private Unix root, pins the built `.mjs` files, and allocates ephemeral ports;
+the normal CLI does not select it. `pnpm mcp:check-runtime-prototype` exercises it with real
+processes and a synthetic extension, without touching installed hosts or downloading packages.
+
+The prototype keeps edge/Hub data sockets separate from supervisor control. Existing responses
+and cancellation can settle while the supervisor is unavailable; new business calls, asset
+transfers, and feedback admission require the Hub's current lease. Stop, review closure, and
+lifecycle hooks remain available. A successor re-registers each edge and its host context against the same Hub.
+This avoids replay buffers in the supervisor and preserves the SDK sessions on both ends.
+A lost Hub or data socket is not retried as a write: the host session retains ping and its frozen
+catalog, but recovery of execution ownership remains a Phase 2 prerequisite. The prototype
+refuses to respawn a Hub whose prior runtime record remains. It does not implement switching,
+the durable handoff journal, or operator recovery, and is not an installed-host acceptance.
+Its separate build under `dist/prototype/` leaves the normal Hub entry and preflight
+fingerprint intact; ordinary builds and npm publication do not include that prototype output.
+Dependencies still resolve from the local installation; this is not Phase 3's immutable release payload.
+
+Five fresh-process trials per path on macOS arm64 with Node 24.22.1 gave these local medians:
+
+| Measurement                        | Existing bridge | Prototype |
+| ---------------------------------- | --------------- | --------- |
+| Attach a second initialized client | 134 ms          | 173 ms    |
+| Two-client process RSS sum         | 316 MiB         | 433 MiB   |
+| Supervisor crash recovery          | Not applicable  | 5.44 s    |
+
+Prototype cold initialization took 589 ms (585–603 ms), including election and catalog freezing.
+The existing harness starts its Hub separately, so its cold timings are not directly comparable.
+Recovery included the five-second stale-lock window; all five trials retained the same Hub and
+delivered the admitted write once. These are isolated synthetic checks, not latency guarantees
+or native-host acceptance. RSS sums include shared pages and are not physical-memory deltas.
+The extra process and roughly 116 MiB RSS cost need to be considered before production enablement.
 
 - Two clients initialize and use the same bundled Hub; tools, frozen metadata, progress,
   cancellation, responses, and native identity retain their existing semantics.

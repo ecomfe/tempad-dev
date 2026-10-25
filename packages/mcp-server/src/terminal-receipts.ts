@@ -23,6 +23,10 @@ export class TerminalReceipts {
   private readonly pending = new Map<string, ReceiptRecord>()
   private readonly completed = new Map<string, ReceiptRecord>()
 
+  get pendingCount(): number {
+    return this.pending.size
+  }
+
   reserve(
     requestId: string,
     extension: ExtensionConnection,

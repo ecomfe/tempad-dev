@@ -44,12 +44,14 @@ export interface AssetHttpServerOptions {
   maxAssetStoreBytes?: number
   maxConcurrentUploads?: number
   authorizeExtensionOrigin?: (origin: string) => boolean
+  admit?: () => boolean
 }
 
 export interface AssetHttpServer {
   start(): Promise<void>
   stop(): void
   getBaseUrl(legacy?: boolean): string
+  readonly pendingTransfers: number
 }
 
 export function createAssetHttpServer(
@@ -182,6 +184,11 @@ export function createAssetHttpServer(
     if (req.method === 'OPTIONS') {
       res.writeHead(204)
       res.end()
+      return
+    }
+
+    if (options.admit && !options.admit()) {
+      sendError(res, 503, 'Runtime recovery is in progress; request was not admitted.')
       return
     }
 
@@ -481,7 +488,10 @@ export function createAssetHttpServer(
   return {
     start,
     stop,
-    getBaseUrl
+    getBaseUrl,
+    get pendingTransfers() {
+      return activeDownloads + activeUploads
+    }
   }
 }
 
