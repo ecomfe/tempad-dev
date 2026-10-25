@@ -28,6 +28,10 @@ childProcess.execFileSync = function (file, ...args) {
     const marker = (stage) =>
       `[IO.File]::AppendAllText($env:TEMPAD_RUNTIME_TRACE_PATH, "${stage} $([DateTime]::UtcNow.ToString('o'))\n")\n`
     let source = Buffer.from(args[0][encodedIndex + 1], 'base64').toString('utf16le')
+    source = source.replace(
+      '$request = $env:TEMPAD_RUNTIME_ACL_REQUEST | ConvertFrom-Json',
+      `${marker('utility-import-start')}Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1" -ErrorAction Stop\n${marker('utility-imported')}$request = $env:TEMPAD_RUNTIME_ACL_REQUEST | ConvertFrom-Json`
+    )
     for (const [boundary, stage] of [
       ['[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)', 'encoding-set'],
       ['$request = $env:TEMPAD_RUNTIME_ACL_REQUEST | ConvertFrom-Json', 'json-parsed'],
