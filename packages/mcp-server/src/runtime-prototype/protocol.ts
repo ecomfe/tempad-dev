@@ -114,7 +114,10 @@ export class SocketTransport extends StdioServerTransport {
   private closed = false
   private pendingBytes = 0
 
-  constructor(private readonly socket: Socket) {
+  constructor(
+    private readonly socket: Socket,
+    private readonly afterSend?: (message: JSONRPCMessage) => Promise<void>
+  ) {
     super(socket, socket)
     socket.once('close', () => void this.close())
   }
@@ -148,6 +151,7 @@ export class SocketTransport extends StdioServerTransport {
     } finally {
       this.pendingBytes -= size
     }
+    await this.afterSend?.(message)
   }
 
   override async close() {

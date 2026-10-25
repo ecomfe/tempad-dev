@@ -1,7 +1,8 @@
 import type { Socket } from 'node:net'
 
-import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { ResultSchema, type RequestId } from '@modelcontextprotocol/sdk/types.js'
 import { randomUUID } from 'node:crypto'
+import { finished } from 'node:stream/promises'
 import { z } from 'zod'
 
 import { ClientHookRequestSchema } from '../agent-clients/hooks'
@@ -84,8 +85,41 @@ export class HubControl {
   async attach(socket: Socket) {
     const peer = new ControlPeer()
     let acquired = false
-    peer.onerror = () => void peer.close()
+    let pendingStop: { id: RequestId; signal: AbortSignal } | undefined
+    const cancelStop = () => {
+      if (!pendingStop) return
+      pendingStop.signal.removeEventListener('abort', cancelStop)
+      pendingStop = undefined
+      this.stopping = false
+    }
+    const transport = new SocketTransport(socket, async (message) => {
+      if (!pendingStop || !('result' in message) || message.id !== pendingStop.id) return
+      // The SDK schedules response writes after the handler returns. Commit the
+      // shutdown only after its reply was written, then finish the pipe gracefully.
+      pendingStop.signal.removeEventListener('abort', cancelStop)
+      pendingStop = undefined
+      try {
+        const ended = finished(socket, {
+          readable: false,
+          cleanup: true,
+          signal: AbortSignal.timeout(5000)
+        })
+        socket.end()
+        await ended
+      } catch (error) {
+        this.stopping = false
+        throw error
+      }
+      // Shutdown may already have closed stores before failing. Keep that state
+      // fenced; the owner must finish exiting rather than reopen admission.
+      await this.handoff!.stop()
+    })
+    peer.onerror = () => {
+      cancelStop()
+      void peer.close()
+    }
     peer.onclose = () => {
+      cancelStop()
       if (this.peer === peer) {
         this.peer = undefined
         this.retained = false
@@ -176,10 +210,11 @@ export class HubControl {
           .strict()
           .optional()
       }),
-      ({ params }) => {
+      ({ params }, extra) => {
         requireLease()
         const handoff = this.handoff
         const state = handoff?.inspect()
+        if (this.stopping) throw unavailable('Runtime shutdown has already been admitted.')
         if (!this.gated || !handoff || !state?.drained)
           throw unavailable('Runtime has not drained; shutdown was not admitted.')
         if (
@@ -191,9 +226,9 @@ export class HubControl {
           throw unavailable('Runtime is no longer idle or eligible for automatic replacement.')
         handoff.flush()
         this.stopping = true
-        // Return an acknowledgment before closing its control socket. The
-        // supervisor still waits for process exit and writer-lock release.
-        setTimeout(() => void handoff.stop().catch((error: Error) => peer.onerror?.(error)), 25)
+        pendingStop = { id: extra.requestId, signal: extra.signal }
+        extra.signal.addEventListener('abort', cancelStop, { once: true })
+        if (extra.signal.aborted) cancelStop()
         return { stopping: this.hubId }
       }
     )
@@ -221,7 +256,7 @@ export class HubControl {
         return { generation: this.generation }
       }
     )
-    await peer.connect(new SocketTransport(socket))
+    await peer.connect(transport)
     return peer
   }
 

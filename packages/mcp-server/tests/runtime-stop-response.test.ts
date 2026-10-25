@@ -1,0 +1,169 @@
+import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { once } from 'node:events'
+import { connect, createServer, type Socket } from 'node:net'
+import { setTimeout as delay } from 'node:timers/promises'
+import { afterEach, expect, it, vi } from 'vitest'
+
+import { HubControl, LeaseSchema } from '../src/runtime-prototype/hub-control'
+import { ControlPeer, SocketTransport } from '../src/runtime-prototype/protocol'
+
+const cleanup: (() => Promise<unknown>)[] = []
+afterEach(async () => {
+  for (const close of cleanup.splice(0).reverse()) await close()
+  vi.restoreAllMocks()
+})
+
+async function fixture() {
+  const stop = vi.fn(async () => {})
+  const control = new HubControl('secret', undefined, {
+    inspect: () => ({ drained: true, deadline: Date.now(), blockers: [], version: '1' }),
+    flush: () => {},
+    stop,
+    hook: () => ({})
+  })
+  const sockets = new Set<Socket>()
+  const server = createServer((socket) => {
+    sockets.add(socket)
+    socket.once('close', () => sockets.delete(socket))
+    void control.attach(socket)
+  })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  cleanup.push(async () => {
+    for (const socket of sockets) socket.destroy()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+  async function attach(gate = true) {
+    const accepted = once(server, 'connection')
+    const socket = connect((server.address() as { port: number }).port, '127.0.0.1')
+    const peer = new ControlPeer()
+    peer.onerror = () => {}
+    await peer.connect(new SocketTransport(socket))
+    cleanup.push(() => peer.close())
+    await peer.request(
+      { method: 'tempad/runtime-acquire', params: { secret: 'secret', versions: [2] } },
+      LeaseSchema
+    )
+    if (gate)
+      await peer.request({ method: 'tempad/runtime-gate', params: { closed: true } }, ResultSchema)
+    return { peer, socket: (await accepted)[0] as Socket }
+  }
+  return { control, stop, attach, ...(await attach()) }
+}
+
+function holdStopReply(socket: Socket) {
+  const write = socket.write.bind(socket)
+  let release: (() => void) | undefined
+  let fail: (() => void) | undefined
+  vi.spyOn(socket, 'write').mockImplementation((chunk, ...args) => {
+    if (String(chunk).includes('"stopping":')) {
+      release = () => Reflect.apply(write, socket, [chunk, ...args])
+      fail = () => {
+        const callback = args.find((value) => typeof value === 'function')
+        callback?.(new Error('Reply write failed'))
+      }
+      return true
+    }
+    return Reflect.apply(write, socket, [chunk, ...args])
+  })
+  return {
+    held: () => !!release,
+    release: () => release!(),
+    fail: () => fail!()
+  }
+}
+
+it('waits for the actual stop reply and graceful socket finish before shutdown', async () => {
+  const f = await fixture()
+  const held = holdStopReply(f.socket)
+  f.stop.mockImplementation(async () => {
+    expect(f.socket.writableFinished).toBe(true)
+  })
+  const reply = f.peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)
+  await vi.waitFor(() => expect(held.held()).toBe(true))
+  await delay(60)
+  expect(f.stop).not.toHaveBeenCalled()
+  await expect(f.peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)).rejects.toThrow(
+    'already been admitted'
+  )
+  held.release()
+  await expect(reply).resolves.toEqual({ stopping: f.control.hubId })
+  await vi.waitFor(() => expect(f.stop).toHaveBeenCalledOnce())
+})
+
+it('does not stop after a failed reply and releases the reservation for a successor controller', async () => {
+  const f = await fixture()
+  const held = holdStopReply(f.socket)
+  let finishClose!: () => void
+  const closing = new Promise<void>((resolve) => {
+    finishClose = resolve
+  })
+  cleanup.push(async () => finishClose())
+  const close = ControlPeer.prototype.close
+  const delayedClose = vi
+    .spyOn(ControlPeer.prototype, 'close')
+    .mockImplementationOnce(async function (this: ControlPeer) {
+      await closing
+      await close.call(this)
+    })
+  const reply = expect(
+    f.peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)
+  ).rejects.toThrow('Connection closed')
+  await vi.waitFor(() => expect(held.held()).toBe(true))
+  held.fail()
+  await vi.waitFor(() => expect(delayedClose).toHaveBeenCalled())
+  // The SDK has finished the failed send, but closure has not aborted the handler.
+  // The error itself must release the reservation so controlled recovery can proceed.
+  await f.peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)
+  await f.peer.request({ method: 'tempad/runtime-gate', params: { closed: true } }, ResultSchema)
+  finishClose()
+  await reply
+  expect(f.stop).not.toHaveBeenCalled()
+  expect(f.control.admitting()).toBe(false)
+  const next = await f.attach()
+  await next.peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)
+  await vi.waitFor(() => expect(f.stop).toHaveBeenCalledOnce())
+})
+
+it('cancels an unflushed stop without letting its eventual reply shut down the Hub', async () => {
+  const f = await fixture()
+  const held = holdStopReply(f.socket)
+  const abort = new AbortController()
+  const reply = expect(
+    f.peer.request({ method: 'tempad/runtime-stop' }, ResultSchema, { signal: abort.signal })
+  ).rejects.toThrow()
+  await vi.waitFor(() => expect(held.held()).toBe(true))
+  abort.abort()
+  await reply
+  await f.peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)
+  held.release()
+  await delay(60)
+  expect(f.stop).not.toHaveBeenCalled()
+  expect(f.control.admitting()).toBe(true)
+})
+
+it('does not stop if the control pipe fails while finishing the flushed reply', async () => {
+  const f = await fixture()
+  vi.spyOn(f.socket, 'end').mockImplementation(() => {
+    f.socket.destroy(new Error('Pipe finish failed'))
+    return f.socket
+  })
+  await f.peer.request({ method: 'tempad/runtime-stop' }, ResultSchema).catch(() => {})
+  await vi.waitFor(() => expect(f.socket.destroyed).toBe(true))
+  expect(f.stop).not.toHaveBeenCalled()
+  const next = await f.attach()
+  await next.peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)
+  await vi.waitFor(() => expect(f.stop).toHaveBeenCalledOnce())
+})
+
+it('keeps admission fenced if shutdown fails after the acknowledgement', async () => {
+  const f = await fixture()
+  f.stop.mockRejectedValueOnce(new Error('Partial shutdown failed'))
+  await f.peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)
+  await vi.waitFor(() => expect(f.stop).toHaveBeenCalledOnce())
+  const next = await f.attach(false)
+  await expect(
+    next.peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)
+  ).rejects.toThrow('cannot change')
+  expect(f.control.admitting()).toBe(false)
+})

@@ -306,7 +306,7 @@ it.skipIf(process.platform === 'win32')(
     await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce())
     await expect(
       peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)
-    ).rejects.toThrow('cannot change')
+    ).rejects.toThrow('Connection closed')
   }
 )
 
