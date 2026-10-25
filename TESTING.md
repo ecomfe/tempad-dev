@@ -75,7 +75,8 @@ Root:
   serves them from an isolated loopback registry, and exercises opt-in staging and explicit
   activation through real CLI/Hub processes. It checks mixed policies sharing one Hub, exact
   pins, frozen presentation, incompatible epochs, offline operation, corrupt caches, and zero
-  registry requests from checkout builds. After all owners exit, concurrent installed-release
+  registry requests from checkout builds. A real metadata write failure must leave the supervisor
+  and MCP service alive without starting acquisition. After all owners exit, concurrent installed-release
   launches upgrade both control and Hub across an epoch boundary without registry access or
   allowing an older CLI to downgrade them. Automatic activation stays disabled. CI runs this on
   Node 22/24; Windows and native host acceptance remain outside this fixture. No installed

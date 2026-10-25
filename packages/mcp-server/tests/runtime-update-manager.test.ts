@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 import type { Artifact } from '../src/runtime-prototype/state'
 
+import * as durable from '../src/durable-json'
 import { updateIntent } from '../src/runtime-update/bootstrap'
 import { ReleaseUpdates } from '../src/runtime-update/manager'
 
@@ -29,8 +30,77 @@ afterEach(() => {
   for (const value of owners.splice(0)) value.close()
   for (const path of roots.splice(0)) rmSync(path, { recursive: true, force: true })
   vi.useRealTimers()
+  vi.restoreAllMocks()
   vi.unstubAllEnvs()
 })
+
+it.each([
+  ['attempt', 'ENOSPC'],
+  ['success', 'EIO'],
+  ['failure', 'EACCES']
+])('isolates %s persistence failure from the scheduler (%s)', async (stage, code) => {
+  vi.useFakeTimers()
+  const directory = root()
+  const acquire = vi.fn(async () => {
+    if (stage === 'failure') throw new Error('registry offline')
+    return candidate
+  })
+  const updates = owner({ root: directory, enrolled: () => true, acquire })
+  const write = durable.writeDurableJson
+  const persist = vi.spyOn(durable, 'writeDurableJson').mockImplementation((path, state) => {
+    if (stage === 'attempt' || persist.mock.calls.length === 2)
+      throw Object.assign(new Error(code), { code })
+    write(path, state)
+  })
+  updates.schedule()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(acquire).toHaveBeenCalledTimes(stage === 'attempt' ? 0 : 1)
+  expect(updates.status).toMatchObject({
+    checking: false,
+    automaticActivation: false,
+    error: expect.stringContaining(code)
+  })
+  expect(updates.status.error).toContain('disabled')
+  if (stage === 'failure') expect(updates.status.error).toContain('registry offline')
+  expect(updates.status.candidate).toBeUndefined()
+  const writes = persist.mock.calls.length
+  updates.schedule()
+  await vi.advanceTimersByTimeAsync(48 * 60 * 60 * 1000)
+  expect(persist).toHaveBeenCalledTimes(writes)
+  await expect(updates.check('latest', true)).rejects.toThrow(code)
+  expect(acquire).toHaveBeenCalledTimes(stage === 'attempt' ? 0 : 1)
+  expect(persist).toHaveBeenCalledTimes(writes)
+  updates.close()
+  // A fresh owner can resume once storage is repaired, using the persisted
+  // attempt backoff rather than repeatedly crashing or skipping admission.
+  persist.mockRestore()
+  const restored = owner({ root: directory, enrolled: () => true, acquire: async () => candidate })
+  await expect(restored.check('latest', true)).resolves.toEqual(candidate)
+})
+
+it.each([false, true])(
+  'retains the committed candidate after a failed save (renamed: %s)',
+  async (renamed) => {
+    const directory = root()
+    const acquire = vi.fn(async () => candidate)
+    const updates = owner({ root: directory, enrolled: () => true, acquire })
+    await updates.check('latest', true)
+    const later = { ...candidate, version: '0.12.2', bundle: 'b'.repeat(64) }
+    acquire.mockResolvedValue(later)
+    const write = durable.writeDurableJson
+    vi.spyOn(durable, 'writeDurableJson')
+      .mockImplementationOnce(write)
+      .mockImplementation((path, value) => {
+        if (renamed) write(path, value)
+        throw new Error('EIO')
+      })
+    await expect(updates.check('latest', true)).rejects.toThrow('EIO')
+    expect(updates.status).toMatchObject({ candidate, error: expect.stringContaining('EIO') })
+    expect(JSON.parse(readFileSync(join(directory, 'updates.json'), 'utf8')).candidate).toEqual(
+      renamed ? later : candidate
+    )
+  }
+)
 
 it('does no background work without an enrolled edge and never activates', async () => {
   vi.useFakeTimers()

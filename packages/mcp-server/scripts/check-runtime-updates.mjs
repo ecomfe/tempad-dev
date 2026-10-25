@@ -218,14 +218,14 @@ async function makeArtifact(version, base, epoch) {
   releases.set(version, release)
   return release
 }
-async function client(release, policy = 'off') {
+async function client(release, policy = 'off', env = isolationEnv) {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [
       join(release.directory, 'dist/cli.mjs'),
       ...(policy !== 'off' ? [`--runtime-updates=${policy}`] : [])
     ],
-    env: isolationEnv,
+    env,
     stderr: 'pipe'
   })
   let diagnostic = ''
@@ -288,6 +288,43 @@ try {
   await assert.rejects(readFile(join(root, 'state/runtime/prototype.json')))
 
   await writeFile(join(root, 'assets/preserved.txt'), 'pre-enrollment asset')
+  // A background metadata failure must disable checks, not kill the supervisor
+  // or start acquisition without a durable attempt. Exercise a real write error.
+  const storageFailureRoot = join(root, 'f')
+  const storageFailureEnv = { ...isolationEnv }
+  for (const [key, name] of Object.entries({
+    TEMPAD_MCP_RUNTIME_DIR: 'run',
+    TEMPAD_MCP_STATE_DIR: 'state',
+    TEMPAD_MCP_ASSET_DIR: 'assets',
+    TEMPAD_MCP_LOG_DIR: 'logs'
+  })) {
+    storageFailureEnv[key] = join(storageFailureRoot, name)
+    await mkdir(storageFailureEnv[key], { recursive: true, mode: 0o700 })
+  }
+  const metadataTemporary = join(storageFailureRoot, 'state/runtime/updates.json.tmp')
+  await mkdir(metadataTemporary, { recursive: true, mode: 0o700 })
+  const storageFailureClient = await client(a, 'stable', storageFailureEnv)
+  control = new ControlPeer()
+  await control.connect(
+    new SocketTransport(await connectSocket(join(storageFailureRoot, 'run/supervisor.sock')))
+  )
+  const storageFailure = await until(async () => {
+    const value = await control.request({ method: 'tempad/runtime-status' }, ResultSchema)
+    return value.updates.error?.includes('could not be saved') && value
+  }, 'isolated update metadata failure')
+  runtimePids = [storageFailure.supervisorPid, storageFailure.hubPid]
+  assert.match(storageFailure.updates.error, /EISDIR/)
+  assert.equal(storageFailure.updates.checking, false)
+  assert.equal(requests.length, before, 'failed attempt must not query the registry')
+  await storageFailureClient.ping()
+  await storageFailureClient.listTools()
+  const stillServing = await control.request({ method: 'tempad/runtime-status' }, ResultSchema)
+  assert.equal(stillServing.supervisorPid, storageFailure.supervisorPid)
+  assert.equal(stillServing.hubPid, storageFailure.hubPid)
+  await control.close()
+  await storageFailureClient.close()
+  await until(() => runtimePids.every(exited), 'storage fault runtime shutdown', 15_000)
+  await rm(metadataTemporary, { recursive: true })
   const started = performance.now()
   const [first, parallel] = await Promise.all([client(a, 'stable'), client(a, 'stable')])
   const firstInitializeMs = Math.round(performance.now() - started)
@@ -442,6 +479,7 @@ try {
         'checkout-zero-network',
         'corrupt-cache',
         'legacy-migration-guard',
+        'background-metadata-failure-isolation',
         'cold-guidance-upgrade',
         'concurrent-cold-upgrade',
         'cold-upgrade-offline',

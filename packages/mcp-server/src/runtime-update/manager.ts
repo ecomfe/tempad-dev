@@ -56,8 +56,21 @@ export class ReleaseUpdates {
   private now() {
     return this.options.now?.() ?? Date.now()
   }
-  private save() {
-    writeDurableJson(join(this.options.root, 'updates.json'), StateSchema.parse(this.state))
+  private save(next: z.infer<typeof StateSchema>) {
+    try {
+      writeDurableJson(join(this.options.root, 'updates.json'), StateSchema.parse(next))
+    } catch (error) {
+      this.disabled = true
+      clearTimeout(this.timer)
+      this.state.error = (
+        `Update metadata could not be saved; checks are disabled until MCP restarts: ${String(error)}` +
+        (next.error ? ` (check error: ${next.error})` : '')
+      ).slice(0, 2000)
+      throw new Error(this.state.error, { cause: error })
+    }
+    // A downloaded candidate is visible to activation only after its metadata
+    // commits. A failed fsync must not publish it or restore an older disk file.
+    this.state = next
   }
 
   schedule() {
@@ -75,10 +88,10 @@ export class ReleaseUpdates {
     this.timer.unref()
   }
 
-  check(selector = 'latest', explicit = false): Promise<Artifact | undefined> {
-    if (this.disabled) return Promise.reject(new Error(this.state.error))
+  async check(selector = 'latest', explicit = false): Promise<Artifact | undefined> {
+    if (this.disabled) throw new Error(this.state.error)
     if (selector !== 'latest') VersionSchema.parse(selector)
-    if (this.closed || (!explicit && !this.options.enrolled())) return Promise.resolve(undefined)
+    if (this.closed || (!explicit && !this.options.enrolled())) return
     if (this.pending)
       return this.pending.then((artifact) => {
         if (selector !== 'latest' && artifact?.version !== selector)
@@ -86,19 +99,18 @@ export class ReleaseUpdates {
         return artifact
       })
     clearTimeout(this.timer)
-    this.abort = new AbortController()
-    this.explicit = explicit
     // Persist the attempt before the worker starts. Crash/reconnect storms cannot
     // create an unbounded series of startup checks.
-    this.state.lastAttempt = this.now()
-    this.state.nextCheck = this.now() + 5 * 60 * 1000
-    this.save()
+    const now = this.now()
+    this.save({ ...this.state, lastAttempt: now, nextCheck: now + 5 * 60 * 1000 })
+    this.abort = new AbortController()
+    this.explicit = explicit
     const signal = this.abort.signal
     this.pending = Promise.resolve()
       .then(() => this.options.acquire(selector, signal))
       .then((candidate) => {
         if (this.closed) return
-        this.state = {
+        this.save({
           ...this.state,
           candidate: candidate ? ArtifactSchema.parse(candidate) : this.state.candidate,
           failures: 0,
@@ -107,26 +119,25 @@ export class ReleaseUpdates {
             this.now() +
             INTERVAL +
             Math.floor(((this.options.jitter?.() ?? Math.random()) * INTERVAL) / 10)
-        }
-        this.save()
+        })
         return candidate
       })
       .catch((error: unknown) => {
-        if (!this.closed) {
+        if (!this.closed && !this.disabled) {
           const failures = Math.min(this.state.failures + 1, 10)
-          this.state = {
+          this.save({
             ...this.state,
             failures,
             nextCheck: this.now() + Math.min(INTERVAL, 5 * 60 * 1000 * 2 ** (failures - 1)),
             error: String(error).slice(0, 2000)
-          }
-          this.save()
+          })
         }
         throw error
       })
       .finally(() => {
         this.pending = undefined
         this.abort = undefined
+        this.explicit = false
         this.schedule()
       })
     return this.pending
