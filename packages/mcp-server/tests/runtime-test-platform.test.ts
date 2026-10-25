@@ -41,6 +41,9 @@ describe('runtime process fixture platform', () => {
       'run/hub-runtime.json': '{"processId":43}',
       'log/hub.log': 'starting',
       'auto/state/design-tasks.json': '{}',
+      'tp-probe-12345678-1234-1234-1234-123456789abc/probe-failure.json': '{"phase":"initialize"}',
+      'tp-probe-12345678-1234-1234-1234-123456789abc/run/hub-runtime.json': '{"processId":44}',
+      'tp-probe-12345678-1234-1234-1234-123456789abc/node_modules/package/package.json': '{}',
       'node_modules/package/package.json': '{}',
       'state/runtime/cache/package.json': '{}'
     }

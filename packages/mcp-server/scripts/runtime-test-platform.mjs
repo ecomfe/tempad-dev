@@ -56,9 +56,12 @@ export async function preserveFixtureEvidence(root, failure) {
         const path = join(directory, entry.name)
         const target = join(destination, relative, entry.name)
         if (entry.isDirectory()) {
-          // Runtime stores and the two nested update fixtures contain the evidence;
+          // Runtime stores, retained probes and nested update fixtures contain evidence;
           // packages, cached archives, images and executable bundles do not.
-          if (['run', 'state', 'runtime', 'log', 'logs', 'auto', 'f'].includes(entry.name))
+          if (
+            ['run', 'state', 'runtime', 'log', 'logs', 'auto', 'f'].includes(entry.name) ||
+            /^tp-probe-[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/.test(entry.name)
+          )
             await copy(path, join(relative, entry.name))
         } else if (entry.isFile() && /\.(?:json|log|txt|lock)$/.test(entry.name)) {
           try {

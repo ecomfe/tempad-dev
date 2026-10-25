@@ -2,7 +2,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { createHash } from 'node:crypto'
-import { realpathSync, rmSync } from 'node:fs'
+import { realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
 
@@ -28,7 +29,10 @@ export async function probeArtifact(entry: string) {
       )
     )
   })
-  transport.stderr?.on('data', () => {})
+  let stderr = Buffer.alloc(0)
+  transport.stderr?.on('data', (chunk: Buffer) => {
+    stderr = Buffer.concat([stderr, chunk.subarray(-16_384)]).subarray(-16_384)
+  })
   const client = new Client({ name: 'tempad-artifact-probe', version: '1' })
   const control = new ControlPeer()
   let pids: number[] | undefined
@@ -41,8 +45,10 @@ export async function probeArtifact(entry: string) {
       }
     | undefined
   let failure: unknown
+  let phase = 'initialize'
   try {
     await client.connect(transport, { timeout: 15_000 })
+    phase = 'runtime-status'
     await control.connect(
       new SocketTransport(await connectSocket(runtimeEndpoint(root, 'supervisor.sock')))
     )
@@ -56,6 +62,7 @@ export async function probeArtifact(entry: string) {
       { timeout: 5000 }
     )
     pids = [state.hubPid, state.supervisorPid]
+    phase = 'contract'
     const contract = await readRuntimeContract(client, AbortSignal.timeout(10_000), 5000)
     const artifact = ArtifactSchema.parse({
       entry,
@@ -71,6 +78,7 @@ export async function probeArtifact(entry: string) {
         .update(JSON.stringify({ ...contract, pages: [...contract.pages] }))
         .digest('hex')
     }
+    phase = 'shutdown'
   } catch (error) {
     failure = error
   } finally {
@@ -94,10 +102,29 @@ export async function probeArtifact(entry: string) {
     if (exited) break
     await delay(100)
   }
-  if (!exited)
-    throw new Error(`Local runtime probe did not stop; preserve ${root} for diagnosis.`, {
+  if (!exited) {
+    try {
+      writeFileSync(
+        join(root, 'probe-failure.json'),
+        JSON.stringify({
+          phase,
+          pids,
+          failure:
+            failure instanceof Error
+              ? (failure.stack ?? failure.message).slice(-16_384)
+              : undefined,
+          stderr: stderr.toString('utf8')
+        }),
+        { mode: 0o600 }
+      )
+    } catch {
+      // Evidence collection must not replace the original failure or permit cleanup.
+    }
+    const reason = pids ? 'did not stop' : `ownership is unknown after ${phase} failed`
+    throw new Error(`Local runtime probe ${reason}; preserve ${root} for diagnosis.`, {
       cause: failure
     })
+  }
   rmSync(root, { recursive: true, force: true })
   if (failure) throw failure
   return result!

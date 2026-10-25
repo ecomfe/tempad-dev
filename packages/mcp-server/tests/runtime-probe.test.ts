@@ -1,4 +1,4 @@
-import { rmSync, writeFileSync, existsSync } from 'node:fs'
+import { rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -9,8 +9,11 @@ const fake = vi.hoisted(() => ({
   request: vi.fn(),
   fingerprint: vi.fn(),
   contract: vi.fn(),
+  stderr: vi.fn(),
+  delay: vi.fn(),
   version: '0.11.1'
 }))
+vi.mock('node:timers/promises', () => ({ setTimeout: fake.delay }))
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
   Client: class {
     connect = fake.connect
@@ -23,7 +26,7 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
     constructor(options: { args: string[] }) {
       fake.roots.push(options.args[2]!)
     }
-    stderr = { on: () => {} }
+    stderr = { on: fake.stderr }
     close = fake.close
   }
 }))
@@ -56,6 +59,7 @@ beforeEach(() => {
   fake.version = '0.11.1'
   fake.fingerprint.mockReturnValue('a'.repeat(64))
   fake.connect.mockResolvedValue(undefined)
+  fake.delay.mockResolvedValue(undefined)
   fake.request.mockResolvedValue({ handoffVersion: 1, hubPid: 900001, supervisorPid: 900002 })
   fake.contract.mockResolvedValue({ pages: new Map([['', { tools: [] }]]), instructions: 'stable' })
   const originalKill = process.kill.bind(process)
@@ -83,10 +87,33 @@ it('rejects a bundle changed during probing', async () => {
 })
 it('preserves evidence and the original error when child ownership is unknown', async () => {
   const failure = new Error('Initialization failed')
-  fake.connect.mockRejectedValueOnce(failure)
+  fake.connect.mockImplementationOnce(async () => {
+    const receive = fake.stderr.mock.calls[0]![1]
+    receive(Buffer.alloc(20_000, 'x'))
+    receive(Buffer.from('final stderr'))
+    throw failure
+  })
   await expect(probeArtifact(entry)).rejects.toMatchObject({
     cause: failure,
-    message: expect.stringContaining('preserve')
+    message: expect.stringContaining('ownership is unknown after initialize failed')
   })
   expect(existsSync(fake.roots[0]!)).toBe(true)
+  const diagnostic = JSON.parse(readFileSync(join(fake.roots[0]!, 'probe-failure.json'), 'utf8'))
+  expect(diagnostic).toMatchObject({
+    phase: 'initialize',
+    failure: expect.stringContaining('Initialization failed'),
+    stderr: expect.stringContaining('final stderr')
+  })
+  expect(Buffer.byteLength(diagnostic.stderr)).toBeLessThanOrEqual(16_384)
+  expect(diagnostic).not.toHaveProperty('pids')
+  expect(fake.delay).not.toHaveBeenCalled()
+})
+it('distinguishes known processes that remain alive from startup ownership failures', async () => {
+  vi.mocked(process.kill).mockReturnValue(true)
+  await expect(probeArtifact(entry)).rejects.toThrow('did not stop')
+  expect(existsSync(fake.roots[0]!)).toBe(true)
+  const diagnostic = JSON.parse(readFileSync(join(fake.roots[0]!, 'probe-failure.json'), 'utf8'))
+  expect(diagnostic).toMatchObject({ phase: 'shutdown', pids: [900001, 900002], stderr: '' })
+  expect(fake.delay).toHaveBeenCalledTimes(60)
+  expect(fake.delay).toHaveBeenCalledWith(100)
 })
