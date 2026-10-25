@@ -570,7 +570,8 @@ export class McpServiceWorkerBroker {
       if (
         !pending.completed ||
         !pending.receipt ||
-        pending.receipt.generation !== snapshot.terminalReceiptGeneration
+        (!snapshot.durableTerminalReceipts &&
+          pending.receipt.generation !== snapshot.terminalReceiptGeneration)
       )
         continue
       if (this.sessions.get(pending.sessionId)?.port !== pending.port) {
@@ -634,7 +635,11 @@ export class McpServiceWorkerBroker {
   private handleHubSnapshot(snapshot: ReturnType<McpBrokerHubClient['getSnapshot']>): void {
     if (snapshot.registeredId !== this.connectedHubId) {
       for (const [id, pending] of this.pendingToolCalls) {
-        if (!pending.receipt || pending.receipt.generation !== snapshot.terminalReceiptGeneration)
+        if (
+          !pending.receipt ||
+          (!snapshot.durableTerminalReceipts &&
+            pending.receipt.generation !== snapshot.terminalReceiptGeneration)
+        )
           this.pendingToolCalls.delete(id)
       }
       if (snapshot.status === 'connected') void this.refreshOpenTabs()

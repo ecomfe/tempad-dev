@@ -14,6 +14,7 @@ export interface ExtensionConnection {
     version: string
     fingerprint: string
     terminalReceipts?: true
+    durableTerminalReceipts?: true
   }
 }
 

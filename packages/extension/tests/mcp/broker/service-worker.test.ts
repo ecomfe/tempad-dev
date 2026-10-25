@@ -82,6 +82,7 @@ function createHubClient(
       errorMessage: snapshot.errorMessage ?? null,
       registeredId: snapshot.registeredId ?? null,
       status: snapshot.status ?? 'idle',
+      ...(snapshot.durableTerminalReceipts ? { durableTerminalReceipts: true as const } : {}),
       ...(snapshot.terminalReceiptGeneration
         ? { terminalReceiptGeneration: snapshot.terminalReceiptGeneration }
         : {})
@@ -1593,13 +1594,14 @@ describe('mcp/broker/service-worker', () => {
     }
   )
 
-  it.each(['same-hub', 'new-hub', 'new-page', 'port-disconnect'] as const)(
+  it.each(['same-hub', 'new-hub', 'durable-hub', 'new-page', 'port-disconnect'] as const)(
     'handles a late page result after %s without replaying the call',
     async (kind) => {
       const snapshot: Partial<ReturnType<McpBrokerHubClient['getSnapshot']>> = {
         status: 'connected',
         registeredId: 'gateway-1',
-        terminalReceiptGeneration: 'hub'
+        terminalReceiptGeneration: 'hub',
+        ...(kind === 'durable-hub' ? { durableTerminalReceipts: true } : {})
       }
       const client = createHubClient(snapshot)
       const broker = new McpServiceWorkerBroker(client)
@@ -1622,10 +1624,13 @@ describe('mcp/broker/service-worker', () => {
       if (kind === 'port-disconnect') page.disconnect()
       snapshot.status = 'connected'
       snapshot.registeredId = 'gateway-2'
-      if (kind === 'new-hub') snapshot.terminalReceiptGeneration = 'new-hub'
+      if (kind === 'new-hub' || kind === 'durable-hub')
+        snapshot.terminalReceiptGeneration = 'new-hub'
       internals.handleHubSnapshot(client.getSnapshot())
       page.message(toolResult('late'))
-      expect(client.sendToolCompletion).toHaveBeenCalledTimes(kind === 'same-hub' ? 1 : 0)
+      expect(client.sendToolCompletion).toHaveBeenCalledTimes(
+        ['same-hub', 'durable-hub'].includes(kind) ? 1 : 0
+      )
       if (kind === 'port-disconnect')
         expect(client.sendToolResult).toHaveBeenCalledWith(
           expect.objectContaining({

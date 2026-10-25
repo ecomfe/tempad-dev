@@ -12,6 +12,7 @@ import { isDeepStrictEqual } from 'node:util'
 
 import type { HostContext } from './agent-clients/host-context'
 import type { DesignTaskSnapshot, DesignTaskStore } from './design-task-store'
+import type { Execution } from './execution-state'
 import type { ExtensionConnection } from './types'
 
 import { codexStoreKey } from './agent-clients/host-context'
@@ -124,6 +125,7 @@ export class DesignTasks {
   private readonly currentTaskIds = new Map<string, string>()
   private readonly operations = new Map<string, Operation>()
   private readonly filesNeedingRead = new Map<string, number>()
+  private executions: Execution[] = []
   private readGeneration = 0
   // Every retired file rejects stale unknown reviews; true also retains its Stop write fence.
   private readonly fileFences = new Map<string, boolean>()
@@ -380,6 +382,12 @@ export class DesignTasks {
   }
 
   acknowledgeFileRead(fileKey: string, expectedGeneration?: number): void {
+    if (
+      this.executions.some(
+        (value) => value.session.fileKey === fileKey && value.abandonedAt === undefined
+      )
+    )
+      return
     const generation = this.filesNeedingRead.get(fileKey)
     if (
       generation === undefined ||
@@ -393,6 +401,50 @@ export class DesignTasks {
 
   needsFileRead(fileKey: string): boolean {
     return this.filesNeedingRead.has(fileKey)
+  }
+
+  executionState(): Execution[] {
+    return structuredClone(this.executions)
+  }
+
+  saveExecutions(executions: Execution[]): void {
+    const previous = this.executions
+    const previousReads = new Map(this.filesNeedingRead)
+    const previousById = new Map(previous.map((execution) => [execution.id, execution]))
+    this.executions = executions
+    for (const execution of executions) {
+      const prior = previousById.get(execution.id)
+      // Exclusion and its eventual read fence are one atomic snapshot.
+      if (
+        prior?.revision !== execution.revision &&
+        !this.filesNeedingRead.has(execution.session.fileKey)
+      )
+        this.filesNeedingRead.set(execution.session.fileKey, ++this.readGeneration)
+      if (
+        execution.abandonedAt === undefined ||
+        !execution.taskId ||
+        prior?.abandonedAt !== undefined
+      )
+        continue
+      const record = this.records.get(execution.taskId)
+      if (record && RUNNING_STATUSES.includes(record.task.status)) {
+        record.task.status = record.ending === 'cancelled' ? 'cancelled' : 'paused'
+        record.task.epoch = (record.task.epoch ?? 0) + 1
+        record.task.needsRead = true
+        record.ready = false
+        record.ending = undefined
+      }
+    }
+    this.persist()
+    if (this.persistenceError) {
+      this.executions = previous
+      this.filesNeedingRead.clear()
+      for (const [file, generation] of previousReads) this.filesNeedingRead.set(file, generation)
+      fail(
+        'DESIGN_TASK_INACTIVE',
+        'Design task state could not be saved. No canvas write was dispatched or execution block released. Restore storage before retrying.'
+      )
+    }
   }
 
   isOperationPending(requestId: string): boolean {
@@ -436,7 +488,17 @@ export class DesignTasks {
     return [...this.operations.values()].some((operation) => operation.target.fileKey === fileKey)
   }
 
-  private assertFileIdle(session: FigmaSession): void {
+  private assertFileIdle(session: FigmaSession, checkExecution = true): void {
+    const execution =
+      checkExecution &&
+      this.executions.find(
+        (value) => value.session.fileKey === session.fileKey && value.abandonedAt === undefined
+      )
+    if (execution)
+      fail(
+        'DESIGN_TASK_BUSY',
+        `An earlier operation may still be executing in this file. Reconnect the original Figma tab, or use --runtime-status and interactive --resolve-runtime-block ${execution.id} after stopping that execution environment. Restarting the Hub or reading the file does not release this block.`
+      )
     if (session.busy || this.hasPendingOperation(session.fileKey)) {
       fail(
         'DESIGN_TASK_BUSY',
@@ -448,7 +510,7 @@ export class DesignTasks {
   checkOperation(ownerId: string, session: FigmaSession, taskId?: string, write = false): void {
     this.sweep()
     if (write) this.assertStorageWritable(session.fileKey)
-    this.assertFileIdle(session)
+    this.assertFileIdle(session, write)
     const record = taskId ? this.owned(taskId, ownerId, true) : undefined
     if (record && (!record.ready || record.task.target.sessionId !== session.sessionId)) {
       fail('DESIGN_TARGET_CHANGED', 'The task is not bound to this Figma session.')
@@ -769,6 +831,7 @@ export class DesignTasks {
     if (!snapshot) return
     this.revision = snapshot.revision
     this.recoveryGeneration = snapshot.recoveryGeneration
+    this.executions = snapshot.executions ?? []
     for (const fileKey of snapshot.filesNeedingRead ?? [])
       this.filesNeedingRead.set(fileKey, ++this.readGeneration)
     for (const [fileKey, stopped] of Object.entries(snapshot.fileFences ?? {}))
@@ -916,6 +979,7 @@ export class DesignTasks {
     if (!this.options.store) return
     const snapshot: DesignTaskSnapshot = {
       revision: this.revision,
+      ...(this.executions.length ? { executions: this.executions } : {}),
       ...(this.recoveryGeneration ? { recoveryGeneration: this.recoveryGeneration } : {}),
       ...(this.filesNeedingRead.size
         ? { filesNeedingRead: [...this.filesNeedingRead.keys()] }

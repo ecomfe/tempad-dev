@@ -140,6 +140,16 @@ The hub accepts WebSocket handshakes only from Chrome extension origins on its r
 
 ## Task storage recovery
 
+An operation that may still be executing keeps its file blocked across Hub restarts. Reading
+or resuming does not release this exclusion. Reconnect the original Figma browser: a verified
+completion, tab closure or document replacement releases execution, followed by required readback.
+If that browser cannot return, run `npx -y @tempad-dev/mcp@latest --runtime-status` to inspect
+the file and executor, then `npx -y @tempad-dev/mcp@latest --resolve-runtime-block <block-id>`
+in an interactive terminal. Confirm only after closing the original execution environment.
+This command cannot stop remote code; it retires that execution, preserves Stop fences and
+requires an explicit task resume and readback. It does not replay a request or reset task storage.
+The CLI is the only operator recovery interface; no MCP tool or Figma page can perform this action.
+
 An incompatible saved task may have been written by a newer Hub. In that case, upgrade the MCP
 runtime and reconnect all clients. If the current version still rejects a record, preserve the
 snapshot for diagnosis or restore a verified complete backup containing the latest Stop fences.

@@ -211,16 +211,24 @@ file boundary preserves its evidence and blocks all writes, allowing read tools 
 
 Peers may negotiate terminal receipts through an optional registration offer and runtime hello;
 released peers retain their existing messages. A surviving worker can resend only a completed
-call's receipt after reconnecting to the same Hub process. The Hub checks the original request,
+call's receipt after reconnecting. The optional `durableTerminalReceipts` offer/hello allows
+receipts from a previous Hub generation; it is sent only when the receiver offers it, preserving
+released strict hello schemas. The Hub checks the persisted original request,
 receipt identity, browser and extension Origin, and exact Figma session, file, tab and document
 before releasing that operation. It never replays the write. If the original result was lost,
 `EXTENSION_RESULT_LOST` requires reading the original target; recovered writes require a
 successful `get_structure` or `get_code` read of that file before another write, including calls
 without a task. A disconnect reported before the receipt arrives also warns that the write outcome
 is unknown and must not be replayed. Unfinished receipt records are bounded by rejecting new calls
-before dispatch, and completed receipts are acknowledged idempotently while retained. A new Hub,
-replaced document, or lost worker memory cannot recover these process-local receipts. Ordinary
-idle snapshots still do not establish completion.
+before dispatch, and completed receipts are acknowledged idempotently while retained. Unresolved
+writes persist in task storage before dispatch, including for peers without receipts; their
+files stay blocked across cold restarts. Reads cannot clear this exclusion. Original-browser
+tab closure or document replacement can release it; a different browser ID and ordinary idle
+snapshots cannot. A lost worker cannot reconstruct receipts. Operator recovery then requires
+the interactive CLI described in the [MCP README](../../packages/mcp-server/README.md#task-storage-recovery),
+preserves Stop and records abandonment plus mandatory readback atomically. No page bridge exposes
+that control. Peers without durable receipts cannot transfer unresolved writes during a planned
+runtime switch.
 
 ## Assets
 

@@ -73,7 +73,10 @@ export function attachExtensionSocket(
     supportedProtocolVersions: [...TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS],
     ...(checkout ? { runtimeProfile: options.runtimeProfile } : {}),
     ...(options.terminalReceiptGeneration
-      ? { terminalReceiptGeneration: options.terminalReceiptGeneration }
+      ? {
+          terminalReceiptGeneration: options.terminalReceiptGeneration,
+          durableTerminalReceipts: true
+        }
       : {}),
     type: 'registered'
   }
@@ -139,111 +142,125 @@ export function attachExtensionSocket(
       ws.close(1008, 'Runtime handshake required.')
       return
     }
-    switch (message.type) {
-      case 'toolCompletion': {
-        if (!extension.runtime?.terminalReceipts) {
-          ws.close(1008, 'Terminal receipts were not negotiated.')
-          return
-        }
-        const accepted = options.onToolCompletion?.(message, extension) ?? false
-        try {
-          ws.send(JSON.stringify({ ...message, type: 'toolCompletionAck', accepted }))
-        } catch (error) {
-          options.onSocketError?.(
-            extension.id,
-            error instanceof Error ? error : new Error(String(error))
-          )
-        }
-        break
-      }
-      case 'sessions':
-        if (
-          options.registry
-            .list()
-            .some(
-              (peer) =>
-                peer.id !== extension.id &&
-                peer.sessions?.sessions.some((session) =>
-                  message.sessions.some((incoming) => incoming.sessionId === session.sessionId)
-                )
-            )
-        ) {
-          ws.close(1008, 'Figma session is already registered.')
-          return
-        }
-        extension.sessions = message
-        options.onSessions?.(extension)
-        break
-      case 'designAction':
-        options.onDesignAction?.(extension, message.sessionId, message.action)
-        break
-      case 'activate':
-        if (options.registry.activate(extension.id)) {
-          options.onActivated?.(extension.id)
-          options.onStateChange()
-          scheduleAutoActivation(options)
-        } else {
-          const activeExtensionId = options.registry.getActiveId()
-          if (activeExtensionId) {
-            options.onActivationRejected?.(extension.id, activeExtensionId)
+    try {
+      switch (message.type) {
+        case 'toolCompletion': {
+          if (!extension.runtime?.terminalReceipts) {
+            ws.close(1008, 'Terminal receipts were not negotiated.')
+            return
           }
-        }
-        break
-      case 'toolResult':
-        if (message.error !== undefined) {
-          options.onToolError(message.id, extension.id, message.error)
-        } else {
-          options.onToolResult(message.id, extension.id, message.payload)
-        }
-        break
-      case 'runtimeHello': {
-        if (!sameRuntimeProfile(options.runtimeProfile, message.runtimeProfile)) {
-          ws.close(1008, 'Runtime profile mismatch.')
-          return
-        }
-        if (message.terminalReceipts && !options.terminalReceiptGeneration) {
-          ws.close(1008, 'Terminal receipts are unavailable.')
-          return
-        }
-        const protocolVersion = message.protocolVersion ?? 13
-        if (!TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
-          ws.close(1008, 'Unsupported extension bridge protocol.')
+          const accepted = options.onToolCompletion?.(message, extension) ?? false
+          try {
+            ws.send(JSON.stringify({ ...message, type: 'toolCompletionAck', accepted }))
+          } catch (error) {
+            options.onSocketError?.(
+              extension.id,
+              error instanceof Error ? error : new Error(String(error))
+            )
+          }
           break
         }
-        if (
-          extension.runtime &&
-          (extension.runtime.version !== message.extensionVersion ||
-            extension.runtime.fingerprint !== message.extensionRuntimeFingerprint ||
-            extension.runtime.protocolVersion !== protocolVersion ||
-            extension.runtime.terminalReceipts !== message.terminalReceipts)
-        ) {
-          options.onProtocolWarning?.({
-            error: new Error('Extension changed runtime identity on an open connection.'),
-            extensionId: extension.id,
-            kind: 'schema'
-          })
-          ws.close(1008, 'Extension changed runtime identity.')
+        case 'sessions':
+          if (
+            options.registry
+              .list()
+              .some(
+                (peer) =>
+                  peer.id !== extension.id &&
+                  peer.sessions?.sessions.some((session) =>
+                    message.sessions.some((incoming) => incoming.sessionId === session.sessionId)
+                  )
+              )
+          ) {
+            ws.close(1008, 'Figma session is already registered.')
+            return
+          }
+          extension.sessions = message
+          options.onSessions?.(extension)
+          break
+        case 'designAction':
+          options.onDesignAction?.(extension, message.sessionId, message.action)
+          break
+        case 'activate':
+          if (options.registry.activate(extension.id)) {
+            options.onActivated?.(extension.id)
+            options.onStateChange()
+            scheduleAutoActivation(options)
+          } else {
+            const activeExtensionId = options.registry.getActiveId()
+            if (activeExtensionId) {
+              options.onActivationRejected?.(extension.id, activeExtensionId)
+            }
+          }
+          break
+        case 'toolResult':
+          if (message.error !== undefined) {
+            options.onToolError(message.id, extension.id, message.error)
+          } else {
+            options.onToolResult(message.id, extension.id, message.payload)
+          }
+          break
+        case 'runtimeHello': {
+          if (!sameRuntimeProfile(options.runtimeProfile, message.runtimeProfile)) {
+            ws.close(1008, 'Runtime profile mismatch.')
+            return
+          }
+          if (message.terminalReceipts && !options.terminalReceiptGeneration) {
+            ws.close(1008, 'Terminal receipts are unavailable.')
+            return
+          }
+          const protocolVersion = message.protocolVersion ?? 13
+          if (!TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
+            ws.close(1008, 'Unsupported extension bridge protocol.')
+            break
+          }
+          if (
+            extension.runtime &&
+            (extension.runtime.version !== message.extensionVersion ||
+              extension.runtime.fingerprint !== message.extensionRuntimeFingerprint ||
+              extension.runtime.protocolVersion !== protocolVersion ||
+              extension.runtime.terminalReceipts !== message.terminalReceipts ||
+              extension.runtime.durableTerminalReceipts !== message.durableTerminalReceipts)
+          ) {
+            options.onProtocolWarning?.({
+              error: new Error('Extension changed runtime identity on an open connection.'),
+              extensionId: extension.id,
+              kind: 'schema'
+            })
+            ws.close(1008, 'Extension changed runtime identity.')
+            break
+          }
+          const firstHello = !extension.runtime
+          clearTimeout(handshakeTimer)
+          extension.runtime = {
+            protocolVersion,
+            version: message.extensionVersion,
+            fingerprint: message.extensionRuntimeFingerprint,
+            ...(message.terminalReceipts ? { terminalReceipts: true as const } : {}),
+            ...(message.terminalReceipts && message.durableTerminalReceipts
+              ? { durableTerminalReceipts: true as const }
+              : {})
+          }
+          if (checkout && firstHello) {
+            options.registry.add(extension)
+            options.onConnected?.(extension.id)
+            options.onStateChange()
+            scheduleAutoActivation(options)
+          }
+          options.onRuntimeHello?.(extension)
           break
         }
-        const firstHello = !extension.runtime
-        clearTimeout(handshakeTimer)
-        extension.runtime = {
-          protocolVersion,
-          version: message.extensionVersion,
-          fingerprint: message.extensionRuntimeFingerprint,
-          ...(message.terminalReceipts ? { terminalReceipts: true as const } : {})
-        }
-        if (checkout && firstHello) {
-          options.registry.add(extension)
-          options.onConnected?.(extension.id)
-          options.onStateChange()
-          scheduleAutoActivation(options)
-        }
-        options.onRuntimeHello?.(extension)
-        break
+        case 'ping':
+          break
       }
-      case 'ping':
-        break
+    } catch (error) {
+      // A failed durable admission/completion must not crash the Hub or ack a
+      // receipt. Reconnection can retry against the retained exclusion.
+      options.onSocketError?.(
+        extension.id,
+        error instanceof Error ? error : new Error(String(error))
+      )
+      ws.close(1011, 'Could not commit runtime state.')
     }
   })
 

@@ -1,9 +1,11 @@
 import { DesignTaskSchema, stringRecord } from '@tempad-dev/shared'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 
 import { HostContextSchema } from './agent-clients/host-context'
+import { writeDurableJson } from './durable-json'
+import { ExecutionMarkerSchema, type Execution } from './execution-state'
 
 const SnapshotSchema = z.object({
   revision: z.number().int().nonnegative(),
@@ -37,6 +39,7 @@ const FileReadMarkerSchema = z
 export type DesignTaskSnapshot = z.infer<typeof SnapshotSchema> & {
   recoveryGeneration?: string
   filesNeedingRead?: string[]
+  executions?: Execution[]
 }
 
 /** One lock-owning Hub writes a small atomic snapshot; transport and leases are never restored. */
@@ -60,8 +63,16 @@ export class DesignTaskStore {
       )
       const records: DesignTaskSnapshot['records'] = []
       const filesNeedingRead = new Set<string>()
+      const executions: Execution[] = []
       let recoveryGeneration: string | undefined
       for (const item of raw.records) {
+        const execution = ExecutionMarkerSchema.safeParse(item)
+        if (execution.success) {
+          if (executions.some((value) => value.id === execution.data.execution.id))
+            throw new Error('Duplicate execution identity in task storage.')
+          executions.push(execution.data.execution)
+          continue
+        }
         const readMarker = FileReadMarkerSchema.safeParse(item)
         if (readMarker.success) {
           filesNeedingRead.add(readMarker.data.task.target.fileKey)
@@ -102,6 +113,7 @@ export class DesignTaskStore {
       return {
         ...raw,
         records,
+        ...(executions.length ? { executions } : {}),
         ...(recoveryGeneration ? { recoveryGeneration } : {}),
         ...(filesNeedingRead.size ? { filesNeedingRead: [...filesNeedingRead] } : {})
       }
@@ -123,26 +135,26 @@ export class DesignTaskStore {
   save(snapshot: DesignTaskSnapshot): void {
     if (this.recoveryError) throw new Error(this.recoveryError)
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 })
-    const temporary = `${this.path}.tmp`
-    const { recoveryGeneration, filesNeedingRead, ...stored } = snapshot
-    writeFileSync(
-      temporary,
-      JSON.stringify({
-        ...stored,
-        current: { ...snapshot.current, ...Object.fromEntries(this.incompatibleCurrent) },
-        // Old readers must fail closed rather than ignore a new top-level generation field.
-        records: [
-          ...(recoveryGeneration ? [RecoveryMarkerSchema.parse({ recoveryGeneration })] : []),
-          // Old readers retain these as incompatible per-file fences.
-          ...(filesNeedingRead ?? []).map((fileKey) =>
-            FileReadMarkerSchema.parse({ readRequired: true, task: { target: { fileKey } } })
-          ),
-          ...snapshot.records,
-          ...this.incompatibleRecords
-        ]
-      }),
-      { mode: 0o600, flush: true }
-    )
-    renameSync(temporary, this.path)
+    const { recoveryGeneration, filesNeedingRead, executions, ...stored } = snapshot
+    writeDurableJson(this.path, {
+      ...stored,
+      current: { ...snapshot.current, ...Object.fromEntries(this.incompatibleCurrent) },
+      // Old readers must fail closed rather than ignore a new top-level generation field.
+      records: [
+        ...(executions ?? []).map((execution) =>
+          ExecutionMarkerSchema.parse({
+            execution,
+            task: { target: { fileKey: execution.session.fileKey } }
+          })
+        ),
+        ...(recoveryGeneration ? [RecoveryMarkerSchema.parse({ recoveryGeneration })] : []),
+        // Old readers retain these as incompatible per-file fences.
+        ...(filesNeedingRead ?? []).map((fileKey) =>
+          FileReadMarkerSchema.parse({ readRequired: true, task: { target: { fileKey } } })
+        ),
+        ...snapshot.records,
+        ...this.incompatibleRecords
+      ]
+    })
   }
 }

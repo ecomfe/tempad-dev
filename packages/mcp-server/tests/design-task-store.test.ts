@@ -4,6 +4,9 @@ const files = vi.hoisted(() => new Map<string, string>())
 vi.mock('node:fs', () => ({
   existsSync: (path: string) => files.has(path),
   mkdirSync: () => {},
+  openSync: () => 1,
+  fsyncSync: () => {},
+  closeSync: () => {},
   readFileSync: (path: string) => {
     if (!files.has(path)) throw Object.assign(new Error('Missing'), { code: 'ENOENT' })
     return files.get(path)

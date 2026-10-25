@@ -286,6 +286,28 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
 }
 
 async function main() {
+  if (
+    process.argv.includes('--runtime-status') ||
+    process.argv.includes('--resolve-runtime-block')
+  ) {
+    try {
+      const { runRuntimeRecovery } = await import('./runtime-recovery')
+      await runRuntimeRecovery(process.argv.slice(2), () =>
+        connectHub().catch((error: unknown) => {
+          if (!isHubUnavailable(error)) throw error
+          return tryBecomeLeaderAndStartHub()
+        })
+      )
+    } catch (error) {
+      process.stderr.write(
+        `Runtime recovery failed: ${error instanceof Error ? error.message : String(error)}\n`
+      )
+      process.exitCode = 1
+    }
+    process.stdin.destroy()
+    endLogging()
+    return
+  }
   if (process.argv.includes('--recover-task-storage')) {
     try {
       const directory = resolve(resolveStateDir())

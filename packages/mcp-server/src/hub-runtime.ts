@@ -81,6 +81,7 @@ import {
   SocketTransport,
   type Registration
 } from './runtime-prototype/protocol'
+import { attachRuntimeRecovery, RECOVERY_METHODS } from './runtime-recovery'
 import { createExtensionOriginPolicy } from './security'
 import {
   ASSET_DIR,
@@ -163,7 +164,6 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
 
   const extensionRegistry = new ExtensionRegistry(autoActivateGraceMs)
   const taskStateDirectory = resolveStateDir()
-  const terminalReceipts = new TerminalReceipts()
   const designTasks = new DesignTasks({
     createId: randomUUID,
     onChange: publishDesignTask,
@@ -196,6 +196,7 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
     }),
     (changed) => new CodexAppLifecycle(changed)
   )
+  const terminalReceipts = new TerminalReceipts((records) => designTasks.saveExecutions(records))
   let refreshingCapabilities = false
   let storesOwned = false
   const storeReleases: Array<() => Promise<void>> = []
@@ -217,6 +218,7 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
       storesOwned &&
       !shuttingDown &&
       consumerCount === 0 &&
+      recoveryConnections === 0 &&
       runtimeControl.pendingConnections() === 0 &&
       (hadConsumer || performance.now() - prototypeStartedAt >= RECOVER_MS) &&
       designTasks.pendingOperationCount === 0 &&
@@ -229,6 +231,7 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
   }, 1000)
   designTaskTimer.unref()
   let consumerCount = 0
+  let recoveryConnections = 0
   let hadConsumer = false
   const prototypeStartedAt = performance.now()
   type TimeoutHandle = ReturnType<typeof setTimeout>
@@ -883,14 +886,6 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
         let dispatched = false
         let readGeneration: number | undefined
         try {
-          message.terminalReceipt = terminalReceipts.reserve(
-            requestId,
-            activeExt,
-            session,
-            taskId,
-            isCanvasWrite,
-            taskEpoch
-          )
           designTasks.startOperation(
             requestId,
             ownerId,
@@ -900,13 +895,28 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
             taskId,
             isCanvasWrite
           )
+          message.terminalReceipt = terminalReceipts.reserve(
+            requestId,
+            activeExt,
+            session,
+            taskId,
+            isCanvasWrite,
+            taskEpoch
+          )
           // Save before dispatch: even a crash or a subsequent disk failure must
           // leave the original file fenced until its state is read.
           if (isCanvasWrite) readGeneration = designTasks.requireFileRead(session.fileKey, true)
           activeExt.ws.send(JSON.stringify(message))
           dispatched = true
         } catch (error) {
-          terminalReceipts.settle(requestId, activeExt.id)
+          try {
+            terminalReceipts.settle(requestId, activeExt.id)
+          } catch (persistError) {
+            log.error(
+              { error: persistError },
+              'Could not retire undispatched execution; its file remains fenced.'
+            )
+          }
           designTasks.finishOperation(requestId, activeExt.id)
           reject(requestId, activeExt.id, coerceToolError(error))
         }
@@ -1000,7 +1010,9 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
       (tool === 'apply_canvas' || tool === 'get_structure' || tool === 'get_code') &&
       (designTasks.needsFileRead(target.fileKey) ||
         (target.taskId && designTasks.find(target.taskId)?.task.needsRead))
-        ? 'Canvas writes still require readback. Read a surviving node with get_structure or get_code, or an exact page with get_structure. For a resumed task, include its taskId and current taskEpoch. Empty selections and failed node reads do not clear this requirement.'
+        ? terminalReceipts.status().some((record) => record.fileKey === target.fileKey)
+          ? 'An earlier canvas operation may still be executing. Reads are provisional and cannot release its execution block. Reconnect the original Figma environment or inspect --runtime-status; do not replay the write.'
+          : 'Canvas writes still require readback. Read a surviving node with get_structure or get_code, or an exact page with get_structure. For a resumed task, include its taskId and current taskEpoch. Empty selections and failed node reads do not clear this requirement.'
         : undefined
     const prependNotice = (result: CallToolResult): CallToolResult =>
       notice ? { ...result, content: [{ type: 'text', text: notice }, ...result.content] } : result
@@ -1378,7 +1390,7 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
       consumerSessions.delete(mcp)
       consumerCount--
       log.info(`Consumer disconnected. Remaining: ${consumerCount}`)
-      if (consumerCount === 0 && !runtimeControl) {
+      if (consumerCount === 0 && recoveryConnections === 0 && !runtimeControl) {
         log.info('Last consumer disconnected. Shutting down.')
         shutdown()
       }
@@ -1416,6 +1428,30 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
         )
         sock.pause()
         sock.off('data', onData)
+        if ('method' in message && RECOVERY_METHODS.includes(message.method)) {
+          recoveryConnections++
+          sock.once('close', () => {
+            recoveryConnections--
+            if (!runtimeControl && consumerCount === 0 && recoveryConnections === 0) shutdown()
+          })
+          clearTimeout(timeout)
+          sock.unshift(buffer)
+          buffer = Buffer.alloc(0)
+          void attachRuntimeRecovery(sock, terminalReceipts, (record) => {
+            designTasks.finishOperation(record.id, record.extensionId)
+            reject(
+              record.id,
+              record.extensionId,
+              createCodedError(
+                TEMPAD_MCP_ERROR_CODES.EXTENSION_RESULT_LOST,
+                'The operator retired this execution. Its result is unknown; reread before further work.'
+              )
+            )
+          })
+            .then(() => sock.resume())
+            .catch(onError)
+          return
+        }
         if ('method' in message && message.method === 'tempad/client-hook') {
           if (!('id' in message)) throw new Error('Lifecycle hooks require a request ID.')
           const request = ClientHookRequestSchema.safeParse(message)
@@ -1499,6 +1535,7 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
         extensionRegistry.getActive()?.origin === origin.toLowerCase()
     })
     designTasks.restore()
+    terminalReceipts.restore(designTasks.executionState())
     await cleanSocketPath()
     hubRuntimeIdentity = createHubRuntimeIdentity(fileURLToPath(import.meta.url), PACKAGE_VERSION)
     writeHubRuntimeIdentity(HUB_RUNTIME_IDENTITY_PATH, hubRuntimeIdentity)

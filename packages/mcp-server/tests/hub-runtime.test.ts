@@ -79,6 +79,7 @@ import { createAssetStore } from '../src/asset-store'
 import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
 import { removeHubRuntimeIdentityIfOwned, writeHubRuntimeIdentity } from '../src/runtime-identity'
+import { runRuntimeRecovery } from '../src/runtime-recovery'
 import { log, resolveStateDir } from '../src/shared'
 import { startExtensionWebSocketServer } from '../src/websocket-server'
 
@@ -1370,6 +1371,21 @@ describe('Hub runtime module', () => {
     expect(JSON.stringify(await consumer.reply(2))).toContain('Native result')
   })
 
+  it('serves operator recovery without exposing a tool or keeping an otherwise idle Hub alive', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const connectRecovery = async () => {
+      const socket = connect(fixture.socketPath)
+      consumerSockets.push(socket)
+      await once(socket, 'connect')
+      return socket
+    }
+    const io = { interactive: false, write: vi.fn(), confirm: vi.fn(async () => '') }
+    await runRuntimeRecovery(['--runtime-status'], connectRecovery, io)
+    expect(io.write.mock.calls[0]?.[0]).toContain('"blocks": []')
+    await vi.waitFor(() => expect(websocket.close).toHaveBeenCalled())
+  })
+
   it('does not dispatch a write when its read requirement cannot be saved', async () => {
     const { startHub } = await loadRuntime()
     await startHub()
@@ -1454,7 +1470,9 @@ describe('Hub runtime module', () => {
       const replacement = connectExtension()
       const nextOwner = await connectConsumer()
       nextOwner.send({ id: 3, method: 'tools/call', params: write })
-      expect(JSON.stringify(await nextOwner.reply(3))).toContain('previous write did not confirm')
+      expect(JSON.stringify(await nextOwner.reply(3))).toContain(
+        state === 'in-flight' ? 'earlier operation' : 'previous write did not confirm'
+      )
       expect(replacement.calls).toHaveLength(0)
       nextOwner.send({
         id: 4,
@@ -1464,9 +1482,23 @@ describe('Hub runtime module', () => {
       const read = await replacement.call(0)
       replacement.send({ type: 'toolResult', id: read.id, payload: structure })
       expect((await nextOwner.reply(4)).result?.isError).not.toBe(true)
+      if (state === 'in-flight') {
+        expect(snapshot().records).toContainEqual(readMarker)
+        nextOwner.send({ id: 40, method: 'tools/call', params: write })
+        expect(JSON.stringify(await nextOwner.reply(40))).toContain('earlier operation')
+        replacement.publishSession('session', 'replacement-document')
+        nextOwner.send({
+          id: 41,
+          method: 'tools/call',
+          params: { name: 'get_structure', arguments: {} }
+        })
+        const reread = await replacement.call(1)
+        replacement.send({ type: 'toolResult', id: reread.id, payload: structure })
+        expect((await nextOwner.reply(41)).result?.isError).not.toBe(true)
+      }
       expect(snapshot().records).not.toContainEqual(readMarker)
       nextOwner.send({ id: 5, method: 'tools/call', params: write })
-      const next = await replacement.call(1)
+      const next = await replacement.call(state === 'in-flight' ? 2 : 1)
       replacement.send({
         type: 'toolResult',
         id: next.id,

@@ -39,7 +39,8 @@ export const RegisteredMessageSchema = z.object({
   protocolVersion: z.number().int().positive(),
   supportedProtocolVersions: z.array(z.number().int().positive()).min(1).optional(),
   runtimeProfile: RuntimeProfileSchema.optional(),
-  terminalReceiptGeneration: z.string().min(1).max(128).optional()
+  terminalReceiptGeneration: z.string().min(1).max(128).optional(),
+  durableTerminalReceipts: z.literal(true).optional()
 })
 
 export const TerminalReceiptSchema = z
@@ -135,6 +136,7 @@ export const RuntimeHelloMessageSchema = z
     // Released protocol 13 peers omit this field. The Hub treats omission conservatively as 13.
     protocolVersion: z.number().int().positive().optional(),
     terminalReceipts: z.literal(true).optional(),
+    durableTerminalReceipts: z.literal(true).optional(),
     extensionVersion: z.string().min(1),
     extensionRuntimeFingerprint: z.string().regex(/^[a-f0-9]{64}$/)
   })

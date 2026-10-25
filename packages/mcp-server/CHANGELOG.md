@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Kept potentially running canvas operations blocked across Hub restarts, with verified completion
+  and an interactive `--resolve-runtime-block` recovery path that preserves Stop and requires readback.
+
 - Kept Codex queues, feedback and Stop tied to each agent's configuration when multiple clients share a Hub.
 - Isolated checkout Hubs on separate ports and stores with profile verification; release connections are unchanged.
 - Fixed Claude task routing after reconnects and `/clear`, including sessions launched from Codex.

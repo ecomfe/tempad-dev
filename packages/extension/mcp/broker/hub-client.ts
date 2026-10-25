@@ -32,6 +32,7 @@ type HubConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
 type HubClientSnapshot = {
   terminalReceiptGeneration?: string
+  durableTerminalReceipts?: true
   activeId: string | null
   assetServerUrl: string | null
   errorMessage: string | null
@@ -74,6 +75,7 @@ export class McpHubClient {
   private status: HubConnectionStatus = 'idle'
   private ws: WebSocket | null = null
   private terminalReceiptGeneration: string | undefined
+  private durableTerminalReceipts = false
 
   constructor(
     private readonly events: McpHubClientEvents = {},
@@ -87,6 +89,7 @@ export class McpHubClient {
       ...(this.terminalReceiptGeneration
         ? { terminalReceiptGeneration: this.terminalReceiptGeneration }
         : {}),
+      ...(this.durableTerminalReceipts ? { durableTerminalReceipts: true as const } : {}),
       activeId: this.activeId,
       assetServerUrl: this.assetServerUrl,
       errorMessage: this.errorMessage,
@@ -138,7 +141,8 @@ export class McpHubClient {
   }
 
   sendToolCompletion(message: ToolCompletionMessage): boolean {
-    if (message.generation !== this.terminalReceiptGeneration) return false
+    if (!this.durableTerminalReceipts && message.generation !== this.terminalReceiptGeneration)
+      return false
     return this.trySendJson(message)
   }
 
@@ -189,7 +193,8 @@ export class McpHubClient {
         if (this.runtimeIdentity && this.runtimeProfile.kind === 'release')
           this.sendJson({
             ...this.runtimeIdentity,
-            ...(this.terminalReceiptGeneration ? { terminalReceipts: true } : {})
+            ...(this.terminalReceiptGeneration ? { terminalReceipts: true } : {}),
+            ...(this.durableTerminalReceipts ? { durableTerminalReceipts: true } : {})
           })
         this.handleHubMessage(connection.state)
         if (!this.isCurrentConnection(epoch) || this.ws !== connection.ws) return
@@ -295,7 +300,8 @@ export class McpHubClient {
               ws.send(
                 JSON.stringify({
                   ...this.runtimeIdentity,
-                  ...(message.terminalReceiptGeneration ? { terminalReceipts: true } : {})
+                  ...(message.terminalReceiptGeneration ? { terminalReceipts: true } : {}),
+                  ...(message.durableTerminalReceipts ? { durableTerminalReceipts: true } : {})
                 })
               )
             } catch (error) {
@@ -394,6 +400,7 @@ export class McpHubClient {
     switch (message.type) {
       case 'registered':
         this.registeredId = message.id
+        this.durableTerminalReceipts = !!this.runtimeIdentity && !!message.durableTerminalReceipts
         this.terminalReceiptGeneration = this.runtimeIdentity
           ? message.terminalReceiptGeneration
           : undefined
