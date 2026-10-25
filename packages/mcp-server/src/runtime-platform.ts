@@ -69,7 +69,12 @@ export function assertPrivatePath(path: string, kind: 'file' | 'directory') {
     windowsSecurity('inspect', path, kind)
     const next = inspectPath(path, kind)
     if (next.identity !== state.identity)
-      throw new Error(`Runtime ${kind} changed during its permission check: ${path}`)
+      throw Object.assign(
+        new Error(`Runtime ${kind} changed during its permission check: ${path}`),
+        {
+          code: 'ERUNTIMEPATHCHANGED'
+        }
+      )
     if (next.revision === state.revision) {
       rememberPermissions(path, next)
       return

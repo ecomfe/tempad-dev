@@ -1,11 +1,13 @@
 import { execFileSync } from 'node:child_process'
-import { lstatSync, realpathSync } from 'node:fs'
+import { lstatSync, readFileSync, realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }))
 vi.mock('node:fs', () => ({
   lstatSync: vi.fn(),
+  readFileSync: vi.fn(),
   realpathSync: vi.fn(),
   mkdirSync: vi.fn(),
   rmSync: vi.fn()
@@ -17,14 +19,17 @@ import {
   ensurePrivateDirectory,
   protectPipe
 } from '../src/runtime-platform'
+import { readPrivateJson } from '../src/runtime-prototype/state'
 
 let revision = 0n
 let inode = 1n
+let kind: 'file' | 'directory' = 'directory'
 const path = resolve('private-runtime-fixture')
 beforeEach(() => {
   vi.resetAllMocks()
   revision++
   inode = 1n
+  kind = 'directory'
   vi.stubGlobal('process', {
     ...process,
     platform: 'win32',
@@ -39,8 +44,8 @@ beforeEach(() => {
         birthtimeNs: 1n,
         ctimeNs: revision,
         isSymbolicLink: () => false,
-        isDirectory: () => true,
-        isFile: () => false
+        isDirectory: () => kind === 'directory',
+        isFile: () => kind === 'file'
       }) as ReturnType<typeof lstatSync>
   )
 })
@@ -129,6 +134,58 @@ it.each([1, 2])('rejects paths replaced during ACL inspection %s', (replacementC
   expect(() => assertPrivatePath(path, 'directory')).toThrow('changed during its permission check')
   expect(execFileSync).toHaveBeenCalledTimes(replacementCheck)
 })
+
+it('validates an atomically replaced snapshot before reading its new contents', () => {
+  kind = 'file'
+  vi.mocked(execFileSync).mockImplementationOnce(() => {
+    inode++
+    revision++
+    return ''
+  })
+  vi.mocked(readFileSync).mockReturnValue('{"revision":2}')
+  expect(readPrivateJson(path, z.object({ revision: z.number() }))).toEqual({ revision: 2 })
+  expect(execFileSync).toHaveBeenCalledTimes(2)
+  expect(readFileSync).toHaveBeenCalledOnce()
+})
+
+it('rejects a replacement snapshot whose ACL is unsafe', () => {
+  kind = 'file'
+  vi.mocked(execFileSync)
+    .mockImplementationOnce(() => {
+      inode++
+      return ''
+    })
+    .mockImplementation(() => {
+      throw { stderr: JSON.stringify({ message: 'ACL grants another account access.', code: 5 }) }
+    })
+  expect(() => readPrivateJson(path, z.unknown())).toThrow('another account')
+  expect(execFileSync).toHaveBeenCalledTimes(2)
+  expect(readFileSync).not.toHaveBeenCalled()
+})
+
+it('bounds snapshot retries without reading an unstable replacement', () => {
+  kind = 'file'
+  vi.mocked(execFileSync).mockImplementation(() => {
+    inode++
+    return ''
+  })
+  expect(() => readPrivateJson(path, z.unknown())).toThrowError(
+    expect.objectContaining({ code: 'ERUNTIMEPATHCHANGED' })
+  )
+  expect(execFileSync).toHaveBeenCalledTimes(2)
+  expect(readFileSync).not.toHaveBeenCalled()
+})
+
+it.each(['not JSON', '{"revision":"invalid"}'])(
+  'does not retry invalid snapshot data: %s',
+  (data) => {
+    kind = 'file'
+    vi.mocked(readFileSync).mockReturnValue(data)
+    expect(() => readPrivateJson(path, z.object({ revision: z.number() }))).toThrow()
+    expect(execFileSync).toHaveBeenCalledOnce()
+    expect(readFileSync).toHaveBeenCalledOnce()
+  }
+)
 
 it('rejects an unsafe ACL discovered after the revision changes', () => {
   vi.mocked(execFileSync)

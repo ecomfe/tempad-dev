@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync
@@ -15,6 +16,7 @@ import { createServer, createConnection } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 // Keep real child processes while allowing the disappearance test to intercept
 // the helper launch; native ESM module namespace properties are not configurable.
@@ -33,6 +35,7 @@ import {
   runtimeEndpoint,
   windowsPowerShellEnvironment
 } from '../src/runtime-platform'
+import { readPrivateJson } from '../src/runtime-prototype/state'
 
 const roots: string[] = []
 function fixture() {
@@ -92,6 +95,24 @@ describe.skipIf(process.platform === 'win32')('Unix storage', () => {
 })
 
 describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
+  it('revalidates a snapshot replaced after the native ACL helper returns', () => {
+    const path = join(fixture(), 'switch.json')
+    writeFileSync(path, '{"revision":1}')
+    const execute = childProcess.execFileSync
+    const helper = vi.spyOn(childProcess, 'execFileSync').mockImplementationOnce((...args) => {
+      const result = Reflect.apply(execute, childProcess, args)
+      writeFileSync(`${path}.tmp`, '{"revision":2}')
+      renameSync(`${path}.tmp`, path)
+      return result
+    })
+    try {
+      expect(readPrivateJson(path, z.object({ revision: z.number() }))).toEqual({ revision: 2 })
+      expect(helper).toHaveBeenCalledTimes(2)
+    } finally {
+      helper.mockRestore()
+    }
+  }, 30_000)
+
   it.each(['file', 'directory'] as const)(
     'preserves ENOENT when a %s disappears before its ACL inspection',
     (kind) => {

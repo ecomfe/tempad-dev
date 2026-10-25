@@ -69,12 +69,18 @@ export function readPrivateJson<T extends z.ZodType>(
   path: string,
   schema: T
 ): z.output<T> | undefined {
-  try {
-    assertPrivatePath(path, 'file')
-    return schema.parse(JSON.parse(readFileSync(path, 'utf8')))
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-    throw error
+  for (let attempt = 0; ; attempt++) {
+    try {
+      assertPrivatePath(path, 'file')
+      return schema.parse(JSON.parse(readFileSync(path, 'utf8')))
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') return
+      // A writer can atomically replace a snapshot during Windows ACL inspection.
+      // Retry once from a fresh trust check, never accept the unchecked replacement.
+      if (attempt === 0 && code === 'ERUNTIMEPATHCHANGED') continue
+      throw error
+    }
   }
 }
 
