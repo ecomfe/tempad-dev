@@ -1,0 +1,330 @@
+import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { randomUUID } from 'node:crypto'
+import { once } from 'node:events'
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { connect, createServer, type Socket } from 'node:net'
+import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
+import { afterEach, expect, it, vi } from 'vitest'
+
+import { DesignTaskStore } from '../src/design-task-store'
+import { DesignTasks } from '../src/design-tasks'
+import { writeDurableJson } from '../src/durable-json'
+import { HOOK_RECEIPT_LIMIT } from '../src/hook-receipts'
+import { startHookGateway } from '../src/runtime-prototype/hooks'
+import { HubControl, LeaseSchema } from '../src/runtime-prototype/hub-control'
+import { connectSocket, listenPrivate } from '../src/runtime-prototype/processes'
+import { ControlPeer, SocketTransport } from '../src/runtime-prototype/protocol'
+import {
+  newerVersion,
+  readJournal,
+  writeJournal,
+  readEndpoints,
+  writeEndpoints
+} from '../src/runtime-prototype/state'
+
+const cleanup: (() => unknown | Promise<unknown>)[] = []
+afterEach(async () => {
+  for (const close of cleanup.splice(0).reverse()) await close()
+  vi.restoreAllMocks()
+})
+function directory() {
+  const root = mkdtempSync('/tmp/tp-handoff-')
+  mkdirSync(join(root, 'run'), { mode: 0o700 })
+  cleanup.push(() => rmSync(root, { recursive: true, force: true }))
+  return root
+}
+function tasks(root: string) {
+  const store = new DesignTaskStore(join(root, 'tasks.json'))
+  const tasks = new DesignTasks({ store, createId: () => 'task' })
+  tasks.restore()
+  return { tasks, store }
+}
+
+it('records a lifecycle effect and receipt in the same durable task snapshot', () => {
+  const root = directory()
+  const current = tasks(root)
+  current.tasks.begin(
+    'owner',
+    'extension',
+    {
+      sessionId: 'page',
+      fileKey: 'file',
+      fileName: 'File',
+      pageId: '0:1',
+      busy: false
+    },
+    'Work',
+    'begin'
+  )
+  const id = randomUUID()
+  const apply = vi.fn(() => {
+    current.tasks.stop('task', 'cancelled')
+    return { applied: true }
+  })
+  const save = vi.spyOn(current.store, 'save')
+  expect(current.tasks.applyHook(id, { event: 'Stop' }, apply)).toEqual({ applied: true })
+  expect(save).toHaveBeenCalledOnce()
+  const restored = tasks(root).tasks
+  expect(restored.find('task')?.task.status).toBe('cancelled')
+  expect(restored.applyHook(id, { event: 'Stop' }, apply)).toEqual({ applied: true })
+  expect(apply).toHaveBeenCalledOnce()
+  expect(() => restored.applyHook(id, { event: 'Start' }, apply)).toThrow('different content')
+})
+
+it('does not acknowledge a failed receipt commit or repeat its in-memory effect on retry', () => {
+  const { tasks: current, store } = tasks(directory())
+  const save = vi.spyOn(store, 'save').mockImplementationOnce(() => {
+    throw new Error('ENOSPC')
+  })
+  const apply = vi.fn(() => ({ notice: 'Stop' }))
+  const id = randomUUID()
+  expect(() => current.applyHook(id, {}, apply)).toThrow('cannot be flushed')
+  expect(current.applyHook(id, {}, apply)).toEqual({ notice: 'Stop' })
+  expect(apply).toHaveBeenCalledOnce()
+  expect(save).toHaveBeenCalledTimes(2)
+})
+
+it('keeps version, endpoint capabilities and journal ownership across restart', () => {
+  const root = directory()
+  const journal = {
+    version: 1 as const,
+    revision: 1,
+    phase: 'preparing' as const,
+    active: { entry: '/tmp/a/runtime.mjs', bundle: 'a'.repeat(64), version: '0.11.0' },
+    candidate: { entry: '/tmp/b/runtime.mjs', bundle: 'b'.repeat(64), version: '0.11.1' },
+    failedBundles: []
+  }
+  writeJournal(root, journal)
+  expect(readJournal(root)).toEqual(journal)
+  const endpoints = {
+    wsPort: 12345,
+    httpPort: 12346,
+    accessToken: 'a'.repeat(64),
+    legacyAccessToken: 'b'.repeat(64)
+  }
+  writeEndpoints(root, endpoints)
+  expect(readEndpoints(root)).toEqual(endpoints)
+  expect(newerVersion('0.11.1', '0.11.0')).toBe(true)
+  expect(newerVersion('0.10.9', '0.11.0')).toBe(false)
+  expect(newerVersion('0.11.0', '0.11.0')).toBe(false)
+  chmodSync(join(root, 'switch.json'), 0o644)
+  expect(() => readJournal(root)).toThrow('untrusted')
+})
+
+it('never repeats a lifecycle effect that threw after changing state', () => {
+  const root = directory()
+  const id = randomUUID()
+  const apply = vi.fn(() => {
+    throw new Error('after effect')
+  })
+  expect(() => tasks(root).tasks.applyHook(id, {}, apply)).toThrow('after effect')
+  expect(() => tasks(root).tasks.applyHook(id, {}, apply)).toThrow('remains uncertain')
+  expect(apply).toHaveBeenCalledOnce()
+})
+
+it.skipIf(process.platform === 'win32')(
+  'drains before stopping and keeps metadata available behind the gate',
+  async () => {
+    const root = directory()
+    let drained = false
+    const flush = vi.fn()
+    const stop = vi.fn(async () => {})
+    const control = new HubControl('secret', undefined, {
+      inspect: () => ({
+        drained,
+        deadline: Date.now() + 10000,
+        blockers: drained ? [] : ['work'],
+        version: '1'
+      }),
+      flush,
+      stop,
+      hook: () => ({})
+    })
+    const sockets = new Set<Socket>()
+    const server = createServer((socket) => {
+      sockets.add(socket)
+      void control.attach(socket)
+    })
+    await listenPrivate(server, join(root, 'control.sock'))
+    cleanup.push(async () => {
+      for (const socket of sockets) socket.destroy()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    })
+    const peer = new ControlPeer()
+    await peer.connect(new SocketTransport(await connectSocket(join(root, 'control.sock'))))
+    cleanup.push(() => peer.close())
+    const lease = await peer.request(
+      { method: 'tempad/runtime-acquire', params: { secret: 'secret', versions: [1] } },
+      LeaseSchema
+    )
+    const registration = {
+      sessionId: randomUUID(),
+      token: randomUUID(),
+      versions: [1],
+      context: { version: 1, home: root, tempDir: root, codexHome: root, codexSqliteHome: root }
+    }
+    await peer.request({ method: 'tempad/runtime-register', params: registration }, ResultSchema)
+    await expect(peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)).rejects.toThrow(
+      'not drained'
+    )
+    await peer.request({ method: 'tempad/runtime-gate', params: { closed: true } }, ResultSchema)
+    expect(control.admits(registration.sessionId, lease.generation, 'tools/call')).toBe(false)
+    expect(control.admits(registration.sessionId, lease.generation, 'tools/list')).toBe(true)
+    await expect(peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)).rejects.toThrow(
+      'not drained'
+    )
+    drained = true
+    flush.mockImplementationOnce(() => {
+      throw new Error('ENOSPC')
+    })
+    await expect(
+      peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)
+    ).rejects.toThrow('ENOSPC')
+    expect(control.admitting()).toBe(false)
+    await peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce())
+    await expect(
+      peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)
+    ).rejects.toThrow('cannot change')
+  }
+)
+
+it.skipIf(process.platform === 'win32')(
+  'retains hooks across a slow receiver, lost reply and gateway restart',
+  async () => {
+    const root = directory()
+    let available = false
+    const input = {
+      version: 1,
+      kind: 'claude',
+      sessionId: 'session',
+      event: 'Interrupt',
+      invocationId: randomUUID()
+    }
+    const applied = new Map<string, Record<string, unknown>>()
+    const deliver = vi.fn(async (value) => {
+      if (!available) throw new Error('switching')
+      const prior = applied.get(value.invocationId)
+      if (prior) return prior
+      const result = { notice: 'stopped' }
+      applied.set(value.invocationId, result)
+      return result
+    })
+    let gateway = await startHookGateway(root, deliver)
+    cleanup.push(() => gateway.close())
+    const socket = connect(join(root, 'run/mcp.sock'))
+    await once(socket, 'connect')
+    const closed = once(socket, 'close')
+    socket.write(
+      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tempad/client-hook', params: input }) + '\n'
+    )
+    await closed
+    expect(JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8'))[0].input).toEqual(input)
+    await gateway.close()
+    available = true
+    gateway = await startHookGateway(root, deliver)
+    await gateway.flush()
+    const retry = connect(join(root, 'run/mcp.sock'))
+    await once(retry, 'connect')
+    const reply = once(retry, 'data')
+    retry.write(
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tempad/client-hook', params: input }) + '\n'
+    )
+    expect(JSON.parse(String((await reply)[0])).result).toEqual({ notice: 'stopped' })
+    retry.destroy()
+    expect(deliver).toHaveBeenCalledTimes(2)
+    expect(applied.size).toBe(1)
+  }
+)
+
+it.skipIf(process.platform === 'win32')(
+  'keeps admission fenced when a restored inbox remains full after pending delivery',
+  async () => {
+    const root = directory()
+    const entries = Array.from({ length: HOOK_RECEIPT_LIMIT }, (_, index) => ({
+      input: {
+        version: 1,
+        kind: 'claude',
+        sessionId: 'session',
+        event: 'SessionEnd',
+        invocationId: randomUUID()
+      },
+      ...(index < HOOK_RECEIPT_LIMIT - 1 ? { result: {} } : {})
+    }))
+    writeDurableJson(join(root, 'hooks.json'), entries)
+    const fault = vi.fn()
+    const deliver = vi.fn(async () => ({}))
+    const gateway = await startHookGateway(root, deliver, fault)
+    cleanup.push(() => gateway.close())
+    expect(fault).toHaveBeenLastCalledWith(
+      expect.objectContaining({ message: 'Hook inbox capacity reached.' })
+    )
+    await gateway.flush()
+    expect(deliver).toHaveBeenCalledOnce()
+    expect(fault.mock.calls.every(([error]) => error instanceof Error)).toBe(true)
+    const socket = connect(join(root, 'run/mcp.sock'))
+    await once(socket, 'connect')
+    const closed = once(socket, 'close')
+    socket.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tempad/client-hook',
+        params: { ...entries[0]!.input, invocationId: randomUUID() }
+      }) + '\n'
+    )
+    await closed
+    expect(deliver).toHaveBeenCalledOnce()
+    expect(JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8'))).toHaveLength(
+      HOOK_RECEIPT_LIMIT
+    )
+  }
+)
+
+it.skipIf(process.platform === 'win32')(
+  'keeps a received event when a legacy hook exits at its deadline',
+  async () => {
+    const root = directory()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const deliver = vi.fn(async () => {
+      await gate
+      return { applied: true }
+    })
+    const gateway = await startHookGateway(root, deliver)
+    cleanup.push(async () => {
+      release()
+      await gateway.close()
+    })
+    const socket = connect(join(root, 'run/mcp.sock'))
+    await once(socket, 'connect')
+    socket.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tempad/client-hook',
+        params: {
+          version: 1,
+          kind: 'claude',
+          sessionId: 'session',
+          event: 'SessionEnd',
+          invocationId: randomUUID()
+        }
+      }) + '\n'
+    )
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledOnce())
+    await delay(800)
+    const closed = once(socket, 'close')
+    socket.destroy()
+    await closed
+    release()
+    await gateway.flush()
+    expect(JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8'))[0].result).toEqual({
+      applied: true
+    })
+    expect(deliver).toHaveBeenCalledOnce()
+  }
+)

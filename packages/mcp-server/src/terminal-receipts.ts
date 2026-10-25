@@ -71,6 +71,20 @@ export class TerminalReceipts {
     return [...this.pending.values()].every((record) => record.write && record.handoff)
   }
 
+  transferableIds(): Set<string> {
+    return new Set(
+      [...this.pending.values()]
+        .filter((record) => record.write && record.handoff)
+        .map((record) => record.id)
+    )
+  }
+
+  disconnect(extensionId: string): void {
+    for (const record of this.pending.values()) {
+      if (record.extensionId === extensionId && !record.write) this.remove(record)
+    }
+  }
+
   get pendingCount(): number {
     return this.pending.size
   }

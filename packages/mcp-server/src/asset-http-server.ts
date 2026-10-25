@@ -40,6 +40,8 @@ const ASSET_MAX_CONCURRENT_DOWNLOADS = 128
 
 export interface AssetHttpServerOptions {
   accessToken?: string
+  legacyAccessToken?: string
+  port?: number
   maxAssetSizeBytes?: number
   maxAssetStoreBytes?: number
   maxConcurrentUploads?: number
@@ -62,7 +64,7 @@ export function createAssetHttpServer(
   const accessToken = options.accessToken ?? createCapabilityToken()
   // Only unversioned connections receive this separate capability. Both endpoints
   // share origin checks, concurrency reservations, quotas, and the asset store.
-  const legacyAccessToken = createCapabilityToken()
+  const legacyAccessToken = options.legacyAccessToken ?? createCapabilityToken()
   const maxAssetSizeBytes = options.maxAssetSizeBytes ?? config.maxAssetSizeBytes
   const maxAssetStoreBytes = options.maxAssetStoreBytes ?? config.maxAssetStoreBytes
   const maxConcurrentUploads = options.maxConcurrentUploads ?? config.maxConcurrentAssetUploads
@@ -97,7 +99,7 @@ export function createAssetHttpServer(
       }
       server.once('error', onError)
       server.once('listening', onListening)
-      server.listen(0, LOOPBACK_HOST)
+      server.listen(options.port ?? 0, LOOPBACK_HOST)
     })
     log.info({ port }, 'Asset HTTP server ready.')
   }

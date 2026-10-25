@@ -26,7 +26,7 @@ import { decodeConsumerMessage, encodeConsumerMessage } from '../consumer-transp
 export const CONTROL_VERSIONS = [1] as const
 export const LEASE_MS = 10_000
 export const RENEW_MS = 2_000
-export const RECOVER_MS = 30_000
+export const RECOVER_MS = 90_000
 export const REQUEST_TIMEOUT_MS = 330_000
 export const IdSchema = z.uuid()
 export const RegistrationSchema = z
@@ -149,7 +149,7 @@ export class RuntimeDataTransport implements Transport {
     private readonly wire: Transport,
     private readonly options: {
       generation: () => number
-      admit: (generation: number) => boolean
+      admit: (generation: number, method?: string) => boolean
       role: 'edge' | 'hub'
       timeoutMs?: number
       started?: boolean
@@ -166,7 +166,7 @@ export class RuntimeDataTransport implements Transport {
           this.options.role === 'hub' ? encodeConsumerMessage(params.message) : params.message
         if (
           isJSONRPCRequest(message) &&
-          (!this.options.admit(params.generation) ||
+          (!this.options.admit(params.generation, message.method) ||
             !params.deadline ||
             params.deadline <= Date.now())
         ) {
@@ -194,7 +194,7 @@ export class RuntimeDataTransport implements Transport {
     const generation = this.options.generation()
     const message = this.options.role === 'hub' ? decodeConsumerMessage(value) : value
     const request = 'method' in message && 'id' in message
-    if (request && !this.options.admit(generation)) throw unavailable()
+    if (request && !this.options.admit(generation, message.method)) throw unavailable()
     await this.wire.send({
       jsonrpc: '2.0',
       method: 'tempad/runtime-frame',

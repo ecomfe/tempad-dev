@@ -18,6 +18,7 @@ import type { ExtensionConnection } from './types'
 import { codexStoreKey } from './agent-clients/host-context'
 import { nativeFeedback } from './agent-clients/types'
 import { HISTORY_RETENTION_MS } from './history-retention'
+import { HOOK_RECEIPT_LIMIT, hookSignature, type HookReceipt } from './hook-receipts'
 import { extensionUpgradeRequired } from './legacy-extension'
 
 type TerminalStatus = Exclude<DesignTask['status'], 'active' | 'stopping'>
@@ -126,6 +127,8 @@ export class DesignTasks {
   private readonly operations = new Map<string, Operation>()
   private readonly filesNeedingRead = new Map<string, number>()
   private executions: Execution[] = []
+  private readonly hookReceipts = new Map<string, HookReceipt>()
+  private applyingHook = false
   private readGeneration = 0
   // Every retired file rejects stale unknown reviews; true also retains its Stop write fence.
   private readonly fileFences = new Map<string, boolean>()
@@ -453,6 +456,54 @@ export class DesignTasks {
 
   get pendingOperationCount(): number {
     return this.operations.size
+  }
+
+  pendingOperations() {
+    return [...this.operations].map(([id, operation]) => ({
+      id,
+      extensionId: operation.extensionId,
+      write: operation.write
+    }))
+  }
+
+  flush(): void {
+    this.persist()
+    if (this.options.store?.recoveryError || this.persistenceError)
+      throw new Error('Task state cannot be flushed; runtime switch is blocked.')
+  }
+
+  applyHook(
+    invocationId: string,
+    input: unknown,
+    apply: () => Record<string, unknown>
+  ): Record<string, unknown> {
+    const signature = hookSignature(input)
+    const existing = this.hookReceipts.get(invocationId)
+    if (existing) {
+      if (existing.signature !== signature)
+        throw new Error('Lifecycle invocation ID was reused with different content.')
+      this.flush()
+      if (existing.error) throw new Error(`Lifecycle effect remains uncertain: ${existing.error}`)
+      return existing.result
+    }
+    if (this.hookReceipts.size >= HOOK_RECEIPT_LIMIT)
+      throw new Error(
+        'Runtime hook receipt capacity reached. Preserve the runtime state for diagnosis.'
+      )
+    if (this.applyingHook) throw new Error('A lifecycle transaction is already in progress.')
+    const receipt: HookReceipt = { invocationId, signature, result: {}, recordedAt: this.now() }
+    this.applyingHook = true
+    try {
+      receipt.result = apply()
+      return receipt.result
+    } catch (error) {
+      receipt.error = String(error).slice(0, 1000)
+      throw error
+    } finally {
+      this.hookReceipts.set(invocationId, receipt)
+      this.applyingHook = false
+      this.flush()
+    }
   }
 
   find(taskId: string): DesignTaskRecord | undefined {
@@ -832,6 +883,8 @@ export class DesignTasks {
     this.revision = snapshot.revision
     this.recoveryGeneration = snapshot.recoveryGeneration
     this.executions = snapshot.executions ?? []
+    for (const receipt of snapshot.hookReceipts ?? [])
+      this.hookReceipts.set(receipt.invocationId, receipt)
     for (const fileKey of snapshot.filesNeedingRead ?? [])
       this.filesNeedingRead.set(fileKey, ++this.readGeneration)
     for (const [fileKey, stopped] of Object.entries(snapshot.fileFences ?? {}))
@@ -976,9 +1029,10 @@ export class DesignTasks {
   }
 
   private persist(): void {
-    if (!this.options.store) return
+    if (!this.options.store || this.applyingHook) return
     const snapshot: DesignTaskSnapshot = {
       revision: this.revision,
+      ...(this.hookReceipts.size ? { hookReceipts: [...this.hookReceipts.values()] } : {}),
       ...(this.executions.length ? { executions: this.executions } : {}),
       ...(this.recoveryGeneration ? { recoveryGeneration: this.recoveryGeneration } : {}),
       ...(this.filesNeedingRead.size

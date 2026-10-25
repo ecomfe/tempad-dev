@@ -1,15 +1,20 @@
 import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
-import { chmodSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import lockfile from 'proper-lockfile'
 import { z } from 'zod'
 
-import { ensureFile, SOCK_PATH } from '../shared'
+import { parseHubRuntimeIdentity } from '../runtime-identity'
+import { ensureDir, ensureFile, HUB_LOCK_STALE_MS, PACKAGE_VERSION } from '../shared'
+import { startHookGateway } from './hooks'
 import { LeaseSchema } from './hub-control'
+import { probeArtifact } from './probe'
 import {
   connectSocket,
-  hasHubRecord,
+  fingerprintBundle,
+  hubSocketPath,
   launch,
   listenPrivate,
   waitForSocket,
@@ -22,8 +27,37 @@ import {
   negotiate,
   RegistrationSchema,
   RENEW_MS,
-  SocketTransport
+  SocketTransport,
+  unavailable,
+  type Registration
 } from './protocol'
+import { newerVersion, readJournal, writeJournal, type Artifact, type Journal } from './state'
+
+const InspectionSchema = ResultSchema.extend({
+  drained: z.boolean(),
+  deadline: z.number(),
+  blockers: z.array(z.string()),
+  version: z.string(),
+  gated: z.boolean(),
+  handoffVersion: z.literal(1)
+})
+type Lease = z.infer<typeof LeaseSchema>
+type Edge = {
+  registration: Registration
+  ready: boolean
+  supportsReplacement?: boolean
+  error?: string
+}
+
+function alive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    throw error
+  }
+}
 
 export async function startSupervisor(config: PrototypeConfig) {
   const lockPath = join(config.root, 'supervisor.lock')
@@ -31,11 +65,446 @@ export async function startSupervisor(config: PrototypeConfig) {
   const unlock = await lockfile.lock(lockPath, { retries: 0, stale: 5000, update: 1000 })
   const socketPath = join(config.root, 'supervisor.sock')
   const peers = new Set<ControlPeer>()
-  const hub = new ControlPeer()
-  let renewing = false
+  const edges = new Map<ControlPeer, Edge>()
+  let hub: ControlPeer | undefined
+  let lease: Lease | undefined
+  let hooks: Awaited<ReturnType<typeof startHookGateway>> | undefined
+  let journal: Journal = readJournal(config.root) ?? {
+    version: 1,
+    revision: 0,
+    phase: 'committed',
+    active: { entry: config.entry, bundle: config.bundle, version: PACKAGE_VERSION },
+    failedBundles: []
+  }
   let closing = false
-  const stop = () => void close()
+  let transitioning = false
+  let renewing = false
+  let hookFault: string | undefined
   let timer: ReturnType<typeof setInterval> | undefined
+  const lifetime = new AbortController()
+  const pause = (milliseconds: number) =>
+    delay(milliseconds, undefined, { signal: lifetime.signal })
+  const stop = () => void close()
+
+  function persist(next: Journal) {
+    lifetime.signal.throwIfAborted()
+    const value = { ...next, revision: journal.revision + 1 }
+    writeJournal(config.root, value)
+    journal = value
+  }
+  function requireHub() {
+    if (closing || !hub || !lease)
+      throw unavailable('The Hub is switching or recovering; no call was dispatched.')
+    return hub
+  }
+  function inspect() {
+    return requireHub().request({ method: 'tempad/runtime-inspect' }, InspectionSchema, {
+      timeout: 5000
+    })
+  }
+  async function gate(closed: boolean) {
+    if (!closed && hookFault)
+      throw unavailable(`Lifecycle delivery remains uncertain: ${hookFault}`)
+    return requireHub().request(
+      { method: 'tempad/runtime-gate', params: { closed } },
+      InspectionSchema,
+      { timeout: 5000 }
+    )
+  }
+  function publish() {
+    writeFileSync(
+      join(config.root, 'supervisor.json'),
+      JSON.stringify({ pid: process.pid, entry: config.entry, bundle: config.bundle, ...lease }),
+      { mode: 0o600 }
+    )
+  }
+  async function ensureHooks() {
+    hooks ??= await startHookGateway(
+      config.root,
+      (input) =>
+        requireHub().request({ method: 'tempad/runtime-hook', params: input }, ResultSchema, {
+          timeout: 5000
+        }),
+      (error) => {
+        const recovering = !!hookFault
+        hookFault = error === undefined ? undefined : String(error)
+        if (hookFault || (recovering && !transitioning)) void gate(!!hookFault).catch(() => {})
+      }
+    )
+  }
+
+  async function waitForExit(pid: number, timeout = 15_000) {
+    const deadline = performance.now() + timeout
+    while (alive(pid)) {
+      if (performance.now() >= deadline)
+        throw new Error('The old Hub is still alive. Its writer ownership will not be replaced.')
+      await pause(50)
+    }
+  }
+  async function waitForWriters() {
+    const deadline = performance.now() + HUB_LOCK_STALE_MS + 5000
+    const paths = [
+      [join(config.root, 'run', 'hub.lock'), undefined],
+      [join(config.root, 'state'), join(config.root, 'state', '.tempad-hub-writer.lock')],
+      [join(config.root, 'assets'), join(config.root, 'assets', '.tempad-hub-writer.lock')]
+    ] as const
+    while (true) {
+      let locked = false
+      for (const [path, lockfilePath] of paths) {
+        if (
+          existsSync(path) &&
+          (await lockfile.check(path, {
+            stale: HUB_LOCK_STALE_MS,
+            ...(lockfilePath ? { lockfilePath } : {})
+          }))
+        )
+          locked = true
+      }
+      if (!locked) return
+      if (performance.now() >= deadline)
+        throw new Error('Hub writer locks remain owned; runtime recovery is deferred.')
+      await pause(200)
+    }
+  }
+
+  async function connectHub(artifact: Artifact, allowLaunch = true) {
+    if (closing) throw unavailable('Runtime supervisor is closing.')
+    let socket
+    try {
+      socket = await connectSocket(hubSocketPath(config.root), lifetime.signal)
+    } catch (error) {
+      if (!allowLaunch || !unavailableSocket(error)) throw error
+      const identityPath = join(config.root, 'run', 'hub-runtime.json')
+      if (existsSync(identityPath)) {
+        const previous = parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
+        if (!previous || alive(previous.processId))
+          throw new Error('Hub process ownership is uncertain; no replacement was started.', {
+            cause: error
+          })
+      }
+      await waitForWriters()
+      lifetime.signal.throwIfAborted()
+      launch(config, 'hub', artifact)
+      socket = await waitForSocket(hubSocketPath(config.root), lifetime.signal)
+    }
+    const peer = new ControlPeer()
+    peer.onerror = () => void peer.close()
+    try {
+      await peer.connect(new SocketTransport(socket))
+      const acquired = await peer.request(
+        {
+          method: 'tempad/runtime-acquire',
+          params: { secret: config.secret, versions: [...CONTROL_VERSIONS] }
+        },
+        LeaseSchema,
+        { timeout: 5000 }
+      )
+      const observed = await peer.request({ method: 'tempad/runtime-inspect' }, InspectionSchema, {
+        timeout: 5000
+      })
+      const identity = parseHubRuntimeIdentity(
+        JSON.parse(readFileSync(join(config.root, 'run', 'hub-runtime.json'), 'utf8'))
+      )
+      if (
+        !identity ||
+        identity.processId !== acquired.hubPid ||
+        dirname(identity.entryPath) !== dirname(artifact.entry) ||
+        observed.version !== artifact.version ||
+        fingerprintBundle(artifact.entry) !== artifact.bundle
+      )
+        throw new Error('The running Hub does not match the verified local artifact.')
+      lifetime.signal.throwIfAborted()
+      hub = peer
+      lease = acquired
+      startRenewal()
+      await ensureHooks()
+      publish()
+      peer.onclose = () => {
+        if (hub !== peer) return
+        hub = undefined
+        if (closing || transitioning) return
+        if (!edges.size) void close()
+        else
+          void recover().catch((error) => {
+            process.stderr.write(`Runtime recovery failed: ${String(error)}\n`)
+            void close()
+          })
+      }
+    } catch (error) {
+      await peer.close()
+      throw error
+    }
+  }
+
+  function startRenewal() {
+    if (timer) return
+    timer = setInterval(() => {
+      if (renewing || !hub) return
+      renewing = true
+      const connection = hub
+      void connection
+        .request({ method: 'tempad/runtime-renew' }, ResultSchema, { timeout: RENEW_MS })
+        .catch(() => connection.close())
+        .finally(() => {
+          renewing = false
+        })
+    }, RENEW_MS)
+  }
+
+  async function register(edge: Edge) {
+    const connection = requireHub()
+    const current = lease!
+    await connection.request(
+      { method: 'tempad/runtime-register', params: edge.registration },
+      ResultSchema,
+      { timeout: 5000 }
+    )
+    if (connection !== hub) throw unavailable()
+    return {
+      ...current,
+      version: negotiate(edge.registration.versions),
+      supervisorPid: process.pid
+    }
+  }
+  async function reattach() {
+    await Promise.all(
+      [...edges].map(async ([peer, edge]) => {
+        edge.ready = false
+        edge.error = undefined
+        try {
+          const grant = await register(edge)
+          await peer.notification({
+            method: 'notifications/tempad/runtime-replaced',
+            params: grant
+          })
+        } catch (error) {
+          if (edges.has(peer)) throw error
+        }
+      })
+    )
+    const deadline = performance.now() + 15_000
+    while ([...edges.values()].some((edge) => !edge.ready)) {
+      if (closing) throw unavailable('Runtime supervisor is closing.')
+      const failure = [...edges.values()].find((edge) => edge.error)?.error
+      if (failure) throw new Error(failure)
+      if (performance.now() >= deadline)
+        throw new Error('An edge could not verify the replacement runtime.')
+      await pause(25)
+    }
+  }
+  async function drain() {
+    const state = await gate(true)
+    const deadline = Math.min(Date.now() + 330_000, state.deadline)
+    let current = state
+    while (!current.drained) {
+      if (
+        current.blockers.includes('Claude binding without receipt/retry hooks') ||
+        Date.now() >= deadline
+      )
+        throw new Error(`Runtime switch deferred: ${current.blockers.join(', ')}.`)
+      await pause(50)
+      current = await inspect()
+    }
+  }
+  async function stopHub() {
+    const current = lease!
+    await requireHub().request({ method: 'tempad/runtime-stop' }, ResultSchema, { timeout: 5000 })
+    await waitForExit(current.hubPid)
+    hub = undefined
+    await waitForWriters()
+  }
+
+  async function recoverHub(artifact: Artifact) {
+    const deadline = performance.now() + 90_000
+    while (true) {
+      try {
+        await connectHub(artifact)
+        return
+      } catch (error) {
+        const identityPath = join(config.root, 'run', 'hub-runtime.json')
+        const identity = existsSync(identityPath)
+          ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
+          : undefined
+        // Retry a failed startup only after its process has exited. Never race
+        // an unknown writer, change ports, or execute a changed local artifact.
+        if (
+          closing ||
+          performance.now() >= deadline ||
+          (existsSync(identityPath) && (!identity || alive(identity.processId))) ||
+          fingerprintBundle(artifact.entry) !== artifact.bundle
+        )
+          throw error
+        await pause(200)
+      }
+    }
+  }
+
+  async function activate(candidate: Artifact) {
+    await drain()
+    persist({
+      ...journal,
+      phase: 'preparing',
+      candidate,
+      oldHub: { id: lease!.hubId, pid: lease!.hubPid }
+    })
+    await stopHub()
+    persist({ ...journal, phase: 'old-stopped' })
+    await connectHub(candidate)
+    persist({ ...journal, phase: 'candidate-ready' })
+    await finishHandoff()
+  }
+
+  async function finishHandoff() {
+    await reattach()
+    await hooks?.flush()
+    if (journal.phase !== 'committed')
+      persist({
+        ...journal,
+        phase: 'committed',
+        ...(journal.candidate
+          ? {
+              previous: journal.active,
+              active: journal.candidate,
+              candidate: undefined,
+              failure: undefined
+            }
+          : {}),
+        oldHub: undefined
+      })
+    await gate(false)
+  }
+
+  async function rollback(error: unknown) {
+    journal = readJournal(config.root) ?? journal
+    const failed = journal.candidate ?? journal.active
+    const fallback = journal.phase === 'committed' ? journal.previous : journal.active
+    if (!fallback) throw error
+    if (hub && lease && alive(lease.hubPid)) {
+      await drain()
+      await stopHub()
+    }
+    persist({
+      ...journal,
+      phase: 'old-stopped',
+      active: fallback,
+      candidate: undefined,
+      previous: undefined,
+      oldHub: undefined,
+      failedBundles: [...new Set([...journal.failedBundles, failed.bundle])],
+      failure: String(error)
+    })
+    await recoverHub(fallback)
+    await finishHandoff()
+  }
+
+  async function recover() {
+    if (transitioning) return
+    transitioning = true
+    let observedPid: number | undefined
+    try {
+      const identityPath = join(config.root, 'run', 'hub-runtime.json')
+      const identity = existsSync(identityPath)
+        ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
+        : undefined
+      if (identity && alive(identity.processId)) {
+        observedPid = identity.processId
+        const candidates = [journal.active, journal.candidate, journal.previous].filter(
+          (value): value is Artifact => !!value
+        )
+        const artifact = candidates.find(
+          (value) =>
+            value.version === identity.packageVersion &&
+            dirname(value.entry) === dirname(identity.entryPath)
+        )
+        if (!artifact) throw new Error('An unknown Hub still owns this runtime.')
+        // Socket closure can precede process exit. Reattaching must never
+        // silently relaunch that artifact and bypass the crash rollback path.
+        if (!hub?.transport || lease?.hubPid !== identity.processId)
+          await connectHub(artifact, false)
+        if (journal.phase === 'preparing' && artifact.bundle === journal.active.bundle) {
+          persist({
+            ...journal,
+            phase: 'committed',
+            oldHub: undefined,
+            failure:
+              'The supervisor stopped before the old Hub exited; the candidate remains staged.'
+          })
+        } else if (artifact.bundle !== journal.active.bundle) {
+          persist({ ...journal, phase: 'candidate-ready' })
+        }
+      } else {
+        if (journal.phase === 'committed' && identity && journal.previous) {
+          await rollback(new Error('The active Hub exited unexpectedly.'))
+          return
+        }
+        const candidate =
+          journal.candidate &&
+          !journal.failedBundles.includes(journal.candidate.bundle) &&
+          journal.phase !== 'committed'
+            ? journal.candidate
+            : journal.active
+        if (journal.phase !== 'committed') persist({ ...journal, phase: 'old-stopped' })
+        await recoverHub(candidate)
+        if (journal.phase !== 'committed') persist({ ...journal, phase: 'candidate-ready' })
+      }
+      await finishHandoff()
+    } catch (error) {
+      if (journal.phase !== 'committed' && journal.candidate) await rollback(error)
+      else if (observedPid && journal.previous) {
+        await waitForExit(observedPid)
+        await rollback(error)
+      } else throw error
+    } finally {
+      transitioning = false
+    }
+  }
+
+  async function update(entry: string) {
+    if (transitioning) throw unavailable('Another runtime transition is in progress.')
+    if (journal.phase !== 'committed')
+      throw unavailable(
+        'An interrupted handoff must finish through --recover-runtime before offering another version.'
+      )
+    transitioning = true
+    try {
+      await requireHub().request(
+        { method: 'tempad/runtime-retain', params: { retained: true } },
+        ResultSchema
+      )
+      if ([...edges.values()].some((edge) => !edge.supportsReplacement))
+        throw new Error(
+          'An attached edge has not confirmed backend replacement support; wait for initialization or restart an older MCP client before switching.'
+        )
+      const candidate = await probeArtifact(entry)
+      if (!newerVersion(candidate.artifact.version, journal.active.version))
+        throw new Error('Only a newer stable local runtime can be offered.')
+      if (journal.failedBundles.includes(candidate.artifact.bundle))
+        throw new Error('This runtime bundle is quarantined after a failed activation.')
+      const active = await probeArtifact(journal.active.entry)
+      if (candidate.contract !== active.contract)
+        throw new Error('The local candidate changes the frozen MCP contract; restart MCP instead.')
+      persist({ ...journal, candidate: candidate.artifact, failure: undefined })
+      try {
+        await activate(candidate.artifact)
+      } catch (error) {
+        journal = readJournal(config.root) ?? journal
+        if (journal.phase === 'committed' && journal.candidate) {
+          persist({ ...journal, failure: String(error) })
+          await gate(false)
+          return { status: 'staged', reason: String(error) }
+        }
+        await rollback(error)
+        return { status: 'rolled-back', reason: String(error) }
+      }
+      return { status: 'activated', version: journal.active.version }
+    } finally {
+      transitioning = false
+      await hub
+        ?.request({ method: 'tempad/runtime-retain', params: { retained: false } }, ResultSchema)
+        .catch(() => {})
+    }
+  }
+
   const server = createServer((socket) => {
     if (peers.size >= 128) {
       socket.destroy()
@@ -44,23 +513,69 @@ export async function startSupervisor(config: PrototypeConfig) {
     const peer = new ControlPeer()
     peers.add(peer)
     const timeout = setTimeout(() => void peer.close(), 5000)
-    let registered = false
     peer.onerror = () => void peer.close()
     peer.onclose = () => {
       clearTimeout(timeout)
       peers.delete(peer)
+      edges.delete(peer)
     }
     peer.setRequestHandler(
       z.object({ method: z.literal('tempad/runtime-hello'), params: RegistrationSchema }),
       async ({ params }) => {
-        if (registered) throw new Error('A runtime connection can register only once.')
-        const version = negotiate(params.versions)
-        registered = true
-        await hub.request({ method: 'tempad/runtime-register', params }, ResultSchema, {
-          timeout: 3000
-        })
+        if (edges.has(peer)) throw new Error('A runtime connection can register only once.')
+        const edge = { registration: params, ready: false }
+        edges.set(peer, edge)
+        const grant = await register(edge)
         clearTimeout(timeout)
-        return { ...lease, version, supervisorPid: process.pid }
+        return grant
+      }
+    )
+    peer.setRequestHandler(
+      z.object({
+        method: z.literal('tempad/runtime-ready'),
+        params: z.object({ hubId: z.uuid(), error: z.string().optional() })
+      }),
+      ({ params }) => {
+        const edge = edges.get(peer)
+        if (!edge || params.hubId !== lease?.hubId)
+          throw unavailable('Stale runtime readiness acknowledgment.')
+        edge.error = params.error
+        edge.ready = !params.error
+        edge.supportsReplacement = true
+        return {}
+      }
+    )
+    peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-refresh') }), async () => {
+      const edge = edges.get(peer)
+      if (!edge) throw unavailable('Runtime session is not registered.')
+      return register(edge)
+    })
+    peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-status') }), async () => ({
+      ...(hub
+        ? await inspect().catch((error) => ({ gated: true, unavailable: String(error) }))
+        : { gated: true, unavailable: 'Hub recovery has not completed.' }),
+      ...lease,
+      supervisorPid: process.pid,
+      phase: journal.phase,
+      active: journal.active,
+      candidate: journal.candidate,
+      failure: journal.failure,
+      hookFault
+    }))
+    peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-recover') }), async () => {
+      if (transitioning) throw unavailable('Another runtime transition is in progress.')
+      clearTimeout(timeout)
+      await recover()
+      return { status: 'recovered', version: journal.active.version }
+    })
+    peer.setRequestHandler(
+      z.object({
+        method: z.literal('tempad/runtime-update'),
+        params: z.object({ entry: z.string() }).strict()
+      }),
+      async ({ params }) => {
+        clearTimeout(timeout)
+        return update(params.entry)
       }
     )
     void peer.connect(new SocketTransport(socket)).catch(() => void peer.close())
@@ -68,71 +583,26 @@ export async function startSupervisor(config: PrototypeConfig) {
   async function close() {
     if (closing) return
     closing = true
+    lifetime.abort()
     process.off('SIGTERM', stop)
     process.off('SIGINT', stop)
     clearInterval(timer)
     server.close()
     await Promise.allSettled([...peers].map((peer) => peer.close()))
-    await hub.close()
+    await hooks?.close()
+    await hub?.close()
     rmSync(socketPath, { force: true })
     rmSync(join(config.root, 'supervisor.json'), { force: true })
     await unlock()
   }
-  let lease: z.infer<typeof LeaseSchema>
   try {
-    let socket
-    try {
-      socket = await connectSocket(SOCK_PATH)
-    } catch (error) {
-      if (!unavailableSocket(error)) throw error
-      // A crashed Hub needs Phase 2's durable execution/recovery rules. This
-      // prototype never clears its record or silently recreates its writer.
-      if (hasHubRecord(config.root))
-        throw new Error('Runtime Hub was lost; preserve the isolated root for diagnosis.', {
-          cause: error
-        })
-      launch(config, 'hub')
-      socket = await waitForSocket(SOCK_PATH)
-    }
-    hub.onerror = () => void close()
-    hub.onclose = () => void close()
-    await hub.connect(new SocketTransport(socket))
-    lease = await hub.request(
-      {
-        method: 'tempad/runtime-acquire',
-        params: {
-          secret: config.secret,
-          versions: [...CONTROL_VERSIONS]
-        }
-      },
-      LeaseSchema,
-      { timeout: 5000 }
-    )
-    if (closing) throw new Error('Hub closed during supervisor startup.')
-    timer = setInterval(() => {
-      if (renewing) return
-      renewing = true
-      void hub
-        .request({ method: 'tempad/runtime-renew' }, ResultSchema, { timeout: RENEW_MS })
-        .catch(() => close())
-        .finally(() => {
-          renewing = false
-        })
-    }, RENEW_MS)
+    persist(journal)
+    ensureDir(join(config.root, 'run'))
+    await recover()
     rmSync(socketPath, { force: true })
     await listenPrivate(server, socketPath)
-    if (closing) throw new Error('Hub closed during supervisor startup.')
     chmodSync(socketPath, 0o600)
-    writeFileSync(
-      join(config.root, 'supervisor.json'),
-      JSON.stringify({
-        pid: process.pid,
-        entry: config.entry,
-        bundle: config.bundle,
-        ...lease
-      }),
-      { mode: 0o600 }
-    )
+    publish()
     process.once('SIGTERM', stop)
     process.once('SIGINT', stop)
   } catch (error) {

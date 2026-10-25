@@ -79,6 +79,17 @@ async function listen(receipts: TerminalReceipts) {
 }
 
 describe('durable execution exclusion and operator recovery', () => {
+  it('retires a disconnected read but retains an unknown write for handoff', () => {
+    const { receipts } = runtime()
+    receipts.reserve('read', extension, session, undefined, false)
+    reserve(receipts)
+    expect(receipts.canHandoff()).toBe(false)
+    receipts.disconnect(extension.id)
+    expect(receipts.canHandoff()).toBe(true)
+    expect([...receipts.transferableIds()]).toEqual(['call'])
+    expect(runtime().receipts.pendingCount).toBe(1)
+  })
+
   it('survives cold restart and reads, accepts only the original receipt, then requires readback', () => {
     const original = runtime()
     const completion = reserve(original.receipts)

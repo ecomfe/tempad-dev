@@ -79,10 +79,12 @@ import {
   RECOVER_MS,
   RuntimeDataTransport,
   SocketTransport,
+  unavailable,
   type Registration
 } from './runtime-prototype/protocol'
+import { readEndpoints, writeEndpoints } from './runtime-prototype/state'
 import { attachRuntimeRecovery, RECOVERY_METHODS } from './runtime-recovery'
-import { createExtensionOriginPolicy } from './security'
+import { createCapabilityToken, createExtensionOriginPolicy } from './security'
 import {
   ASSET_DIR,
   HUB_BUSY_EXIT_CODE,
@@ -94,7 +96,7 @@ import {
   log,
   RUNTIME_DIR,
   RUNTIME_PROFILE,
-  SOCK_PATH,
+  SOCK_PATH as DEFAULT_SOCK_PATH,
   ensureDir,
   assertTrustedSocket,
   resolveStateDir,
@@ -132,7 +134,12 @@ function hasCanvasReadEvidence(tool: ToolName, payload: unknown): boolean {
   )
 }
 
-export async function startHub(options: { prototype?: { secret: string } } = {}): Promise<void> {
+export async function startHub(
+  options: {
+    prototype?: { secret: string; root?: string; socketPath?: string; paused?: boolean }
+  } = {}
+): Promise<void> {
+  const SOCK_PATH = options.prototype?.socketPath ?? DEFAULT_SOCK_PATH
   const SHUTDOWN_TIMEOUT = 2000
   const SOCKET_PROBE_TIMEOUT_MS = 300
   const EXACT_SESSION_READ_TOOLS = new Set<ToolName>([
@@ -156,9 +163,25 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
     allowedExtensionOrigins
   } = getMcpServerConfig(RUNTIME_PROFILE)
   const extensionOriginPolicy = createExtensionOriginPolicy(allowedExtensionOrigins)
-  const runtimeControl = options.prototype ? new HubControl(options.prototype.secret) : undefined
+  const runtimeControl = options.prototype
+    ? new HubControl(options.prototype.secret, undefined, {
+        paused: options.prototype.paused,
+        inspect: handoffStatus,
+        flush: flushHandoff,
+        stop: shutdownHandoff,
+        hook: (input) =>
+          designTasks.applyHook(input.invocationId, input, () => agentClients.clientHook(input))
+      })
+    : undefined
+  const endpoints = options.prototype?.root ? readEndpoints(options.prototype.root) : undefined
+  const endpointTokens = options.prototype
+    ? {
+        accessToken: endpoints?.accessToken ?? createCapabilityToken(),
+        legacyAccessToken: endpoints?.legacyAccessToken ?? createCapabilityToken()
+      }
+    : undefined
   const runtimeDataSockets = new Map<string, Socket>()
-  if (options.prototype) wsPortCandidates.splice(0, wsPortCandidates.length, 0)
+  if (options.prototype) wsPortCandidates.splice(0, wsPortCandidates.length, endpoints?.wsPort ?? 0)
 
   log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Hub starting...')
 
@@ -211,6 +234,8 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
       })
   }, 10000)
   const pendingDesignBindings = new Map<string, Promise<void>>()
+  const activeCalls = new Map<symbol, number>()
+  const localResults = new Set<Promise<CallToolResult>>()
   const designTaskTimer = setInterval(() => {
     if (storesOwned && !shuttingDown) designTasks.sweep()
     if (
@@ -219,6 +244,7 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
       !shuttingDown &&
       consumerCount === 0 &&
       recoveryConnections === 0 &&
+      !runtimeControl.keepAlive() &&
       runtimeControl.pendingConnections() === 0 &&
       (hadConsumer || performance.now() - prototypeStartedAt >= RECOVER_MS) &&
       designTasks.pendingOperationCount === 0 &&
@@ -242,6 +268,77 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
   let hubRuntimeIdentity: HubRuntimeIdentity | null = null
   const consumerSessions = new Set<McpServer>()
   const incomingSockets = new Set<Socket>()
+
+  function handoffStatus() {
+    const blockers: string[] = []
+    const connected = new Set(extensionRegistry.list().map((extension) => extension.id))
+    const transferable = terminalReceipts.transferableIds()
+    if (activeCalls.size || localResults.size) blockers.push('admitted MCP calls')
+    if (
+      designTasks
+        .pendingOperations()
+        .some(
+          (operation) => connected.has(operation.extensionId) || !transferable.has(operation.id)
+        )
+    )
+      blockers.push('Figma execution without transferable exclusion')
+    if (!terminalReceipts.canHandoff()) blockers.push('peer without durable terminal receipts')
+    if (agentClients.hasPendingActions) blockers.push('native feedback or queue removal')
+    if (agentClients.hasLegacyHooks) blockers.push('Claude binding without receipt/retry hooks')
+    if (pendingDesignBindings.size) blockers.push('design task binding')
+    if (assetHttpServer.pendingTransfers) blockers.push('asset transfers')
+    return {
+      drained: blockers.length === 0,
+      blockers,
+      version: PACKAGE_VERSION,
+      // Native adapters and downloads have no shared absolute deadline. Give
+      // them the bounded drain window; expiry defers switching, never kills work.
+      deadline:
+        Math.max(
+          Date.now(),
+          ...activeCalls.values(),
+          agentClients.hasPendingActions || assetHttpServer.pendingTransfers || localResults.size
+            ? Date.now() + 320_000
+            : 0
+        ) + 10_000
+    }
+  }
+
+  function flushHandoff() {
+    designTasks.flush()
+    assetStore.flush()
+  }
+
+  async function shutdownHandoff() {
+    if (shuttingDown) return
+    shuttingDown = true
+    clearInterval(designTaskTimer)
+    clearInterval(clientCapabilityTimer)
+    clearInterval(assetCleanupTimer)
+    try {
+      agentClients.close()
+      await Promise.all([...consumerSessions].map((session) => session.close()))
+      // Socket close handlers persist the final paused owner state. Stop fences
+      // and unknown executions are in the same store, never restored from backup.
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      flushHandoff()
+      assetHttpServer.stop()
+      for (const socket of incomingSockets) socket.destroy()
+      for (const socket of wss?.clients ?? []) socket.terminate()
+      await Promise.all([
+        new Promise<void>((resolve) => netServer.close(() => resolve())),
+        new Promise<void>((resolve) => (wss ? wss.close(() => resolve()) : resolve()))
+      ])
+      flushHandoff()
+      removeRuntimeIdentity()
+      await releasePartialStoreLocks()
+      await releaseHubLockIfNeeded()
+      process.exit(0)
+    } catch (error) {
+      log.error({ error }, 'Durable handoff shutdown failed.')
+      process.exit(1)
+    }
+  }
   type ToolResponse = CallToolResult
   type ToolRegistrationOptions = {
     annotations?: ToolAnnotations
@@ -782,9 +879,23 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
     const connectionId = ownerId
     const isCanvasWrite = tool.name === 'apply_canvas'
     const handler = async (args: unknown, extra: { _meta?: unknown; signal: AbortSignal }) => {
+      const activity = Symbol()
       let requestId: string | undefined
       let readTarget: { fileKey: string; taskId?: string } | undefined
       try {
+        if (runtimeControl && !runtimeControl.admitting()) throw unavailable()
+        activeCalls.set(
+          activity,
+          Date.now() +
+            Math.max(
+              toolTimeoutMs,
+              getCodeTimeoutMs,
+              getDesignSystemTimeoutMs,
+              pageStructureTimeoutMs,
+              applyCanvasTimeoutMs * 2
+            ) +
+            MCP_NODE_READ_BATCH_WORK_BUDGET_MS
+        )
         extra.signal.throwIfAborted()
         const ownerId = await agentClients.owner(
           connectionId,
@@ -824,6 +935,7 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
         ) {
           timeoutMs += MCP_NODE_READ_BATCH_WORK_BUDGET_MS
         }
+        activeCalls.set(activity, Date.now() + timeoutMs * (isCanvasWrite ? 2 : 1))
         // Task-bound calls must always resolve their original target. Legacy reads are
         // available only when that unversioned connection is explicitly the active route.
         const legacy = !taskId && !explicitSessionId ? extensionRegistry.getActive() : undefined
@@ -986,6 +1098,8 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
           createToolErrorResponse(tool.name, normalized),
           readTarget
         )
+      } finally {
+        activeCalls.delete(activity)
       }
     }
 
@@ -1055,7 +1169,10 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
       args: unknown,
       extra: { _meta?: unknown; signal: AbortSignal }
     ) => {
+      const activity = Symbol()
       try {
+        if (runtimeControl && !runtimeControl.admitting()) throw unavailable()
+        activeCalls.set(activity, Date.now() + toolTimeoutMs)
         extra.signal.throwIfAborted()
         const ownerId = await agentClients.owner(
           connectionId,
@@ -1082,6 +1199,8 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
       } catch (error) {
         log.error({ tool: tool.name, error }, 'Local tool invocation failed.')
         return createToolErrorResponse(tool.name, error)
+      } finally {
+        activeCalls.delete(activity)
       }
     }
 
@@ -1092,6 +1211,7 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
     result: Promise<CallToolResult>,
     signal: AbortSignal
   ): Promise<CallToolResult> {
+    localResults.add(result)
     return new Promise((resolve, reject) => {
       const abort = () => {
         signal.removeEventListener('abort', abort)
@@ -1101,10 +1221,12 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
       if (signal.aborted) abort()
       void result.then(
         (value) => {
+          localResults.delete(result)
           signal.removeEventListener('abort', abort)
           resolve(value)
         },
         (error: unknown) => {
+          localResults.delete(result)
           signal.removeEventListener('abort', abort)
           reject(error)
         }
@@ -1362,7 +1484,7 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
       registration && runtimeControl
         ? new RuntimeDataTransport(new SocketTransport(sock), {
             generation: () => runtimeControl.currentGeneration,
-            admit: (generation) => runtimeControl.admits(ownerId, generation),
+            admit: (generation, method) => runtimeControl.admits(ownerId, generation, method),
             role: 'hub'
           })
         : new ConsumerTransport(sock, sock)
@@ -1530,7 +1652,9 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
     await acquireStoreLocks()
     assetStore = createAssetStore()
     assetHttpServer = createAssetHttpServer(assetStore, {
-      ...(runtimeControl ? { admit: () => runtimeControl.available() } : {}),
+      ...(runtimeControl
+        ? { admit: () => runtimeControl.admitting(), ...endpointTokens, port: endpoints?.httpPort }
+        : {}),
       authorizeExtensionOrigin: (origin) =>
         extensionRegistry.getActive()?.origin === origin.toLowerCase()
     })
@@ -1613,6 +1737,12 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
     const startedWebSocket = await startWebSocketServer()
     wss = startedWebSocket.server
     selectedWsPort = startedWebSocket.port
+    if (options.prototype?.root && !endpoints)
+      writeEndpoints(options.prototype.root, {
+        wsPort: selectedWsPort,
+        httpPort: Number(new URL(assetHttpServer.getBaseUrl()).port),
+        ...endpointTokens!
+      })
     if (hubRuntimeIdentity) {
       hubRuntimeIdentity.wsPort = selectedWsPort
       writeHubRuntimeIdentity(HUB_RUNTIME_IDENTITY_PATH, hubRuntimeIdentity)
@@ -1694,6 +1824,7 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
           `Extension disconnected. Remaining: ${extensionRegistry.size}`
         )
         designTasks.disconnectExtension(extensionId)
+        terminalReceipts.disconnect(extensionId)
         cleanupForExtension(extensionId)
         if (wasActive) log.warn({ id: extensionId }, 'Active extension disconnected.')
       },
@@ -1799,7 +1930,7 @@ export async function startHub(options: { prototype?: { secret: string } } = {})
           })
         if (
           runtimeControl &&
-          !runtimeControl.available() &&
+          !runtimeControl.admitting() &&
           !['stop', 'done'].includes(action.action)
         ) {
           reply({

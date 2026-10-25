@@ -5,7 +5,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { ListToolsRequestSchema, ResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { createServer, type Socket } from 'node:net'
 import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -34,13 +34,16 @@ vi.mock('../src/runtime-prototype/processes', async (load) => {
 })
 
 import { startPrototypeEdge } from '../src/runtime-prototype/edge'
-import { listenPrivate, type PrototypeConfig } from '../src/runtime-prototype/processes'
+import {
+  hubSocketPath,
+  listenPrivate,
+  type PrototypeConfig
+} from '../src/runtime-prototype/processes'
 import {
   ControlPeer,
   RuntimeDataTransport,
   SocketTransport
 } from '../src/runtime-prototype/protocol'
-import { RUNTIME_DIR, SOCK_PATH } from '../src/shared'
 
 const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => {
@@ -59,6 +62,7 @@ it.skipIf(process.platform === 'win32')(
     const [clientTransport, host] = InMemoryTransport.createLinkedPair()
     state.host = host
     const root = await mkdtemp('/tmp/tp-edge-')
+    await mkdir(`${root}/run`, { mode: 0o700 })
     cleanup.push(() => rm(root, { recursive: true, force: true }))
     state.path = `${root}/control.sock`
     state.generation = 0
@@ -70,6 +74,7 @@ it.skipIf(process.platform === 'win32')(
       sockets.add(socket)
       const peer = new ControlPeer()
       controls.push(peer)
+      peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-ready') }), () => ({}))
       peer.setRequestHandler(
         z.object({
           method: z.literal('tempad/runtime-hello'),
@@ -129,8 +134,8 @@ it.skipIf(process.platform === 'win32')(
       )
     })
     await listenPrivate(controlServer, state.path)
-    await listenPrivate(dataServer, SOCK_PATH)
-    const edge = startPrototypeEdge({ root: RUNTIME_DIR } as PrototypeConfig)
+    await listenPrivate(dataServer, hubSocketPath(root))
+    const edge = startPrototypeEdge({ root } as PrototypeConfig)
     const client = new Client({ name: 'fixture host', version: '1' })
     cleanup.push(async () => {
       await client.close()

@@ -6,9 +6,11 @@ import { z } from 'zod'
 import { HostContextSchema } from './agent-clients/host-context'
 import { writeDurableJson } from './durable-json'
 import { ExecutionMarkerSchema, type Execution } from './execution-state'
+import { HookReceiptSchema } from './hook-receipts'
 
 const SnapshotSchema = z.object({
   revision: z.number().int().nonnegative(),
+  hookReceipts: z.array(HookReceiptSchema).optional(),
   current: stringRecord(z.string(), z.string()),
   fileFences: stringRecord(z.string(), z.boolean()).optional(),
   records: z.array(

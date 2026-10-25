@@ -1,16 +1,23 @@
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
 
+import { McpError, ResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
+import { z } from 'zod'
 
 import { captureHostContext, HostContextNotificationSchema } from '../agent-clients/host-context'
 import { runtimeIdentity } from '../agent-clients/identity'
 import { ClientBindingSubscribeSchema } from '../client-binding'
 import { getMcpServerConfig } from '../config'
 import { ConsumerTransport } from '../consumer-transport'
-import { endLogging, PACKAGE_VERSION, SOCK_PATH } from '../shared'
+import { endLogging, PACKAGE_VERSION } from '../shared'
 import { startStableEdge } from '../stable-edge'
-import { connectSocket, supervisorConnection, type PrototypeConfig } from './processes'
+import {
+  connectSocket,
+  hubSocketPath,
+  supervisorConnection,
+  type PrototypeConfig
+} from './processes'
 import {
   ControlPeer,
   CONTROL_VERSIONS,
@@ -35,6 +42,12 @@ export async function startPrototypeEdge(config: PrototypeConfig) {
   let ready = false
   let recovering = false
   let lifetime: AbortSignal
+  let edge: Awaited<ReturnType<typeof startStableEdge>> | undefined = undefined
+  let backendHubId: string | undefined
+  let backendLost = false
+  let replacing = false
+  let attaching: Promise<void> | undefined
+  let openingHubId: string | undefined
   const runtimeConfig = getMcpServerConfig()
   const requestTimeoutMs = Math.max(
     REQUEST_TIMEOUT_MS,
@@ -47,7 +60,16 @@ export async function startPrototypeEdge(config: PrototypeConfig) {
     ].map((value) => value + 10_000)
   )
 
-  async function attachControl() {
+  function attachControl(): Promise<void> {
+    // A lost Hub can close data and control at the same time. Both recovery
+    // paths must share registration, or a duplicate control peer pins updates.
+    attaching ??= openControl().finally(() => {
+      attaching = undefined
+    })
+    return attaching
+  }
+
+  async function openControl() {
     const socket = await supervisorConnection(config, lifetime)
     const peer = new ControlPeer()
     peer.onerror = () => void peer.close()
@@ -62,22 +84,71 @@ export async function startPrototypeEdge(config: PrototypeConfig) {
         }
       )
       if (!peer.transport) throw new Error('Supervisor closed during registration.')
-      if (grant && grant.hubId !== next.hubId)
-        throw new Error(
-          'The runtime Hub was replaced. Pending writes will not be replayed; restart the isolated prototype.'
-        )
       lifetime.throwIfAborted()
       grant = next
+      const previous = control
       control = peer
       ready = true
+      peer.setNotificationHandler(
+        z.object({
+          method: z.literal('notifications/tempad/runtime-replaced'),
+          params: GrantSchema
+        }),
+        async ({ params }) => {
+          grant = params
+          ready = true
+          if (backendHubId && (backendLost || backendHubId !== params.hubId)) void replaceBackend()
+          else if (backendHubId) await acknowledgeReady()
+        }
+      )
       peer.onclose = () => {
         if (control !== peer) return
         ready = false
         if (!lifetime.aborted) void recover()
       }
+      await previous?.close()
+      if (backendHubId && (backendLost || backendHubId !== next.hubId)) void replaceBackend()
+      else if (backendHubId) await acknowledgeReady()
     } catch (error) {
       await peer.close()
       throw error
+    }
+  }
+
+  async function acknowledgeReady(error?: string) {
+    await control!.request(
+      {
+        method: 'tempad/runtime-ready',
+        params: { hubId: grant!.hubId, ...(error ? { error } : {}) }
+      },
+      ResultSchema,
+      { timeout: 5000, signal: lifetime }
+    )
+  }
+
+  async function replaceBackend() {
+    if (replacing || !edge || lifetime.aborted) return
+    replacing = true
+    const deadline = performance.now() + RECOVER_MS
+    try {
+      while (!lifetime.aborted && performance.now() < deadline) {
+        try {
+          await edge.replaceBackend()
+          return
+        } catch (error) {
+          if (error instanceof McpError && error.code === -32002)
+            await acknowledgeReady(error.message).catch(() => {})
+          if (!lifetime.aborted) await delay(100, undefined, { signal: lifetime })
+        }
+      }
+      if (!lifetime.aborted)
+        process.stderr.write(
+          'Runtime backend recovery timed out; the MCP session remains open and no request was replayed.\n'
+        )
+    } catch {
+      // Closing the host cancels connection recovery, never the remote write.
+    } finally {
+      replacing = false
     }
   }
 
@@ -106,14 +177,31 @@ export async function startPrototypeEdge(config: PrototypeConfig) {
   }
 
   const host = new ConsumerTransport()
-  const edge = await startStableEdge(host, {
+  edge = await startStableEdge(host, {
     version: PACKAGE_VERSION,
     requestTimeoutMs,
     onError: (error) => process.stderr.write(`Runtime edge: ${error.message}\n`),
+    onBackendClose: () => {
+      backendLost = true
+      void replaceBackend()
+    },
+    onBackendReady: async () => {
+      if (openingHubId !== grant?.hubId)
+        throw new Error('Runtime changed during backend initialization.')
+      backendHubId = openingHubId
+      backendLost = false
+      await acknowledgeReady()
+    },
     open: async (_initialize, signal) => {
       lifetime = signal
-      await attachControl()
-      const socket = await connectSocket(SOCK_PATH, signal)
+      if (!control?.transport || !ready) await attachControl()
+      else
+        grant = await control.request({ method: 'tempad/runtime-refresh' }, GrantSchema, {
+          timeout: 5000,
+          signal
+        })
+      const socket = await connectSocket(hubSocketPath(config.root), signal)
+      openingHubId = grant!.hubId
       const wire = new SocketTransport(socket)
       try {
         await new Promise<void>((resolve, reject) => {
@@ -186,7 +274,7 @@ export async function startPrototypeEdge(config: PrototypeConfig) {
       })
     }
   })
-  const close = () => void edge.close()
+  const close = () => void edge!.close()
   process.once('SIGINT', close)
   process.once('SIGTERM', close)
   process.stdin.once('end', close)

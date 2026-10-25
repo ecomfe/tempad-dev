@@ -33,6 +33,9 @@ function soleActiveTurn(state?: CodexLifecycleState): string | undefined {
 
 /** Conversation bindings and native delivery stay outside shared task lifecycle logic. */
 export class AgentClients {
+  get hasLegacyHooks(): boolean {
+    return [...this.connections.values()].some((binding) => binding.client.kind === 'claude')
+  }
   private readonly hooks = new ClientHooks()
   private readonly connections = new Map<string, ClientBinding>()
   private readonly contexts = new Map<string, HostContext>()

@@ -18,6 +18,7 @@ import { z } from 'zod'
 
 import { hubEnvironment } from '../process-environment'
 import { assertTrustedSocket, ensureFile, ensureDir } from '../shared'
+import { readJournal, type Artifact } from './state'
 
 const ConfigSchema = z
   .object({
@@ -29,11 +30,7 @@ const ConfigSchema = z
   .strict()
 export type PrototypeConfig = z.infer<typeof ConfigSchema> & { root: string }
 
-export function prototypeConfig(root: string, entry: string): PrototypeConfig {
-  if (process.platform === 'win32')
-    throw new Error('The runtime prototype requires isolated Unix sockets.')
-  root = realpathSync(root)
-  ensureDir(root)
+export function fingerprintBundle(entry: string): string {
   const directory = dirname(entry)
   const hash = createHash('sha256')
   for (const name of readdirSync(directory)
@@ -43,7 +40,19 @@ export function prototypeConfig(root: string, entry: string): PrototypeConfig {
       .update(name)
       .update('\0')
       .update(readFileSync(join(directory, name)))
-  const bundle = hash.digest('hex')
+  return hash.digest('hex')
+}
+
+export function hubSocketPath(root: string) {
+  return join(root, 'run', 'runtime-hub.sock')
+}
+
+export function prototypeConfig(root: string, entry: string, role = 'edge'): PrototypeConfig {
+  if (process.platform === 'win32')
+    throw new Error('The runtime prototype requires isolated Unix sockets.')
+  root = realpathSync(root)
+  ensureDir(root)
+  const bundle = fingerprintBundle(entry)
   const path = join(root, 'prototype.json')
   try {
     writeFileSync(path, JSON.stringify({ version: 1, entry, bundle, secret: randomUUID() }), {
@@ -62,13 +71,24 @@ export function prototypeConfig(root: string, entry: string): PrototypeConfig {
   )
     throw new Error('Refusing an untrusted runtime prototype configuration.')
   const config = ConfigSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
-  if (config.entry !== entry || config.bundle !== bundle)
-    throw new Error('Runtime prototype bundle changed. Stop the isolated run and use a fresh root.')
+  if (config.entry !== entry || config.bundle !== bundle) {
+    const journal = readJournal(root)
+    const known = [journal?.active, journal?.candidate, journal?.previous].some(
+      (artifact) => artifact?.entry === entry && artifact.bundle === bundle
+    )
+    if (role === 'supervisor' || !known)
+      throw new Error(
+        'Runtime prototype bundle changed. Stop the isolated run and use a fresh root.'
+      )
+  }
   return { ...config, root }
 }
 
-export function launch(config: PrototypeConfig, role: 'supervisor' | 'hub') {
-  const child = spawn(process.execPath, [config.entry, '--root', config.root, '--role', role], {
+export function launch(config: PrototypeConfig, role: 'supervisor' | 'hub', artifact?: Artifact) {
+  const entry = artifact?.entry ?? config.entry
+  if (fingerprintBundle(entry) !== (artifact?.bundle ?? config.bundle))
+    throw new Error('Verified runtime bundle changed before launch.')
+  const child = spawn(process.execPath, [entry, '--root', config.root, '--role', role], {
     detached: true,
     stdio: 'ignore',
     env: hubEnvironment(process.env)
@@ -145,7 +165,11 @@ export async function supervisorConnection(config: PrototypeConfig, signal: Abor
       if (!unavailableSocket(error)) throw error
     }
     signal.throwIfAborted()
-    launch(config, 'supervisor')
+    const owner = join(config.root, 'supervisor.lock')
+    // A supervisor may be waiting for a crashed Hub's writer lease before it can
+    // publish its endpoint. Repeated edge retries must not spawn losing owners.
+    if (!existsSync(owner) || !(await lockfile.check(owner, { stale: 5000 })))
+      launch(config, 'supervisor')
     return await waitForSocket(path, signal)
   } finally {
     await unlock()
@@ -179,8 +203,4 @@ export async function listenPrivate(server: Server, path: string) {
       process.umask(mask)
     }
   })
-}
-
-export function hasHubRecord(root: string) {
-  return existsSync(join(root, 'run', 'hub-runtime.json'))
 }

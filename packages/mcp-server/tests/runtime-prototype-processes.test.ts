@@ -10,10 +10,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }))
 
 import { captureHostContext } from '../src/agent-clients/host-context'
+import { createHubRuntimeIdentity } from '../src/runtime-identity'
 import { HubControl } from '../src/runtime-prototype/hub-control'
 import {
   connectSocket,
-  hasHubRecord,
+  hubSocketPath,
   launch,
   listenPrivate,
   prototypeConfig,
@@ -23,7 +24,7 @@ import {
 } from '../src/runtime-prototype/processes'
 import { ControlPeer, GrantSchema, SocketTransport } from '../src/runtime-prototype/protocol'
 import { startSupervisor } from '../src/runtime-prototype/supervisor'
-import { SOCK_PATH } from '../src/shared'
+import { PACKAGE_VERSION } from '../src/shared'
 
 const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => {
@@ -64,10 +65,6 @@ describe.skipIf(process.platform === 'win32')('isolated prototype processes', ()
     await rm(join(config.root, 'imported.mjs'))
     await chmod(join(config.root, 'prototype.json'), 0o644)
     expect(() => prototypeConfig(config.root, config.entry)).toThrow('untrusted')
-    expect(hasHubRecord(config.root)).toBe(false)
-    await mkdir(join(config.root, 'run'))
-    await writeFile(join(config.root, 'run/hub-runtime.json'), '{}')
-    expect(hasHubRecord(config.root)).toBe(true)
   })
 
   it('starts only its pinned entry with a sanitized environment', async () => {
@@ -130,8 +127,23 @@ describe.skipIf(process.platform === 'win32')('isolated prototype processes', ()
   it('renews one Hub lease, negotiates registrations and closes with its Hub', async () => {
     const config = await fixture()
     let now = 0
-    const control = new HubControl(config.secret, () => now)
-    await listener(SOCK_PATH, (socket) => {
+    const control = new HubControl(config.secret, () => now, {
+      inspect: () => ({
+        drained: true,
+        deadline: Date.now() + 10000,
+        blockers: [],
+        version: PACKAGE_VERSION
+      }),
+      flush: () => {},
+      stop: async () => {},
+      hook: () => ({})
+    })
+    await mkdir(join(config.root, 'run'), { mode: 0o700 })
+    await writeFile(
+      join(config.root, 'run/hub-runtime.json'),
+      JSON.stringify(createHubRuntimeIdentity(config.entry, PACKAGE_VERSION))
+    )
+    await listener(hubSocketPath(config.root), (socket) => {
       void control.attach(socket)
     })
     cleanup.push(async () => {
@@ -169,11 +181,10 @@ describe.skipIf(process.platform === 'win32')('isolated prototype processes', ()
     await new Promise((resolve) => setTimeout(resolve, 2200))
     now = 11000
     expect(control.available()).toBe(true)
-    const closed = new Promise<void>((resolve) => {
-      peer.onclose = resolve
-    })
+    await peer.close()
+    await incompatible.close()
+    await new Promise((resolve) => setTimeout(resolve, 25))
     await control.close()
-    await closed
     await vi.waitFor(async () =>
       expect(
         await readFile(join(config.root, 'supervisor.json')).catch(() => undefined)
@@ -181,11 +192,11 @@ describe.skipIf(process.platform === 'win32')('isolated prototype processes', ()
     )
   })
 
-  it('does not recreate a lost Hub with a prior ownership record', async () => {
+  it('does not replace a Hub whose ownership record cannot be verified', async () => {
     const config: PrototypeConfig = await fixture()
-    await mkdir(join(config.root, 'run'))
+    await mkdir(join(config.root, 'run'), { mode: 0o700 })
     await writeFile(join(config.root, 'run/hub-runtime.json'), '{}')
-    await expect(startSupervisor(config)).rejects.toThrow('Hub was lost')
+    await expect(startSupervisor(config)).rejects.toThrow('ownership is uncertain')
     expect(spawn).not.toHaveBeenCalled()
   })
 })

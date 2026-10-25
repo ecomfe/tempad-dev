@@ -48,6 +48,31 @@ afterEach(() => {
 })
 
 describe('asset-http-server', () => {
+  it('reuses the exact port and both capabilities, and refuses a conflicting listener', async () => {
+    const store = createStoreMock()
+    const options = { accessToken: 'a'.repeat(64), legacyAccessToken: 'b'.repeat(64) }
+    const first = createAssetHttpServer(store, options)
+    await first.start()
+    const base = first.getBaseUrl()
+    const legacy = first.getBaseUrl(true)
+    const port = Number(new URL(base).port)
+    const conflict = createAssetHttpServer(store, { ...options, port })
+    await expect(conflict.start()).rejects.toMatchObject({ code: 'EADDRINUSE' })
+    first.stop()
+    const second = createAssetHttpServer(store, { ...options, port })
+    await second.start()
+    try {
+      expect(second.getBaseUrl()).toBe(base)
+      expect(second.getBaseUrl(true)).toBe(legacy)
+      expect((await fetch(assetUrl(base))).status).toBe(404)
+      expect(
+        (await fetch(assetUrl(base), { headers: { Origin: 'https://other.invalid' } })).status
+      ).toBe(403)
+    } finally {
+      second.stop()
+    }
+  })
+
   it('fences new transfers during recovery without affecting authentication or admitted uploads', async () => {
     const store = createStoreMock()
     let admit = true

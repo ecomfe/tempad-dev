@@ -1,4 +1,4 @@
-import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { CallToolResultSchema, ResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import {
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
@@ -79,6 +79,8 @@ import { createAssetStore } from '../src/asset-store'
 import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
 import { removeHubRuntimeIdentityIfOwned, writeHubRuntimeIdentity } from '../src/runtime-identity'
+import { LeaseSchema } from '../src/runtime-prototype/hub-control'
+import { ControlPeer, SocketTransport } from '../src/runtime-prototype/protocol'
 import { runRuntimeRecovery } from '../src/runtime-recovery'
 import { log, resolveStateDir } from '../src/shared'
 import { startExtensionWebSocketServer } from '../src/websocket-server'
@@ -217,6 +219,44 @@ async function loadRuntime() {
   previousBeforeExit = process.listeners('beforeExit')
   return runtime
 }
+
+it('includes pending native actions and transfers in the runtime drain boundary', async () => {
+  const native = vi.spyOn(AgentClients.prototype, 'hasPendingActions', 'get').mockReturnValue(false)
+  const { startHub } = await loadRuntime()
+  await startHub({ prototype: { secret: 'isolated' } })
+  const socket = connect(fixture.socketPath)
+  consumerSockets.push(socket)
+  await once(socket, 'connect')
+  const peer = new ControlPeer()
+  await peer.connect(new SocketTransport(socket))
+  try {
+    await peer.request(
+      { method: 'tempad/runtime-acquire', params: { secret: 'isolated', versions: [1] } },
+      LeaseSchema
+    )
+    const inspect = () => peer.request({ method: 'tempad/runtime-inspect' }, ResultSchema)
+    expect(await inspect()).toMatchObject({ drained: true, blockers: [] })
+    native.mockReturnValue(true)
+    const pending = await inspect()
+    expect(pending).toMatchObject({
+      drained: false,
+      blockers: ['native feedback or queue removal']
+    })
+    expect(Number(pending.deadline)).toBeGreaterThan(Date.now() + 300000)
+    await peer.request({ method: 'tempad/runtime-gate', params: { closed: true } }, ResultSchema)
+    await expect(peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)).rejects.toThrow(
+      'not drained'
+    )
+    native.mockReturnValue(false)
+    const assets = vi.mocked(createAssetHttpServer).mock.results.at(-1)!.value
+    Object.assign(assets, { pendingTransfers: 1 })
+    expect(await inspect()).toMatchObject({ drained: false, blockers: ['asset transfers'] })
+    Object.assign(assets, { pendingTransfers: 0 })
+    expect(await inspect()).toMatchObject({ drained: true })
+  } finally {
+    await peer.close()
+  }
+})
 
 beforeEach(() => {
   vi.clearAllMocks()
