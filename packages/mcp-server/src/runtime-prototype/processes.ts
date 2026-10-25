@@ -125,7 +125,11 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
     }
     const abort = () => fail(new Error('Runtime connection cancelled.'))
     const timer = setTimeout(
-      () => fail(pendingInspection ?? new Error('Runtime connection timed out.')),
+      () =>
+        fail(
+          pendingInspection ??
+            Object.assign(new Error('Runtime connection timed out.'), { code: 'ETIMEDOUT' })
+        ),
       1000
     )
     socket.once('error', fail)
@@ -186,7 +190,7 @@ export async function waitForSocket(
       return await connectSocket(path, signal)
     } catch (error) {
       signal?.throwIfAborted()
-      if (!unavailableSocket(error) && !isSocketProtectionPending(error)) throw error
+      if (!unavailableSocket(error) && !isSocketPending(error)) throw error
       await delay(100, undefined, { signal })
     }
   } while (performance.now() < until)
@@ -222,9 +226,9 @@ export function unavailableSocket(error: unknown) {
   return ['ENOENT', 'ECONNREFUSED', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '')
 }
 
-export function isSocketProtectionPending(error: unknown) {
-  // The endpoint exists; callers may wait, but must not infer that its owner is absent.
-  return (error as NodeJS.ErrnoException).code === 'EPIPEUNPROTECTED'
+export function isSocketPending(error: unknown) {
+  // Slow acquisition or pending protection cannot prove that the owner is absent.
+  return ['EPIPEUNPROTECTED', 'ETIMEDOUT'].includes((error as NodeJS.ErrnoException).code ?? '')
 }
 
 export async function supervisorConnection(config: PrototypeConfig, signal: AbortSignal) {
@@ -237,8 +241,7 @@ export async function supervisorConnection(config: PrototypeConfig, signal: Abor
       return await supervisorConnectionAttempt(config, attemptSignal)
     } catch (error) {
       signal.throwIfAborted()
-      if (!deadline.aborted && !isRuntimeUnavailable(error) && !isSocketProtectionPending(error))
-        throw error
+      if (!deadline.aborted && !isRuntimeUnavailable(error) && !isSocketPending(error)) throw error
       await delay(200, undefined, { signal: attemptSignal }).catch(() => {})
     }
   }

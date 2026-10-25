@@ -169,7 +169,10 @@ it.each(['EPIPEUNPROTECTED', 'EBUSY'])(
 )
 
 it('times out when no pipe connection was established', async () => {
-  const rejected = expect(connectSocket('\\\\.\\pipe\\test')).rejects.toThrow('timed out')
+  const rejected = expect(connectSocket('\\\\.\\pipe\\test')).rejects.toMatchObject({
+    message: 'Runtime connection timed out.',
+    code: 'ETIMEDOUT'
+  })
   await rejected
   expect(assertPrivateEndpoint).not.toHaveBeenCalled()
   expect(socket.destroy).toHaveBeenCalled()
@@ -207,16 +210,21 @@ it.each([undefined, 'EPIPEUNTRUSTED'])(
   }
 )
 
-it.each(['endpoint', 'supervisor'] as const)(
-  'waits for %s protection across connection attempts without launching another owner',
-  async (kind) => {
-    const pending = Object.assign(new Error('ACL protection pending'), { code: 'EPIPEUNPROTECTED' })
+it.each([
+  ['endpoint', 'EPIPEUNPROTECTED'],
+  ['endpoint', 'ETIMEDOUT'],
+  ['supervisor', 'EPIPEUNPROTECTED'],
+  ['supervisor', 'ETIMEDOUT']
+] as const)(
+  'waits for %s %s across connection attempts without launching another owner',
+  async (kind, code) => {
+    const pending = Object.assign(new Error('Endpoint acquisition pending'), { code })
     expect(unavailableSocket(pending)).toBe(false)
     const sockets: Socket[] = []
     vi.mocked(connect).mockImplementation(() => {
       const next = createSocket()
       sockets.push(next)
-      queueMicrotask(() => next.emit('connect'))
+      if (code !== 'ETIMEDOUT' || sockets.length > 1) queueMicrotask(() => next.emit('connect'))
       return next
     })
     vi.mocked(assertPrivateEndpoint).mockImplementation(() => {
@@ -233,3 +241,17 @@ it.each(['endpoint', 'supervisor'] as const)(
     connected.destroy()
   }
 )
+
+it('keeps ownership uncertain when supervisor acquisition exhausts its recovery deadline', async () => {
+  const timeout = AbortSignal.timeout.bind(AbortSignal)
+  vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => timeout(ms === RECOVER_MS ? 30 : ms))
+  await expect(
+    supervisorConnection({ root: '/unused' } as PrototypeConfig, new AbortController().signal)
+  ).rejects.toMatchObject({
+    message: expect.stringContaining('Runtime supervisor startup timed out'),
+    data: { code: 'MCP_RUNTIME_UNAVAILABLE', dispatched: false }
+  })
+  expect(spawn).not.toHaveBeenCalled()
+  expect(socket.destroyed).toBe(true)
+  expect(socket.write).not.toHaveBeenCalled()
+})

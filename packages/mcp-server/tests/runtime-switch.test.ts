@@ -51,7 +51,7 @@ import { PACKAGE_VERSION } from '../src/shared'
 const platformModule = '../scripts/runtime-test-platform.mjs'
 const { fixtureRoot } = await import(platformModule)
 
-it.each(['EPIPEUNPROTECTED', 'EBUSY', 'ENOENT'])(
+it.each(['EPIPEUNPROTECTED', 'ETIMEDOUT', 'EBUSY', 'ENOENT'])(
   'waits for an existing Hub after %s instead of launching a replacement',
   async (code) => {
     vi.spyOn(processes, 'connectSocket').mockRejectedValueOnce(

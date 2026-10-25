@@ -186,7 +186,7 @@ it('admits an installed newer contract only on cold startup and preserves prior 
   expect(readdirSync(join(root, 'edges'))).toEqual([])
 })
 
-it.each(['edge', 'supervisor', 'hub', 'socket', 'unprotected-pipe'] as const)(
+it.each(['edge', 'supervisor', 'hub', 'socket', 'unprotected-pipe', 'timed-out-socket'] as const)(
   'retains the running generation when a %s survives',
   async (owner) => {
     if (owner === 'edge') {
@@ -204,9 +204,11 @@ it.each(['edge', 'supervisor', 'hub', 'socket', 'unprotected-pipe'] as const)(
         processId: process.pid,
         activeExtension: null
       })
-    } else if (owner === 'unprotected-pipe') {
+    } else if (owner === 'unprotected-pipe' || owner === 'timed-out-socket') {
       fake.connect.mockRejectedValue(
-        Object.assign(new Error('ACL protection pending'), { code: 'EPIPEUNPROTECTED' })
+        Object.assign(new Error('Endpoint acquisition pending'), {
+          code: owner === 'unprotected-pipe' ? 'EPIPEUNPROTECTED' : 'ETIMEDOUT'
+        })
       )
     } else {
       fake.connect.mockResolvedValue({ destroy: vi.fn() })

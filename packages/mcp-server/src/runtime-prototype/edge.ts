@@ -16,7 +16,7 @@ import { contractHashes, startStableEdge } from '../stable-edge'
 import {
   connectSocket,
   hubSocketPath,
-  isSocketProtectionPending,
+  isSocketPending,
   supervisorConnection,
   unavailableSocket,
   type PrototypeConfig
@@ -200,7 +200,7 @@ export async function startPrototypeEdge(
     try {
       socket = await connectSocket(hubSocketPath(config.root, config.directories?.runtime), signal)
     } catch (error) {
-      if (unavailableSocket(error) || isSocketProtectionPending(error))
+      if (unavailableSocket(error) || isSocketPending(error))
         throw unavailable('Runtime data endpoint is unavailable.')
       throw error
     }

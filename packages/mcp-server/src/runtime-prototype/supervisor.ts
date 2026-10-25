@@ -24,7 +24,7 @@ import {
   connectSocket,
   fingerprintBundle,
   hubSocketPath,
-  isSocketProtectionPending,
+  isSocketPending,
   runtimePaths,
   supervisorSocketPath,
   launch,
@@ -345,9 +345,9 @@ export async function startSupervisor(config: PrototypeConfig) {
     try {
       socket = await connectSocket(hubSocketPath(config.root, paths.runtime), lifetime.signal)
     } catch (error) {
-      if (!isSocketProtectionPending(error) && !unavailableSocket(error)) throw error
+      if (!isSocketPending(error) && !unavailableSocket(error)) throw error
       const presentEndpoint =
-        isSocketProtectionPending(error) || (error as NodeJS.ErrnoException).code === 'EBUSY'
+        isSocketPending(error) || (error as NodeJS.ErrnoException).code === 'EBUSY'
       const identityPath = join(paths.runtime, 'hub-runtime.json')
       const identity = existsSync(identityPath)
         ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))

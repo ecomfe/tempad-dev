@@ -11,7 +11,7 @@ import {
   connectSocket,
   fingerprintBundle,
   hubSocketPath,
-  isSocketProtectionPending,
+  isSocketPending,
   runtimePaths,
   supervisorSocketPath,
   unavailableSocket,
@@ -112,7 +112,7 @@ async function hasOwner(config: PrototypeConfig) {
       socket.destroy()
       return true
     } catch (error) {
-      if (isSocketProtectionPending(error)) return true
+      if (isSocketPending(error)) return true
       if (!unavailableSocket(error)) throw error
     }
   }
