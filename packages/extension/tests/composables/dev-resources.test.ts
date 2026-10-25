@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, effectScope, nextTick, ref, shallowRef } from 'vue'
 
 vi.mock('@/ui/state', async () => {
@@ -48,10 +48,12 @@ function createNode(overrides: Record<string, unknown> = {}): SceneNode {
   } as unknown as SceneNode
 }
 
-async function importComposable() {
+let devResources: typeof import('@/composables/dev-resources')
+
+beforeEach(async () => {
   vi.resetModules()
-  return import('@/composables/dev-resources')
-}
+  devResources = await import('@/composables/dev-resources')
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -60,7 +62,7 @@ afterEach(() => {
 
 describe('composables/dev-resources', () => {
   it('retains cached links when a reselect and explicit refresh share a failed read', async () => {
-    const api = await importComposable()
+    const api = devResources
     let reject!: (error: unknown) => void
     const pending = new Promise<DevResource[]>((_, fail) => (reject = fail))
     const read = vi
@@ -91,7 +93,7 @@ describe('composables/dev-resources', () => {
   })
 
   it('explicitly refreshes a selected node and shares the current request', async () => {
-    const api = await importComposable()
+    const api = devResources
     let resolve!: (resources: DevResource[]) => void
     const pending = new Promise<DevResource[]>((done) => (resolve = done))
     const read = vi.fn(() => pending)
@@ -123,7 +125,7 @@ describe('composables/dev-resources', () => {
         .mockResolvedValue([{ name: 'Recovered', url: '' }])
       const node = createNode({ getDevResourcesAsync })
       const selected = shallowRef<SceneNode | null>(node)
-      const { useDevResourceLinks } = await importComposable()
+      const { useDevResourceLinks } = devResources
       const scope = effectScope()
       try {
         const links = scope.run(() => useDevResourceLinks(selected))!
@@ -151,7 +153,7 @@ describe('composables/dev-resources', () => {
       .mockResolvedValue([{ name: 'Updated', url: '' }])
     const node = createNode({ getDevResourcesAsync })
     const selected = shallowRef<SceneNode | null>(node)
-    const { useDevResourceLinks } = await importComposable()
+    const { useDevResourceLinks } = devResources
     const scope = effectScope()
     try {
       const first = scope.run(() => useDevResourceLinks(selected))!
@@ -180,7 +182,7 @@ describe('composables/dev-resources', () => {
   it.each(['api', 'url'] as const)(
     'refreshes resources for identical node IDs after a document switch using %s identity',
     async (identity) => {
-      const { useDevResourceLinks } = await importComposable()
+      const { useDevResourceLinks } = devResources
       const { syncSelection } = await import('@/composables/selection')
       const { selection } = await import('@/ui/state')
       vi.stubGlobal(
@@ -259,7 +261,7 @@ describe('composables/dev-resources', () => {
       )
     })
 
-    const { useDevResourceLinks } = await importComposable()
+    const { useDevResourceLinks } = devResources
 
     const links = useDevResourceLinks(ref(node))
     await flushEffects()
@@ -299,7 +301,7 @@ describe('composables/dev-resources', () => {
       getDevResourcesAsync
     })
 
-    const { useDevResourceLinks } = await importComposable()
+    const { useDevResourceLinks } = devResources
 
     const links = useDevResourceLinks(ref(node))
     await flushEffects()
@@ -326,7 +328,7 @@ describe('composables/dev-resources', () => {
       getDevResourcesAsync: vi.fn(async () => [] as DevResource[])
     })
 
-    const { useDevResourceLinks } = await importComposable()
+    const { useDevResourceLinks } = devResources
 
     const links = useDevResourceLinks(ref(node))
     await flushEffects()
@@ -369,7 +371,7 @@ describe('composables/dev-resources', () => {
             }
           : null
     })
-    const { useDevResourceLinks } = await importComposable()
+    const { useDevResourceLinks } = devResources
     const scope = effectScope()
     try {
       const links = scope.run(() => useDevResourceLinks(ref(node)))!
@@ -402,7 +404,7 @@ describe('composables/dev-resources', () => {
       )
     })
 
-    const { useDevResourceLinks } = await importComposable()
+    const { useDevResourceLinks } = devResources
 
     const links = useDevResourceLinks(ref(node))
     await flushEffects()
@@ -430,7 +432,7 @@ describe('composables/dev-resources', () => {
     const node = createNode({
       getDevResourcesAsync: vi.fn(async () => [{ name: 'Docs', url: 'https://docs.example.com' }])
     })
-    const { useDevResourceLinks } = await importComposable()
+    const { useDevResourceLinks } = devResources
     const scope = effectScope()
     try {
       const links = scope.run(() => useDevResourceLinks(ref(node)))!
