@@ -1,6 +1,6 @@
 import type { Socket } from 'node:net'
 
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, writeFileSync, realpathSync } from 'node:fs'
 import { connect, type Server } from 'node:net'
@@ -165,8 +165,9 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
   })
 }
 
-export async function waitForSocket(path: string, signal?: AbortSignal) {
-  const until = performance.now() + 5000
+export async function waitForSocket(path: string, signal?: AbortSignal, timeoutMs = 5000) {
+  if (timeoutMs <= 0) throw unavailable('Runtime process has not published its endpoint yet.')
+  const until = performance.now() + timeoutMs
   do {
     try {
       return await connectSocket(path, signal)
@@ -177,6 +178,31 @@ export async function waitForSocket(path: string, signal?: AbortSignal) {
     }
   } while (performance.now() < until)
   throw unavailable('Runtime process has not published its endpoint yet.')
+}
+
+export async function waitForLaunchedSocket(
+  path: string,
+  child: ChildProcess,
+  signal: AbortSignal,
+  timeoutMs = RECOVER_MS
+) {
+  const ended = new AbortController()
+  const failed = (error: Error) => ended.abort(error)
+  const exited = (code: number | null, exitSignal: NodeJS.Signals | null) =>
+    failed(new Error(`Runtime process exited before endpoint publication (${exitSignal ?? code}).`))
+  child.once('error', failed)
+  child.once('exit', exited)
+  if (child.exitCode != null || child.signalCode != null) exited(child.exitCode, child.signalCode)
+  try {
+    return await waitForSocket(path, AbortSignal.any([signal, ended.signal]), timeoutMs)
+  } catch (error) {
+    signal.throwIfAborted()
+    ended.signal.throwIfAborted()
+    throw error
+  } finally {
+    child.off('error', failed)
+    child.off('exit', exited)
+  }
 }
 
 export function unavailableSocket(error: unknown) {

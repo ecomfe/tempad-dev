@@ -29,6 +29,7 @@ import {
   supervisorSocketPath,
   launch,
   listenPrivate,
+  waitForLaunchedSocket,
   waitForSocket,
   unavailableSocket,
   type PrototypeConfig
@@ -38,6 +39,7 @@ import {
   CONTROL_VERSIONS,
   isRuntimeUnavailable,
   negotiate,
+  RECOVER_MS,
   RegistrationSchema,
   RENEW_MS,
   SocketTransport,
@@ -93,6 +95,9 @@ export async function startSupervisor(config: PrototypeConfig) {
   const edges = new Map<ControlPeer, Edge>()
   let hub: ControlPeer | undefined
   let lease: Lease | undefined
+  let pendingHub:
+    | { artifact: Artifact; child: ReturnType<typeof launch>; exited: boolean }
+    | undefined
   let hooks: Awaited<ReturnType<typeof startHookGateway>> | undefined
   let journal: Journal = readJournal(config.root) ?? {
     version: 1,
@@ -330,27 +335,52 @@ export async function startSupervisor(config: PrototypeConfig) {
     }
   }
 
-  async function connectHub(artifact: Artifact, allowLaunch = true) {
+  async function connectHub(
+    artifact: Artifact,
+    allowLaunch = true,
+    deadline = performance.now() + RECOVER_MS
+  ) {
     if (closing) throw unavailable('Runtime supervisor is closing.')
     let socket
     try {
       socket = await connectSocket(hubSocketPath(config.root, paths.runtime), lifetime.signal)
     } catch (error) {
-      if (!isSocketProtectionPending(error)) {
-        if (!allowLaunch || !unavailableSocket(error)) throw error
-        const identityPath = join(paths.runtime, 'hub-runtime.json')
-        if (existsSync(identityPath)) {
-          const previous = parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
-          if (!previous || alive(previous.processId))
-            throw new Error('Hub process ownership is uncertain; no replacement was started.', {
-              cause: error
-            })
-        }
+      if (!isSocketProtectionPending(error) && !unavailableSocket(error)) throw error
+      const presentEndpoint =
+        isSocketProtectionPending(error) || (error as NodeJS.ErrnoException).code === 'EBUSY'
+      const identityPath = join(paths.runtime, 'hub-runtime.json')
+      const identity = existsSync(identityPath)
+        ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
+        : undefined
+      const liveIdentity = identity && alive(identity.processId)
+      if (
+        identity === null ||
+        (liveIdentity &&
+          (identity.packageVersion !== artifact.version ||
+            dirname(identity.entryPath) !== dirname(artifact.entry))) ||
+        (pendingHub && !pendingHub.exited && pendingHub.artifact.bundle !== artifact.bundle)
+      )
+        throw new Error('Hub process ownership is uncertain; no replacement was started.', {
+          cause: error
+        })
+      if (!liveIdentity && !presentEndpoint && (!pendingHub || pendingHub.exited)) {
+        if (!allowLaunch) throw error
         await waitForWriters()
         lifetime.signal.throwIfAborted()
-        launch(config, 'hub', artifact)
+        const pending = { artifact, child: launch(config, 'hub', artifact), exited: false }
+        pendingHub = pending
+        const exited = () => {
+          pending.exited = true
+        }
+        pending.child.once('exit', exited)
+        pending.child.once('error', exited)
       }
-      socket = await waitForSocket(hubSocketPath(config.root, paths.runtime), lifetime.signal)
+      const path = hubSocketPath(config.root, paths.runtime)
+      const remaining = deadline - performance.now()
+      socket =
+        pendingHub && !pendingHub.exited
+          ? await waitForLaunchedSocket(path, pendingHub.child, lifetime.signal, remaining)
+          : await waitForSocket(path, lifetime.signal, remaining)
     }
     const peer = new ControlPeer()
     peer.onerror = () => void peer.close()
@@ -379,6 +409,7 @@ export async function startSupervisor(config: PrototypeConfig) {
       )
         throw new Error('The running Hub does not match the verified local artifact.')
       lifetime.signal.throwIfAborted()
+      pendingHub = undefined
       hub = peer
       lease = acquired
       startRenewal()
@@ -494,10 +525,10 @@ export async function startSupervisor(config: PrototypeConfig) {
   }
 
   async function recoverHub(artifact: Artifact) {
-    const deadline = performance.now() + 90_000
+    const deadline = performance.now() + RECOVER_MS
     while (true) {
       try {
-        await connectHub(artifact)
+        await connectHub(artifact, true, deadline)
         return
       } catch (error) {
         const identityPath = join(paths.runtime, 'hub-runtime.json')
@@ -581,6 +612,28 @@ export async function startSupervisor(config: PrototypeConfig) {
     if (hub && lease && alive(lease.hubPid)) {
       await drain()
       await stopHub()
+    }
+    const ownershipFailure = (cause = error) =>
+      new Error('Hub process ownership is uncertain; the interrupted handoff remains gated.', {
+        cause
+      })
+    if ((pendingHub && !pendingHub.exited) || (lease && alive(lease.hubPid)))
+      throw ownershipFailure()
+    const identityPath = join(paths.runtime, 'hub-runtime.json')
+    const identity = existsSync(identityPath)
+      ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
+      : undefined
+    if (identity === null || (identity && alive(identity.processId))) throw ownershipFailure()
+    let present
+    try {
+      present = await connectSocket(hubSocketPath(config.root, paths.runtime), lifetime.signal)
+    } catch (cause) {
+      if (!['ENOENT', 'ECONNREFUSED'].includes((cause as NodeJS.ErrnoException).code ?? ''))
+        throw ownershipFailure(cause)
+    }
+    if (present) {
+      present.destroy()
+      throw ownershipFailure()
     }
     persist({
       ...journal,

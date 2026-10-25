@@ -24,7 +24,7 @@ import { captureHostContext } from '../src/agent-clients/host-context'
 import { AgentClients } from '../src/agent-clients/registry'
 import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
-import { createHubRuntimeIdentity } from '../src/runtime-identity'
+import { createHubRuntimeIdentity, writeHubRuntimeIdentity } from '../src/runtime-identity'
 import { cleanupEndpoint, runtimeEndpoint } from '../src/runtime-platform'
 import * as processes from '../src/runtime-prototype/processes'
 import {
@@ -51,13 +51,16 @@ import { PACKAGE_VERSION } from '../src/shared'
 const platformModule = '../scripts/runtime-test-platform.mjs'
 const { fixtureRoot } = await import(platformModule)
 
-it('waits for an existing Hub to protect its pipe instead of launching a replacement', async () => {
-  vi.spyOn(processes, 'connectSocket').mockRejectedValueOnce(
-    Object.assign(new Error('ACL protection pending'), { code: 'EPIPEUNPROTECTED' })
-  )
-  await fixture()
-  expect(fake.launch).not.toHaveBeenCalled()
-})
+it.each(['EPIPEUNPROTECTED', 'EBUSY', 'ENOENT'])(
+  'waits for an existing Hub after %s instead of launching a replacement',
+  async (code) => {
+    vi.spyOn(processes, 'connectSocket').mockRejectedValueOnce(
+      Object.assign(new Error('Endpoint not ready'), { code })
+    )
+    await fixture()
+    expect(fake.launch).not.toHaveBeenCalled()
+  }
+)
 
 function endpointClosed(path: string) {
   return new Promise<boolean>((resolve, reject) => {
@@ -164,9 +167,9 @@ async function fixture(
     let gated = false
     live.add(pid)
     cleanupEndpoint(hubSocketPath(root))
-    await writeFile(
+    writeHubRuntimeIdentity(
       join(root, 'run/hub-runtime.json'),
-      JSON.stringify(createHubRuntimeIdentity(artifact.entry, artifact.version, { processId: pid }))
+      createHubRuntimeIdentity(artifact.entry, artifact.version, { processId: pid })
     )
     const sockets = new Set<Socket>()
     let stopping: Promise<void> | undefined
@@ -359,6 +362,46 @@ it('automatically replaces a compatible idle runtime once', async () => {
   )
   expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b])
   expect(readJournal(f.root)).toMatchObject({ phase: 'committed', previous: f.a })
+})
+
+it('retains a living unverified candidate for explicit recovery instead of launching fallback', async () => {
+  const f = await fixture()
+  vi.spyOn(processes, 'waitForLaunchedSocket').mockRejectedValueOnce(
+    unavailable('Runtime process has not published its endpoint yet.')
+  )
+  await expect(f.update()).rejects.toThrow('interrupted handoff remains gated')
+  expect(fake.launch).toHaveBeenCalledOnce()
+  expect(readJournal(f.root)).toMatchObject({
+    phase: 'old-stopped',
+    active: f.a,
+    candidate: f.b,
+    failedBundles: []
+  })
+  await vi.waitFor(() => expect(f.hubs).toHaveLength(2))
+  await expect(
+    f.control.request({ method: 'tempad/runtime-recover' }, ResultSchema)
+  ).resolves.toMatchObject({
+    status: 'recovered',
+    version: f.b.version
+  })
+  expect(fake.launch).toHaveBeenCalledOnce()
+  expect(await f.status()).toMatchObject({ phase: 'committed', active: f.b, gated: false })
+})
+
+it('rolls back promptly after its candidate process exits before publishing', async () => {
+  const f = await fixture()
+  fake.launch.mockImplementationOnce(() => {
+    const child = new EventEmitter()
+    queueMicrotask(() => child.emit('exit', 1, null))
+    return child
+  })
+  expect(await f.update()).toMatchObject({
+    status: 'rolled-back',
+    reason: expect.stringContaining('exited')
+  })
+  expect(fake.launch).toHaveBeenCalledTimes(2)
+  expect(await f.status()).toMatchObject({ phase: 'committed', active: f.a, gated: false })
+  expect(readJournal(f.root)?.failedBundles).toEqual([f.b.bundle])
 })
 
 it.each(['oldEdge', 'unready', 'legacyHub', 'recentWork'] as const)(

@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { connect, type Socket } from 'node:net'
 import { setTimeout as delay } from 'node:timers/promises'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 vi.mock('node:net', async (original) => ({
   ...(await original<typeof import('node:net')>()),
@@ -23,9 +23,11 @@ import {
   connectSocket,
   supervisorConnection,
   unavailableSocket,
+  waitForLaunchedSocket,
   waitForSocket,
   type PrototypeConfig
 } from '../src/runtime-prototype/processes'
+import { RECOVER_MS } from '../src/runtime-prototype/protocol'
 
 function createSocket() {
   const value = Object.assign(new EventEmitter(), {
@@ -44,6 +46,59 @@ beforeEach(() => {
   vi.resetAllMocks()
   socket = createSocket()
   vi.mocked(connect).mockReturnValue(socket)
+})
+afterEach(() => vi.restoreAllMocks())
+
+it('waits past the endpoint probe window for its own living launch', async () => {
+  const child = new EventEmitter() as ChildProcess
+  const started = performance.now()
+  vi.mocked(connect).mockImplementation(() => {
+    const next = createSocket()
+    queueMicrotask(() => {
+      if (performance.now() - started < 5200)
+        next.emit('error', Object.assign(new Error('starting'), { code: 'ENOENT' }))
+      else next.emit('connect')
+    })
+    return next
+  })
+  const connected = await waitForLaunchedSocket(
+    '\\\\.\\pipe\\test',
+    child,
+    new AbortController().signal
+  )
+  expect(connected.destroyed).toBe(false)
+  expect(spawn).not.toHaveBeenCalled()
+  expect(child.listenerCount('error')).toBe(0)
+  expect(child.listenerCount('exit')).toBe(0)
+  connected.destroy()
+}, 12000)
+
+it.each(['exit', 'error'] as const)(
+  'stops waiting promptly when its launch reports %s',
+  async (event) => {
+    const child = new EventEmitter() as ChildProcess
+    const pending = waitForLaunchedSocket('\\\\.\\pipe\\test', child, new AbortController().signal)
+    const rejected = expect(pending).rejects.toThrow(event === 'exit' ? 'exited' : 'spawn failed')
+    if (event === 'exit') child.emit('exit', 1, null)
+    else child.emit('error', new Error('spawn failed'))
+    await rejected
+    expect(socket.destroyed).toBe(true)
+    expect(child.listenerCount('error')).toBe(0)
+    expect(child.listenerCount('exit')).toBe(0)
+  }
+)
+
+it('bounds an unresponsive launch without terminating it', async () => {
+  const child = Object.assign(new EventEmitter(), { kill: vi.fn() }) as unknown as ChildProcess
+  vi.spyOn(performance, 'now')
+    .mockReturnValueOnce(0)
+    .mockReturnValue(RECOVER_MS + 1)
+  const rejected = expect(
+    waitForLaunchedSocket('\\\\.\\pipe\\test', child, new AbortController().signal)
+  ).rejects.toMatchObject({ data: { code: 'MCP_RUNTIME_UNAVAILABLE', dispatched: false } })
+  socket.emit('error', Object.assign(new Error('starting'), { code: 'ENOENT' }))
+  await rejected
+  expect(child.kill).not.toHaveBeenCalled()
 })
 
 it.each(['EPIPEUNPROTECTED', 'EBUSY'])(
