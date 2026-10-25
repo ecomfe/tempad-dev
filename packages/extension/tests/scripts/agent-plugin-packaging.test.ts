@@ -192,11 +192,15 @@ it('derives the standalone compatibility skill from the current authoring skill'
   )
 })
 
-it('pins releases to npm and the development build to this checkout', () => {
-  for (const target of [PLUGINS_CLI, CODEX, CLAUDE]) {
-    expect(read(join(target, '.mcp.json')).mcpServers['tempad-dev'].args).toEqual([
+it('enrolls release installs in stable updates while keeping development pinned to the checkout', () => {
+  for (const path of [
+    join(STANDARD, 'mcp.json'),
+    ...[PLUGINS_CLI, CODEX, CLAUDE].map((target) => join(target, '.mcp.json'))
+  ]) {
+    expect(read(path).mcpServers['tempad-dev'].args).toEqual([
       '-y',
-      '@tempad-dev/mcp@latest'
+      '@tempad-dev/mcp@latest',
+      '--runtime-updates=stable'
     ])
   }
   expect(read(join(DEV, '.mcp.json')).mcpServers['tempad-dev-dev'].args).toEqual([

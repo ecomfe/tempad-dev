@@ -4,7 +4,8 @@
       "command": "npx",
       "args": [
         "-y",
-        "@tempad-dev/mcp@latest"
+        "@tempad-dev/mcp@latest",
+        "--runtime-updates=stable"
       ]
     }
   }

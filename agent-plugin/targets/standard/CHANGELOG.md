@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.10
+
+- Enable verified runtime downloads and compatible Hub updates between operations. Claude keeps candidates staged pending lifecycle acceptance; Windows and development checkouts keep their bundled runtime.
+
 ## 0.5.9
 
 - Retry interrupted Claude lifecycle messages without repeating their effects, including while the runtime is switching.
