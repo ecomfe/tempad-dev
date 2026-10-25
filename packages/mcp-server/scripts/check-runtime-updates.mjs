@@ -44,6 +44,10 @@ let runtimePids = []
 const automaticPids = new Set()
 const releases = new Map()
 const requests = []
+// UpdateManager permits a 240 s worker and resumes a partial scan after 30 s.
+// Observe those production bounds; do not truncate a valid Windows acquisition.
+const acquisitionTimeout = 245_000
+const stagingTimeout = acquisitionTimeout + 30_000
 let online = true
 let latestVersion
 function metadata(release) {
@@ -389,10 +393,11 @@ async function automaticAcceptance(a, b) {
       return state.updates.lastAttempt && !state.updates.checking
     }, 'initial default update check')
     latestVersion = published
+    const stagingStarted = performance.now()
     await owner.request(
       { method: 'tempad/runtime-check', params: { version: 'latest' } },
       ResultSchema,
-      { timeout: 180_000 }
+      { timeout: acquisitionTimeout }
     )
     const staged = await until(
       async () => {
@@ -401,8 +406,9 @@ async function automaticAcceptance(a, b) {
         return state.updates.candidate?.version === b.version && state
       },
       'automatic fixture staging',
-      120_000
+      stagingTimeout
     )
+    const stagingMs = Math.round(performance.now() - stagingStarted)
     assert.equal(staged.active.version, a.version)
     assert.equal(staged.updates.selection.latest, published)
     assert.ok(
@@ -495,7 +501,7 @@ async function automaticAcceptance(a, b) {
     await codex.close()
     await generic.close()
     await until(() => [...automaticPids].every(exited), 'automatic fixture shutdown', 15_000)
-    return { admissionPauseMs, uninterruptedCalls: calls }
+    return { stagingMs, admissionPauseMs, uninterruptedCalls: calls }
   } catch (error) {
     await preserveFixtureEvidence(directory, error.stack)
     throw error
@@ -623,13 +629,16 @@ try {
     new SocketTransport(await connectSocket(runtimeEndpoint(join(root, 'run'), 'supervisor.sock')))
   )
   const request = (method, params) =>
-    control.request({ method, ...(params ? { params } : {}) }, ResultSchema, { timeout: 180_000 })
+    control.request({ method, ...(params ? { params } : {}) }, ResultSchema, {
+      timeout: method === 'tempad/runtime-check' ? acquisitionTimeout : 180_000
+    })
   const status = () => request('tempad/runtime-status')
   await until(async () => {
     const state = await status()
     return state.updates.lastAttempt && !state.updates.checking
   }, 'initial check before candidate publication')
   latestVersion = c.version
+  const stagingStarted = performance.now()
   await request('tempad/runtime-check', { version: 'latest' })
   const staged = await until(
     async () => {
@@ -638,8 +647,9 @@ try {
       return value.updates?.candidate?.version === b.version && value
     },
     'verified candidate staging',
-    120_000
+    stagingTimeout
   )
+  const stagingMs = Math.round(performance.now() - stagingStarted)
   assert.equal(staged.active.version, a.version)
   assert.equal(staged.updates.selection.latest, c.version)
   assert.ok(
@@ -790,6 +800,7 @@ try {
       node: process.version,
       versions,
       firstInitializeMs,
+      stagingMs,
       automatic,
       cases: [
         'verified-download',
