@@ -112,6 +112,29 @@ describe('plugin UI reinstall ordering (isolated Chromium)', () => {
     )
   })
 
+  it('refreshes a manifest cached across catalog navigation before installing', async () => {
+    await pluginFixture(false)
+    const html = await page.content()
+    let current = false
+    let loads = 0
+    await page.route('https://codex.fixture/plugins', (route) => {
+      loads++
+      return route.fulfill({
+        contentType: 'text/html',
+        body: current ? html : html.replaceAll(version, '0.5.8+codex.previous')
+      })
+    })
+    await page.goto('https://codex.fixture/plugins')
+    await reinstallInApp(page, version, async () => {
+      expect(await page.locator('#detail > p').textContent()).toBe('0.5.8+codex.previous')
+      current = true
+    })
+    expect(loads).toBe(2)
+    expect(await page.evaluate(() => (window as unknown as { events: string[] }).events)).toEqual([
+      'installed'
+    ])
+  })
+
   it('returns to plugin details when installation navigates away', async () => {
     await pluginFixture(false, true)
     await reinstallInApp(page, version, async () => {})

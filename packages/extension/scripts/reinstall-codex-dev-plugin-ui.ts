@@ -64,13 +64,19 @@ export async function reinstallInApp(
   await afterUninstall()
   // A local rebuild can leave the open detail page showing the previous manifest.
   await openPlugin(page, true)
-  await main.getByText(version, { exact: true }).waitFor({ state: 'visible' })
+  const expectedVersion = main.getByText(version, { exact: true })
+  if (!(await expectedVersion.isVisible())) {
+    // Catalog navigation can retain the renderer's cached local manifest.
+    await page.reload()
+    await openPlugin(page)
+  }
+  await expectedVersion.waitFor({ state: 'visible' })
   await install.evaluate((element: HTMLElement) => element.click())
   await install.waitFor({ state: 'hidden' })
   // Installing can navigate to a new chat. Reopen the detail page to verify its state.
   await openPlugin(page, true)
   await actions.waitFor({ state: 'visible' })
-  await main.getByText(version, { exact: true }).waitFor({ state: 'visible' })
+  await expectedVersion.waitFor({ state: 'visible' })
   if (await install.isVisible())
     throw new Error('Codex App still offers installation; reinstall is not confirmed.')
 }
