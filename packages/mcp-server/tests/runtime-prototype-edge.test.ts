@@ -1,4 +1,5 @@
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import type { Notification } from '@modelcontextprotocol/sdk/types.js'
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
@@ -33,6 +34,8 @@ vi.mock('../src/runtime-prototype/processes', async (load) => {
   }
 })
 
+import type { ClientBindingUpdate } from '../src/client-binding'
+
 import { startPrototypeEdge } from '../src/runtime-prototype/edge'
 import {
   hubSocketPath,
@@ -51,6 +54,7 @@ const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close()
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
 })
 
 async function fixture(options: { hello?: () => void; attach?: () => void } = {}) {
@@ -69,12 +73,17 @@ async function fixture(options: { hello?: () => void; attach?: () => void } = {}
   state.hubId = randomUUID()
   const registrations: unknown[] = []
   const controls: ControlPeer[] = []
+  const runtimes: Server[] = []
+  let ready = 0
   const sockets = new Set<Socket>()
   const controlServer = createServer((socket) => {
     sockets.add(socket)
     const peer = new ControlPeer()
     controls.push(peer)
-    peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-ready') }), () => ({}))
+    peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-ready') }), () => {
+      ready++
+      return {}
+    })
     peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-refresh') }), () => ({
       version: 1,
       generation: state.generation,
@@ -101,7 +110,7 @@ async function fixture(options: { hello?: () => void; attach?: () => void } = {}
     )
     void peer.connect(new SocketTransport(socket))
   })
-  const notifications: unknown[] = []
+  const notifications: Notification[] = []
   const calls = vi.fn(async () => ({ content: [], structuredContent: { received: true } }))
   let initialized = 0
   const dataServer = createServer((socket) => {
@@ -126,6 +135,7 @@ async function fixture(options: { hello?: () => void; attach?: () => void } = {}
         { name: 'fixture', version: '1' },
         { capabilities: { tools: {} }, instructions: 'Frozen' }
       )
+      runtimes.push(runtime)
       runtime.oninitialized = () => initialized++
       runtime.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }))
       runtime.fallbackRequestHandler = calls
@@ -168,6 +178,28 @@ async function fixture(options: { hello?: () => void; attach?: () => void } = {}
     controls,
     calls,
     notifications,
+    publishBinding: async (binding: ClientBindingUpdate) => {
+      const runtime = runtimes.at(-1)!
+      await runtime.notification({ method: 'notifications/tempad/client-binding', params: binding })
+      // The ordered reply proves the private notification reached the edge
+      // before the control socket announces a replacement.
+      await runtime.request({ method: 'ping' }, ResultSchema)
+    },
+    replaceHub: async () => {
+      const previous = ready
+      state.hubId = randomUUID()
+      await controls.at(-1)!.notification({
+        method: 'notifications/tempad/runtime-replaced',
+        params: {
+          version: 1,
+          generation: ++state.generation,
+          hubId: state.hubId,
+          hubPid: process.pid,
+          supervisorPid: process.pid
+        }
+      })
+      await vi.waitFor(() => expect(ready).toBeGreaterThan(previous))
+    },
     initialized: () => initialized,
     exitCode
   }
@@ -198,7 +230,7 @@ it.skipIf(process.platform === 'win32')(
     await client.request({ method: 'tools/call', params: { name: 'read' } }, ResultSchema)
     expect(calls).toHaveBeenCalledTimes(2)
     expect(initialized()).toBe(1)
-    expect(notifications.map((value) => (value as { method: string }).method)).toEqual([
+    expect(notifications.map((value) => value.method)).toEqual([
       'notifications/tempad/host-context',
       'notifications/tempad/client-event',
       'notifications/tempad/subscribe-client-binding'
@@ -206,6 +238,65 @@ it.skipIf(process.platform === 'win32')(
     await client.close()
     await edge
     expect(process.exitCode).toBe(exitCode)
+  }
+)
+
+function claudeEnvironment() {
+  for (const name of ['CODEX_APP_TOOLS_PIPE_PATH', 'CODEX_THREAD_ID', 'CODEX_SESSION_ID'])
+    vi.stubEnv(name, undefined)
+  vi.stubEnv('CLAUDECODE', '1')
+  vi.stubEnv('CLAUDE_CODE_SESSION_ID', 'birth-hint')
+}
+
+it.skipIf(process.platform === 'win32')(
+  'preserves verified Claude reconnect claims, rotation and clearing across Hub replacements',
+  async () => {
+    claudeEnvironment()
+    const { client, connect, notifications, publishBinding, replaceHub, initialized } =
+      await fixture()
+    const publicNotifications = vi.fn()
+    client.fallbackNotificationHandler = publicNotifications
+    await connect()
+    for (const sessionId of ['verified-a', 'verified-b', undefined]) {
+      await publishBinding({ kind: 'claude', ...(sessionId ? { sessionId } : {}) })
+      // Retiring only a birth hint must not erase an already verified claim.
+      await publishBinding({ clearSessionHint: true })
+      await replaceHub()
+      const event = notifications.findLast(
+        (value) => value.method === 'notifications/tempad/client-event'
+      )
+      const subscription = notifications.findLast(
+        (value) => value.method === 'notifications/tempad/subscribe-client-binding'
+      )
+      expect(event?.params).toEqual({
+        event: 'connect',
+        kind: 'claude',
+        ...(sessionId ? { sessionId } : {})
+      })
+      expect(subscription?.params).toBeUndefined()
+    }
+    expect(initialized()).toBe(4)
+    expect(publicNotifications).not.toHaveBeenCalled()
+  }
+)
+
+it.skipIf(process.platform === 'win32').each([false, true])(
+  'replays a Claude birth hint only until retired (clearSessionHint=%s)',
+  async (clear) => {
+    claudeEnvironment()
+    const { connect, notifications, publishBinding, replaceHub } = await fixture()
+    await connect()
+    expect(notifications.at(-1)?.params).toEqual({ sessionId: 'birth-hint' })
+    if (clear) await publishBinding({ clearSessionHint: true })
+    await replaceHub()
+    const event = notifications.findLast(
+      (value) => value.method === 'notifications/tempad/client-event'
+    )
+    const subscription = notifications.findLast(
+      (value) => value.method === 'notifications/tempad/subscribe-client-binding'
+    )
+    expect(event?.params).toEqual({ event: 'connect', kind: 'claude' })
+    expect(subscription?.params).toEqual(clear ? undefined : { sessionId: 'birth-hint' })
   }
 )
 

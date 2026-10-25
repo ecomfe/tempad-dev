@@ -7,7 +7,7 @@ import { z } from 'zod'
 
 import { captureHostContext, HostContextNotificationSchema } from '../agent-clients/host-context'
 import { runtimeIdentity } from '../agent-clients/identity'
-import { ClientBindingSubscribeSchema } from '../client-binding'
+import { ClientBindingSubscribeSchema, type ClaudeBinding } from '../client-binding'
 import { getMcpServerConfig } from '../config'
 import { ConsumerTransport } from '../consumer-transport'
 import { releaseManifest } from '../runtime-update/artifact'
@@ -57,6 +57,8 @@ export async function startPrototypeEdge(
   let attaching: Promise<void> | undefined
   let openingHubId: string | undefined
   let frozenEpoch: number | undefined
+  let claudeBinding: ClaudeBinding | undefined
+  let claudeHintRetired = false
   const runtimeConfig = getMcpServerConfig()
   const requestTimeoutMs = Math.max(
     REQUEST_TIMEOUT_MS,
@@ -283,6 +285,10 @@ export async function startPrototypeEdge(
     version: PACKAGE_VERSION,
     requestTimeoutMs,
     onError: (error) => process.stderr.write(`Runtime edge: ${error.message}\n`),
+    onBinding: (binding) => {
+      claudeHintRetired = true
+      if ('kind' in binding) claudeBinding = binding
+    },
     onBackendClose: () => {
       backendLost = true
       void replaceBackend()
@@ -324,7 +330,9 @@ export async function startPrototypeEdge(
         method: HostContextNotificationSchema.shape.method.value,
         params: registration.context
       })
-      const identity = runtimeIdentity(process.env).client
+      // As in the byte bridge, a remembered session is only a reconnect claim;
+      // the replacement Hub still requires a fresh matching Claude hook.
+      const identity = claudeBinding ?? runtimeIdentity(process.env).client
       await client.notification({
         method: 'notifications/tempad/client-event',
         params: {
@@ -336,7 +344,9 @@ export async function startPrototypeEdge(
       const sessionId = process.env.CLAUDE_CODE_SESSION_ID
       await client.notification({
         method: ClientBindingSubscribeSchema.shape.method.value,
-        ...(sessionId && sessionId.length <= 256 ? { params: { sessionId } } : {})
+        ...(!claudeHintRetired && sessionId && sessionId.length <= 256
+          ? { params: { sessionId } }
+          : {})
       })
     }
   })
