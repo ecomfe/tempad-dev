@@ -1,7 +1,9 @@
 import { execFileSync, spawn } from 'node:child_process'
+import * as childProcess from 'node:child_process'
 import { once } from 'node:events'
 import {
   chmodSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -84,6 +86,29 @@ describe.skipIf(process.platform === 'win32')('Unix storage', () => {
 })
 
 describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
+  it.each(['file', 'directory'] as const)(
+    'preserves ENOENT when a %s disappears before its ACL inspection',
+    (kind) => {
+      const path = join(fixture(), 'vanishing')
+      if (kind === 'file') writeFileSync(path, '{}')
+      else mkdirSync(path)
+      const execute = childProcess.execFileSync
+      const helper = vi.spyOn(childProcess, 'execFileSync').mockImplementationOnce((...args) => {
+        rmSync(path, { recursive: true })
+        return Reflect.apply(execute, childProcess, args)
+      })
+      try {
+        expect(() => assertPrivatePath(path, kind)).toThrowError(
+          expect.objectContaining({ code: 'ENOENT' })
+        )
+        expect(helper).toHaveBeenCalledOnce()
+      } finally {
+        helper.mockRestore()
+      }
+    },
+    30_000
+  )
+
   it.each([
     ['original full environment', true, false, false],
     ['SDK and platform environment', false, false, false],

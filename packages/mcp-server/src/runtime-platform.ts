@@ -263,7 +263,12 @@ public static class TempadPipeSecurity {
       }
       [void][IO.Directory]::CreateDirectory($request.path, $security)
     }
-    $acl = Get-Acl -LiteralPath $request.path
+    try {
+      $acl = Get-Acl -LiteralPath $request.path
+    } catch [System.Management.Automation.ItemNotFoundException], [IO.FileNotFoundException], [IO.DirectoryNotFoundException] {
+      $failureCode = 2
+      throw
+    }
     $descriptor = New-Object System.Security.AccessControl.RawSecurityDescriptor($acl.Sddl)
   }
   if ($allowed -notcontains $descriptor.Owner.Value -or $null -eq $descriptor.DiscretionaryAcl) {

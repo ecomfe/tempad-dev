@@ -163,6 +163,26 @@ it.each([
   }
 })
 
+it.each([2, 3])('preserves missing storage error %s without accepting or caching it', (code) => {
+  vi.mocked(execFileSync).mockImplementation(() => {
+    throw { stderr: JSON.stringify({ message: 'Path disappeared', code }) }
+  })
+  for (let attempt = 0; attempt < 2; attempt++)
+    expect(() => assertPrivatePath(path, 'directory')).toThrowError(
+      expect.objectContaining({ code: 'ENOENT' })
+    )
+  expect(execFileSync).toHaveBeenCalledTimes(2)
+})
+
+it('does not classify filesystem denial as a missing path', () => {
+  vi.mocked(execFileSync).mockImplementation(() => {
+    throw { stderr: JSON.stringify({ message: 'Access denied', code: 5 }) }
+  })
+  expect(() => assertPrivatePath(path, 'directory')).toThrowError(
+    expect.not.objectContaining({ code: 'ENOENT' })
+  )
+})
+
 it('fails closed for helper startup, timeout and configuration failures', () => {
   vi.mocked(execFileSync).mockImplementation(() => {
     throw Object.assign(new Error('timed out'), { stderr: 'helper timed out' })
