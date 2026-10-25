@@ -648,9 +648,9 @@ transfers, and feedback admission require the Hub's current lease. Stop, review 
 lifecycle hooks remain available. A successor re-registers each edge and its host context against the same Hub.
 This avoids replay buffers in the supervisor and preserves the SDK sessions on both ends.
 A lost Hub or data socket is not retried as a write: the host session retains ping and its frozen
-catalog, but recovery of execution ownership remains a Phase 2 prerequisite. The prototype
-refuses to respawn a Hub whose prior runtime record remains. It does not implement switching,
-the durable handoff journal, or operator recovery, and is not an installed-host acceptance.
+catalog. Phase 2 adds backend replacement and durable recovery below; Phase 1's process-cost
+measurements describe the earlier supervisor-only implementation, not the switching path.
+Neither harness is installed-host acceptance.
 Its separate build under `dist/prototype/` leaves the normal Hub entry and preflight
 fingerprint intact; ordinary builds and npm publication do not include that prototype output.
 Dependencies still resolve from the local installation; this is not Phase 3's immutable release payload.
@@ -684,9 +684,57 @@ The extra process and roughly 116 MiB RSS cost need to be considered before prod
 
 ### Phase 2 — manual local-artifact switch and recovery
 
+The isolated prototype implements local switching. The installed CLI still uses its normal
+bridge; no release or checkout is enrolled, and no online version lookup or download runs.
+Build the prototype separately as in Phase 1. Keep the initial entry available for supervisor
+recovery and issue operator commands against that entry and the same private, canonical Unix root:
+
+```sh
+node <initial-entry>/runtime-prototype.mjs --root <root> --status
+node <initial-entry>/runtime-prototype.mjs --root <root> --recover-runtime
+node <initial-entry>/runtime-prototype.mjs --root <root> --switch <candidate-entry>/runtime-prototype.mjs
+node <initial-entry>/runtime-prototype.mjs --root <root> --runtime-status
+node <initial-entry>/runtime-prototype.mjs --root <root> --resolve-runtime-block <request-id>
+```
+
+`--switch` is an explicit decision for that exact newer stable version. Both local artifacts
+are probed in disposable private runtimes, checked for handoff support and identical frozen MCP
+metadata, and fingerprinted before execution. Local dependency resolution is still trusted;
+this is not Phase 3's verified npm acquisition or immutable dependency closure. Rejected contracts
+require a host restart; failed activation bundles are quarantined in this isolated root.
+
+The coordinator gates new work, drains admitted calls/native feedback/transfers, flushes state,
+records the handoff, acknowledges shutdown, and verifies process exit and writer-lock release
+before starting the replacement. Known request deadlines include a ten-second flush margin;
+work without a shared absolute deadline uses the 330-second outer bound. Expiry defers the switch,
+never kills admitted work. Fixed WebSocket/HTTP ports and both asset capabilities are persisted.
+The edge checks the replacement's full contract again before acknowledging readiness. Recovery
+and rollback reuse current state, including post-activation Stop fences; no old snapshot is restored.
+Following a crash, the existing writer-lock expiry can delay recovery by about a minute.
+Failed fallback startup retries for up to 90 seconds only when no process still owns the
+runtime. A persistent port conflict or uncertain owner keeps admission closed; after fixing
+that condition, `--recover-runtime` continues the journal without clearing task or execution fences.
+
+The supervisor owns the legacy hook socket while the Hub uses a private data socket. Received
+events enter a durable inbox; task effects and invocation receipts commit together before reply.
+Failed or unconfirmed delivery fences admission. Lost replies can be retried without reapplying
+effects. The prototype bounds each inbox/receipt set at 4,096 identities and fails closed at capacity;
+production retention and receipt-capable plugin rollout remain Phase 3 work. Live legacy Claude
+bindings defer even manual switching in this prototype. A legacy hook that exits before its request
+arrives is still unobservable; this implementation does not claim to preserve that event.
+
+Persistent execution exclusion and interactive recovery also apply to the normal Hub. A cold
+restart does not unlock a possibly running write. Recovery requires stopping its original execution
+environment, confirming the exact block interactively, and then reading the canvas; cancelled tasks
+remain cancelled. No extension recovery dialog is exposed in this phase.
+
+`pnpm mcp:check-runtime-switch` owns the repeatable process/fault matrix; unit tests cover durable
+commit failures, stale confirmations, lifecycle deduplication and admission boundaries. Windows
+process switching and native Codex/Claude acceptance are not claimed by these isolated checks.
+
 - In isolated release-test profiles, switch compatible A to B with two clients still
-  initialized; idle clients do not block.
-  A newer verified npm payload can be offered locally; older payloads cannot downgrade it.
+  initialized; idle clients do not block. The operator offers a newer local build;
+  lower or equal versions are rejected. Verified npm acquisition remains Phase 3 work.
 - A live canvas operation, native feedback delivery, and asset transfers drain. Verify
   custom deadlines, deferral, and calls arriving after the gate as definitely undispatched.
 - A disconnected remote execution transfers only with the durable exclusion contract.

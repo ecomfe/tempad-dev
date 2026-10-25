@@ -60,7 +60,14 @@ Root:
   edges, supervisor crash recovery without replacing the Hub or replaying a write, admission
   fencing, Stop, host-context isolation, legacy hook routing, and last-client shutdown. It
   reports startup/recovery timings and process RSS. The installed CLI and live runtimes are
-  unchanged; there are no downloads or version switches. Windows is not supported by this harness.
+  unchanged; this harness does not download or switch versions. Windows is not supported.
+- `pnpm mcp:check-runtime-switch` builds trusted local A/B fixtures from source in an ignored
+  directory, then exercises manual switching with two initialized SDK clients and a synthetic
+  extension. It checks draining, fixed asset endpoints, a disconnected write and late receipt,
+  crashes at all four journal phases, port conflicts, and rollback retaining a later Stop.
+  `TEMPAD_SWITCH_CASES` selects comma-separated cases for diagnosis; `TEMPAD_KEEP_PROTOTYPE=1`
+  retains isolated evidence. It never downloads or updates installed runtimes. Windows and native
+  host behavior are outside this harness; CI runs the full matrix on Node 22 and 24.
 - `pnpm mcp:measure-runtime --output <new.json> --runs 5 [--lockfile <installation-lock>] <package-dir> [...]`
   compares trusted, explicitly supplied local release artifacts in the given version order. It
   performs MCP initialization/catalog reads through fresh CLI/Hub processes and records artifact

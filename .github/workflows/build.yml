@@ -97,6 +97,9 @@ jobs:
       - name: Check isolated runtime supervisor
         run: pnpm mcp:check-runtime-prototype
 
+      - name: Check local runtime switching and recovery
+        run: pnpm mcp:check-runtime-switch
+
   typescript-compatibility:
     runs-on: ubuntu-latest
     steps:
