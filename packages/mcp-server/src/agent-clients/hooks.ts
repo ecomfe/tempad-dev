@@ -11,7 +11,6 @@ export type ClientHookResult = {
 type Session = {
   active: boolean
   turnId?: string
-  stopNotice?: { taskId: string; turnId?: string }
   receiptCapable?: boolean
 }
 
@@ -23,6 +22,13 @@ function scope(kind: string, sessionId: string): string {
 export class ClientHooks {
   private readonly sessions = new Map<string, Session>()
 
+  constructor(
+    private readonly takeStopNotice: (input: ClientHook) => {
+      taskId?: string
+      staleTurn?: boolean
+    }
+  ) {}
+
   receiptCapable(sessionId?: string): boolean {
     return !!sessionId && this.sessions.get(scope('claude', sessionId))?.receiptCapable === true
   }
@@ -31,19 +37,10 @@ export class ClientHooks {
     return this.sessions.get(scope(kind, sessionId))?.active === true
   }
 
-  stop(binding: ClientBinding, taskId: string): void {
-    const session = this.session(binding)
-    if (session) session.stopNotice = { taskId, turnId: binding.turnId }
-  }
-
   disconnect(binding: ClientBinding): void {
-    const session = this.session(binding)
-    if (session) session.active = false
-  }
-
-  private session(binding: ClientBinding): Session | undefined {
     const { kind, sessionId } = binding.client
-    return sessionId ? this.sessions.get(scope(kind, sessionId)) : undefined
+    const session = sessionId && this.sessions.get(scope(kind, sessionId))
+    if (session) session.active = false
   }
 
   handle(input: ClientHook): ClientHookResult {
@@ -55,33 +52,34 @@ export class ClientHooks {
         if (!inactive) return {}
         this.sessions.delete(inactive[0])
       }
-      session = { active: false, turnId: input.turnId }
+      session = { active: false }
       this.sessions.set(key, session)
     }
-    if (input.event === 'UserPromptSubmit') {
-      session.turnId = input.turnId
-      session.stopNotice = undefined
-    } else if (input.turnId && session.turnId && input.turnId !== session.turnId) {
+    if (
+      input.event !== 'UserPromptSubmit' &&
+      input.turnId &&
+      session.turnId &&
+      input.turnId !== session.turnId
+    ) {
       return {}
-    } else if (input.turnId) session.turnId = input.turnId
+    }
+    const notice = this.takeStopNotice(input)
+    if (notice.staleTurn) return {}
+    if (input.event === 'UserPromptSubmit' || input.turnId) session.turnId = input.turnId
     session.receiptCapable = input.version === 2
 
     const ended = ['Interrupt', 'SessionEnd'].includes(input.event)
     session.active = !ended && input.event !== 'Stop'
-    if (ended) return {}
-    const notice = session.stopNotice
-    if (notice && (!notice.turnId || !input.turnId || notice.turnId === input.turnId)) {
-      session.stopNotice = undefined
-      if (input.event === 'PreToolUse' || input.event === 'PostToolUse')
-        return {
-          output: {
-            hookSpecificOutput: {
-              hookEventName: input.event,
-              additionalContext: `The user stopped Figma design task ${notice.taskId}. That task is cancelled and cannot resume. Respect the stop and do not automatically replace it. If further design work is necessary or the user requests it, explicitly begin a new task.`
-            }
+    const { taskId } = notice
+    if (taskId && (input.event === 'PreToolUse' || input.event === 'PostToolUse'))
+      return {
+        output: {
+          hookSpecificOutput: {
+            hookEventName: input.event,
+            additionalContext: `The user stopped Figma design task ${taskId}. That task is cancelled and cannot resume. Respect the stop and do not automatically replace it. If further design work is necessary or the user requests it, explicitly begin a new task.`
           }
         }
-    }
+      }
     return {}
   }
 }

@@ -39,7 +39,7 @@ export class AgentClients {
         binding.client.kind === 'claude' && !this.hooks.receiptCapable(binding.client.sessionId)
     )
   }
-  private readonly hooks = new ClientHooks()
+  private readonly hooks: ClientHooks
   private readonly connections = new Map<string, ClientBinding>()
   private readonly contexts = new Map<string, HostContext>()
   private readonly pendingClaudeBindings = new Map<
@@ -70,6 +70,7 @@ export class AgentClients {
       ) => void
     ) => NonNullable<AgentClients['lifecycle']>
   ) {
+    this.hooks = new ClientHooks((input) => tasks.takeClaudeStopNotice(input))
     this.lifecycle = lifecycle?.((id, state, context) => this.onNativeState(id, state, context))
   }
 
@@ -176,7 +177,10 @@ export class AgentClients {
       const record = this.tasks.find(params.taskId)
       if (
         !record ||
-        (record.task.client?.sessionId && record.task.client.sessionId !== params.sessionId)
+        (record.task.client?.sessionId && record.task.client.sessionId !== params.sessionId) ||
+        (record.claudeStopNotice?.turnId &&
+          params.turnId &&
+          record.claudeStopNotice.turnId !== params.turnId)
       )
         return
       const connectionId = record.ownerId.split('/')[0]!
@@ -503,10 +507,13 @@ export class AgentClients {
           boundTurnId: binding?.turnId,
           expectedTurnId: target?.turnId
         }
-        if (!completed && binding?.client.kind === 'claude') this.hooks.stop(binding, action.taskId)
+        const stopNotice =
+          !completed && binding?.client.kind === 'claude' && binding.client.sessionId
+            ? { sessionId: binding.client.sessionId, turnId: binding.turnId }
+            : undefined
         // Stop's local fence and host interruption must not wait for a pending queue write.
         void this.cancelFeedback(action.taskId).catch(() => {})
-        this.tasks.stop(action.taskId, 'cancelled')
+        this.tasks.stop(action.taskId, 'cancelled', stopNotice)
         onAccepted?.()
         if (completed) return result('delivered', 'Design task stopped.')
         if (this.lifecycle && target) {

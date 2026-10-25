@@ -1,6 +1,7 @@
 import type {
   AgentClient,
   AgentCapabilities,
+  ClientHook,
   DesignTask,
   DesignTaskTarget,
   FigmaSession,
@@ -15,7 +16,7 @@ import {
 import { isDeepStrictEqual } from 'node:util'
 
 import type { HostContext } from './agent-clients/host-context'
-import type { DesignTaskSnapshot, DesignTaskStore } from './design-task-store'
+import type { ClaudeStopNotice, DesignTaskSnapshot, DesignTaskStore } from './design-task-store'
 import type { Execution } from './execution-state'
 import type { ExtensionConnection } from './types'
 
@@ -42,6 +43,7 @@ export type DesignTaskRecord = {
   browser?: BrowserIdentity & { tabId: number; documentId: string }
   retiredAt?: number
   hostContext?: HostContext
+  claudeStopNotice?: ClaudeStopNotice
 }
 
 /** Only a Hub begin request establishes a client binding; browser migration leaves it empty. */
@@ -520,6 +522,41 @@ export class DesignTasks {
     }
   }
 
+  /** Called only by a fresh lifecycle hook; never restore a session's liveness from disk. */
+  takeClaudeStopNotice(input: ClientHook): { taskId?: string; staleTurn?: boolean } {
+    if (input.kind !== 'claude') return {}
+    let taskId: string | undefined
+    let changed = false
+    let staleTurn = false
+    for (const record of this.records.values()) {
+      const notice = record.claudeStopNotice
+      if (!notice || notice.sessionId !== input.sessionId) continue
+      if (
+        input.event !== 'UserPromptSubmit' &&
+        notice.turnId &&
+        input.turnId &&
+        notice.turnId !== input.turnId
+      ) {
+        staleTurn = true
+        continue
+      }
+      delete record.claudeStopNotice
+      changed = true
+      const client = getVerifiedTaskClient(record)
+      if (
+        (input.event === 'PreToolUse' || input.event === 'PostToolUse') &&
+        client?.kind === 'claude' &&
+        client.sessionId === input.sessionId &&
+        (record.task.status === 'cancelled' ||
+          (record.task.status === 'stopping' && record.ending === 'cancelled'))
+      )
+        taskId = record.task.taskId
+    }
+    // applyHook includes this retirement and its response receipt in the same durable save.
+    if (changed) this.persist()
+    return { ...(taskId ? { taskId } : {}), ...(!changed && staleTurn ? { staleTurn: true } : {}) }
+  }
+
   find(taskId: string): DesignTaskRecord | undefined {
     this.sweep()
     return this.records.get(taskId)
@@ -758,10 +795,26 @@ export class DesignTasks {
     this.persist()
   }
 
-  stop(taskId: string, outcome: TerminalStatus): DesignTask | undefined {
+  stop(
+    taskId: string,
+    outcome: TerminalStatus,
+    claudeStopNotice?: ClaudeStopNotice
+  ): DesignTask | undefined {
     const record = this.records.get(taskId)
     if (!record || record.task.status === 'cancelled' || record.task.status === outcome)
       return record?.task
+    if (
+      outcome === 'cancelled' &&
+      claudeStopNotice &&
+      getVerifiedTaskClient(record)?.kind === 'claude' &&
+      record.task.client?.sessionId === claudeStopNotice.sessionId
+    ) {
+      for (const previous of this.records.values())
+        if (previous.claudeStopNotice?.sessionId === claudeStopNotice.sessionId)
+          delete previous.claudeStopNotice
+      // The next publish saves the intent together with cancelled/stopping state.
+      record.claudeStopNotice = claudeStopNotice
+    }
     if (!RUNNING_STATUSES.includes(record.task.status)) {
       if (outcome === 'completed' || outcome === 'cancelled') this.finish(record, outcome)
       return record.task
@@ -1057,13 +1110,22 @@ export class DesignTasks {
       current: Object.fromEntries(this.currentTaskIds),
       ...(this.fileFences.size ? { fileFences: Object.fromEntries(this.fileFences) } : {}),
       records: [...this.records.values()].map(
-        ({ task, requestId, browser, resultNodeIds, retiredAt, hostContext }) => ({
+        ({
+          task,
+          requestId,
+          browser,
+          resultNodeIds,
+          retiredAt,
+          hostContext,
+          claudeStopNotice
+        }) => ({
           task: { ...task, capabilities: undefined, operation: null },
           requestId,
           browser,
           resultNodeIds,
           retiredAt,
-          hostContext
+          hostContext,
+          claudeStopNotice
         })
       )
     }

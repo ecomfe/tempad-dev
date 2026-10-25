@@ -144,6 +144,13 @@ async function rpc(root, method, params, path = 'supervisor.sock') {
     socket.destroy()
   }
 }
+async function applyHook(root, input) {
+  return until(async () => {
+    const result = await rpc(root, 'tempad/client-hook', input, 'run/mcp.sock')
+    assert.equal(result.receipt?.invocationId, input.invocationId)
+    return result.receipt.state === 'applied' && result
+  }, 'durable hook application')
+}
 function ownedProcesses(root) {
   return execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' })
     .split('\n')
@@ -177,6 +184,21 @@ const call = (client, name, args = {}) =>
 async function scenario(a, b, mode, incompatible) {
   const root = await realpath(await mkdtemp('/tmp/tp-sw-'))
   const clients = []
+  const edgePids = []
+  const claudeStop = mode === 'claude-stop' || mode === 'claude-stop-rollback'
+  const claudeSession = randomUUID()
+  const claudeTurn = randomUUID()
+  const claudeHook = (event, extra = {}) => ({
+    version: 2,
+    kind: 'claude',
+    sessionId: claudeSession,
+    turnId: claudeTurn,
+    event,
+    invocationId: randomUUID(),
+    profile: { kind: 'release' },
+    issuedAt: Date.now(),
+    ...extra
+  })
   let passed = false
   let extension, conflict
   let stderr = ''
@@ -202,9 +224,14 @@ async function scenario(a, b, mode, incompatible) {
       transport.stderr.on('data', (chunk) => {
         stderr = (stderr + chunk).slice(-20000)
       })
-      const client = new Client({ name: `switch-${index}`, version: '1' })
+      const client = new Client({
+        name: claudeStop && index === 0 ? 'claude-code' : `switch-${index}`,
+        version: '1'
+      })
       clients.push(client)
       await client.connect(transport, { timeout: 15000 })
+      assert.ok(transport.pid)
+      edgePids.push(transport.pid)
     }
     const initial = await record(root, 'supervisor.json')
     const endpoints = await record(root, 'endpoints.json')
@@ -273,6 +300,7 @@ async function scenario(a, b, mode, incompatible) {
       )
     }
     await attach()
+    if (claudeStop) await applyHook(root, claudeHook('UserPromptSubmit'))
     const task = await call(clients[0], 'manage_design_task', {
       action: 'begin',
       title: mode,
@@ -281,6 +309,14 @@ async function scenario(a, b, mode, incompatible) {
     })
     assert.ok(!task.isError, JSON.stringify(task))
     const { taskId, epoch } = task.structuredContent
+    if (claudeStop) {
+      await applyHook(root, claudeHook('PostToolUse', { taskId }))
+      const bound = (await record(root, 'state/design-tasks.json')).records.find(
+        (value) => value.task.taskId === taskId
+      )
+      assert.equal(bound.task.client.kind, 'claude')
+      assert.equal(bound.task.client.sessionId, claudeSession)
+    }
     await call(clients[0], 'get_structure', { nodeId: '1:2', taskId, taskEpoch: epoch })
     const body = Buffer.from('persistent fixture asset')
     const hash = createHash('sha256').update(body).digest('hex')
@@ -426,7 +462,7 @@ async function scenario(a, b, mode, incompatible) {
       'committed runtime and attached edges',
       90000
     )
-    if (mode === 'normal' || mode === 'orphan')
+    if (mode === 'normal' || mode === 'orphan' || claudeStop)
       assert.equal(outcome.status, 'activated', JSON.stringify(outcome))
     if (mode === 'port-conflict')
       assert.equal(outcome.status, 'rolled-back', JSON.stringify(outcome))
@@ -477,7 +513,6 @@ async function scenario(a, b, mode, incompatible) {
     }
     for (const input of hooks)
       assert.deepEqual(await rpc(root, 'tempad/client-hook', input, 'run/mcp.sock'), {})
-    assert.equal(calls.filter((value) => value.payload.name === 'apply_canvas').length, 1)
     const saved = (await record(root, 'state/design-tasks.json')).records.find(
       (value) => value.task.taskId === taskId
     )
@@ -490,20 +525,21 @@ async function scenario(a, b, mode, incompatible) {
       assert.equal(settled.candidate.version, '0.11.1')
       assert.equal(saved.task.epoch, epoch)
     } else assert.ok(saved.task.epoch > epoch)
-    if (mode === 'normal') {
+    if (mode === 'normal' || mode === 'claude-stop-rollback') {
       assert.deepEqual(JSON.parse((await command('--recover-runtime')).stdout), {
         status: 'recovered',
         version: '0.11.1'
       })
       assert.equal((await rpc(root, 'tempad/runtime-status')).hubId, settled.hubId)
-      // Stop after B admitted clients must survive rollback to A's code with B's state.
-      extension.send(
-        JSON.stringify({
-          type: 'designAction',
-          sessionId: session.sessionId,
-          action: { requestId: randomUUID(), taskId, epoch: saved.task.epoch, action: 'stop' }
-        })
-      )
+      // Both cancellation and a yet-undelivered Claude notice must survive rollback.
+      if (!claudeStop)
+        extension.send(
+          JSON.stringify({
+            type: 'designAction',
+            sessionId: session.sessionId,
+            action: { requestId: randomUUID(), taskId, epoch: saved.task.epoch, action: 'stop' }
+          })
+        )
       await until(
         async () =>
           (await record(root, 'state/design-tasks.json')).records.find(
@@ -544,6 +580,26 @@ async function scenario(a, b, mode, incompatible) {
       assert.equal(await (await fetch(url)).text(), body.toString())
       await assert.rejects(command('--switch', b), /quarantined/)
     }
+    if (claudeStop) {
+      const input = claudeHook('PreToolUse')
+      const result = await applyHook(root, input)
+      assert.equal(result.output?.hookSpecificOutput?.hookEventName, 'PreToolUse')
+      assert.ok(
+        result.output.hookSpecificOutput.additionalContext.includes(
+          `The user stopped Figma design task ${taskId}.`
+        )
+      )
+      assert.deepEqual(await applyHook(root, input), result)
+      assert.equal((await applyHook(root, claudeHook('PostToolUse'))).output, undefined)
+      assert.equal(
+        (await record(root, 'state/design-tasks.json')).records.find(
+          (value) => value.task.taskId === taskId
+        ).task.status,
+        'cancelled'
+      )
+    }
+    assert.ok(edgePids.every(alive), 'The original initialized edges must survive handoff.')
+    assert.equal(calls.filter((value) => value.payload.name === 'apply_canvas').length, 1)
     results.push({
       mode,
       outcome,
@@ -579,7 +635,7 @@ try {
   const incompatible = await artifact('0.11.2', true)
   for (const mode of (
     process.env.TEMPAD_SWITCH_CASES ??
-    'normal,orphan,preparing,old-stopped,candidate-ready,committed,port-conflict'
+    'normal,orphan,preparing,old-stopped,candidate-ready,committed,port-conflict,claude-stop,claude-stop-rollback'
   ).split(',')) {
     await scenario(a, b, mode, incompatible)
     console.log(`Runtime switch case passed: ${mode}`)

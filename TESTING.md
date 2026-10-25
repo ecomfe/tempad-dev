@@ -64,7 +64,8 @@ Root:
 - `pnpm mcp:check-runtime-switch` builds trusted local A/B fixtures from source in an ignored
   directory, then exercises manual switching with two initialized SDK clients and a synthetic
   extension. It checks draining, fixed asset endpoints, a disconnected write and late receipt,
-  crashes at all four journal phases, port conflicts, and rollback retaining a later Stop.
+  crashes at all four journal phases, port conflicts, rollback retaining a later Stop, and
+  pending Claude Stop notices surviving both switching and rollback with durable hook retries.
   `TEMPAD_SWITCH_CASES` selects comma-separated cases for diagnosis; `TEMPAD_KEEP_PROTOTYPE=1`
   retains isolated evidence. It never downloads or updates installed runtimes. Windows and native
   host behavior are outside this harness; CI runs the full matrix on Node 22 and 24.

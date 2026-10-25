@@ -8,6 +8,12 @@ import { writeDurableJson } from './durable-json'
 import { ExecutionMarkerSchema, type Execution } from './execution-state'
 import { HookReceiptSchema } from './hook-receipts'
 
+const ClaudeStopNoticeSchema = z.object({
+  sessionId: z.string().min(1),
+  turnId: z.string().optional()
+})
+export type ClaudeStopNotice = z.infer<typeof ClaudeStopNoticeSchema>
+
 const SnapshotSchema = z.object({
   revision: z.number().int().nonnegative(),
   hookReceipts: z.array(HookReceiptSchema).optional(),
@@ -19,6 +25,7 @@ const SnapshotSchema = z.object({
       task: DesignTaskSchema.strip(),
       requestId: z.string(),
       hostContext: HostContextSchema.optional(),
+      claudeStopNotice: ClaudeStopNoticeSchema.optional(),
       retiredAt: z.number().nonnegative().optional(),
       browser: z
         .object({

@@ -972,6 +972,13 @@ normal operation, and only lifecycle events enter its inbox. Routing ambiguity o
 exhaustion is a visible failure, not permission to broadcast. Test ordering across `/clear`,
 Stop, a later turn, and supervisor recovery; Codex remains native-IPC only.
 
+A pending Claude Figma Stop notice is stored with its cancelled task and consumed in the
+same transaction as the hook receipt. A new user turn or ended session retires the old notice;
+restoring it never restores session liveness or hook capability. Cancellation remains readable
+by older Hubs, but binaries predating this notice field cannot preserve the pending message.
+Claude does not support Queue or Steer; its native acceptance covers canvas tools, lifecycle
+binding and tool-boundary Stop notices, not Codex-only comment delivery.
+
 ## Appendix C: Release policy
 
 The implemented publication gates, cumulative guidance review, release boundaries, and hook

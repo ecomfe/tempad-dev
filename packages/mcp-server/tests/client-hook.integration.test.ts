@@ -15,6 +15,7 @@ import {
 } from '../../../agent-plugin/src/clients/shared/runtime-profile.mjs'
 import { ClientHookRequestSchema, ClientHooks, type ClientHook } from '../src/agent-clients/hooks'
 import { ClientEventSchema } from '../src/agent-clients/identity'
+import { DesignTasks } from '../src/design-tasks'
 
 const hook = fileURLToPath(
   new URL('../../../agent-plugin/src/clients/shared/lifecycle.mjs', import.meta.url)
@@ -25,7 +26,8 @@ async function withHookHub(
     directory: string,
     hooks: ClientHooks,
     received: ClientHook[],
-    root: string
+    root: string,
+    tasks: DesignTasks
   ) => Promise<void>,
   linuxRoot?: 'private' | 'unsafe'
 ) {
@@ -40,7 +42,8 @@ async function withHookHub(
     )
     await mkdir(directory, { recursive: true, mode: 0o700 })
   }
-  const hooks = new ClientHooks()
+  const tasks = new DesignTasks({ createId: () => 'task-a' })
+  const hooks = new ClientHooks((input) => tasks.takeClaudeStopNotice(input))
   const received: ClientHook[] = []
   const clients = new Set<McpServer>()
   const server = createServer((socket) => {
@@ -64,7 +67,7 @@ async function withHookHub(
   try {
     await new Promise<void>((resolve) => server.listen(join(directory, 'mcp.sock'), resolve))
     if (process.platform !== 'win32') await chmod(join(directory, 'mcp.sock'), 0o600)
-    await run(directory, hooks, received, root)
+    await run(directory, hooks, received, root, tasks)
   } finally {
     await Promise.all([...clients].map((client) => client.close()))
     await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -483,18 +486,27 @@ describe('plugin hook transport', () => {
     }
   )
 
-  it.skipIf(process.platform === 'win32').each(['codex', 'claude'] as const)(
-    'reports %s task binding and emits only the one-time Figma Stop notice',
-    async (kind) => {
-      await withHookHub(async (directory, hooks, received) => {
+  it.skipIf(process.platform === 'win32')(
+    'reports Claude task binding and emits only the one-time Figma Stop notice',
+    async () => {
+      const kind = 'claude'
+      await withHookHub(async (directory, _hooks, received, _root, tasks) => {
         await runHook(directory, 'UserPromptSubmit', {}, kind)
-        hooks.stop(
+        tasks.begin(
+          'owner',
+          'extension',
           {
-            client: { kind, name: kind, sessionId: 'thread-a' },
-            turnId: 'turn-a'
+            sessionId: 'figma',
+            fileKey: 'file',
+            fileName: 'Fixture',
+            pageId: 'page',
+            busy: false
           },
-          'task-a'
+          'Fixture',
+          'begin',
+          { kind, name: 'Claude Code', sessionId: 'thread-a' }
         )
+        tasks.stop('task-a', 'cancelled', { sessionId: 'thread-a', turnId: 'turn-a' })
         const result = await runHook(
           directory,
           'PostToolUse',
