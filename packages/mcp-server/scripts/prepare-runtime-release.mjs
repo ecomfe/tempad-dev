@@ -55,6 +55,16 @@ try {
     JSON.parse(readFileSync(join(source, 'runtime-policy.json'), 'utf8'))
   )
   const pkg = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
+  const { packageManager } = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'))
+  const selectedPnpm = runPackageManagerSync('pnpm', ['--version'], {
+    cwd: repo,
+    encoding: 'utf8'
+  }).trim()
+  assert.equal(
+    `pnpm@${selectedPnpm}`,
+    packageManager,
+    'Release packaging must use the pnpm version pinned by the workspace.'
+  )
   assert.deepEqual(policy.controlProtocols, [...verifier.CONTROL_VERSIONS])
   assert.deepEqual(policy.extension.protocols, [
     ...verifier.TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS
@@ -66,7 +76,7 @@ try {
     throw new Error('Revalidate the release guidance review and source hash before packaging.')
   const deploy = join(root, 'deploy')
   // A hoisted, offline deploy from the frozen workspace lock avoids pnpm store
-  // symlinks escaping the npm tarball. No installation or lifecycle scripts run.
+  // symlinks escaping the npm tarball. No registry queries or lifecycle scripts run.
   runPackageManagerSync(
     'pnpm',
     [

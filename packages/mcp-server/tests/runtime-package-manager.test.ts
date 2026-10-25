@@ -7,10 +7,17 @@ const fixture = vi.hoisted(() => ({
     env: { PATH: 'C:\\Tools;C:\\Node', npm_execpath: '' }
   },
   files: new Set<string>(),
+  manifests: new Map<string, unknown>(),
   execute: vi.fn()
 }))
 vi.mock('node:process', () => ({ default: fixture.process }))
-vi.mock('node:fs', () => ({ existsSync: (path: string) => fixture.files.has(path) }))
+vi.mock('node:fs', () => ({
+  existsSync: (path: string) => fixture.files.has(path),
+  readFileSync: (path: string) => {
+    if (fixture.manifests.has(path)) return JSON.stringify(fixture.manifests.get(path))
+    throw Object.assign(new Error('missing fixture'), { code: 'ENOENT' })
+  }
+}))
 vi.mock('node:path', async (original) => (await original<typeof import('node:path')>()).win32)
 vi.mock('node:child_process', async (original) => ({
   ...(await original<typeof import('node:child_process')>()),
@@ -21,8 +28,10 @@ const { runPackageManagerSync } = await import(modulePath)
 
 beforeEach(() => {
   fixture.process.platform = 'win32'
+  fixture.process.env.PATH = 'C:\\Tools;C:\\Node'
   fixture.process.env.npm_execpath = ''
   fixture.files.clear()
+  fixture.manifests.clear()
   fixture.execute.mockReset()
 })
 
@@ -50,6 +59,25 @@ it('supports standalone pnpm executables without falling back to a cmd shim', ()
   runPackageManagerSync('pnpm', ['deploy'], {})
   expect(fixture.execute).toHaveBeenCalledWith('C:\\Tools\\pnpm.exe', ['deploy'], {})
 })
+
+it.each(['pnpm.exe', 'bin/pnpm.cjs'])(
+  'prefers the PATH-selected package %s over a stale bootstrap npm_execpath',
+  (bin) => {
+    fixture.process.env.PATH = 'C:\\Pinned\\bin;C:\\Tools'
+    fixture.process.env.npm_execpath = 'C:\\Bootstrap\\pnpm.exe'
+    const directory = 'C:\\Pinned\\node_modules\\pnpm'
+    const entry = `${directory}\\${bin.replaceAll('/', '\\')}`
+    fixture.manifests.set(`${directory}\\package.json`, { name: 'pnpm', bin: { pnpm: bin } })
+    fixture.files.add(fixture.process.env.npm_execpath)
+    fixture.files.add(entry)
+    runPackageManagerSync('pnpm', ['deploy', '--offline', '--frozen-lockfile'], {})
+    expect(fixture.execute).toHaveBeenCalledWith(
+      bin.endsWith('.exe') ? entry : fixture.process.execPath,
+      [...(bin.endsWith('.exe') ? [] : [entry]), 'deploy', '--offline', '--frozen-lockfile'],
+      {}
+    )
+  }
+)
 
 it('fails explicitly when only a Windows cmd shim is available', () => {
   fixture.files.add('C:\\Tools\\pnpm.cmd')

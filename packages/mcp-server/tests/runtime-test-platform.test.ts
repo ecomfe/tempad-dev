@@ -1,25 +1,68 @@
 import { execFileSync } from 'node:child_process'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }))
 
 const modulePath = '../scripts/runtime-test-platform.mjs'
-const { commandArguments, fixtureEnvironment, fixtureProcesses, processInventory } = await import(
-  modulePath
-)
+const {
+  commandArguments,
+  fixtureEnvironment,
+  fixtureProcesses,
+  preserveFixtureEvidence,
+  processInventory
+} = await import(modulePath)
 const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+const temporaryDirectories: string[] = []
 
 function windowsEnvironment(env: NodeJS.ProcessEnv) {
   return Object.fromEntries(Object.entries(env).map(([key, value]) => [key.toUpperCase(), value]))
 }
 
-afterEach(() => {
+afterEach(async () => {
   Object.defineProperty(process, 'platform', platform)
   vi.unstubAllEnvs()
   vi.clearAllMocks()
+  for (const directory of temporaryDirectories.splice(0))
+    await rm(directory, { recursive: true, force: true })
 })
 
 describe('runtime process fixture platform', () => {
+  it('copies bounded runtime records before cleanup without bundling installed packages', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'tp-evidence-'))
+    temporaryDirectories.push(root)
+    const fixture = join(root, 'fixture')
+    const evidence = join(root, 'evidence')
+    const records = {
+      'supervisor.json': '{"pid":42}',
+      'state/runtime/switch.json': '{"phase":"preparing"}',
+      'run/hub-runtime.json': '{"processId":43}',
+      'log/hub.log': 'starting',
+      'auto/state/design-tasks.json': '{}',
+      'node_modules/package/package.json': '{}',
+      'state/runtime/cache/package.json': '{}'
+    }
+    for (const [path, content] of Object.entries(records)) {
+      const target = join(fixture, path)
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, content)
+    }
+    await writeFile(join(fixture, 'log/large.log'), Buffer.alloc(2 * 1024 * 1024 + 1))
+    vi.stubEnv('TEMPAD_RUNTIME_EVIDENCE_DIR', evidence)
+    await preserveFixtureEvidence(fixture, 'request timed out')
+    const copied = join(evidence, basename(fixture))
+    expect(await readFile(join(copied, 'failure.txt'), 'utf8')).toContain('request timed out')
+    for (const [path, content] of Object.entries(records)) {
+      const actual = readFile(join(copied, path), 'utf8')
+      if (path.includes('node_modules') || path.includes('cache'))
+        await expect(actual).rejects.toThrow()
+      else expect(await actual).toBe(content)
+    }
+    await expect(readFile(join(copied, 'log/large.log'))).rejects.toThrow()
+  })
+
   it.each(['PSModulePath', 'psmodulepath', 'PsMoDuLePaTh'])(
     'lets Windows PowerShell choose its own modules instead of inheriting %s',
     (key) => {

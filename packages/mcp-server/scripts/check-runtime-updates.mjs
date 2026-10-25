@@ -23,6 +23,7 @@ import {
   commandArguments,
   fixtureEnvironment,
   fixtureRoot,
+  preserveFixtureEvidence,
   processInventory
 } from './runtime-test-platform.mjs'
 
@@ -494,6 +495,9 @@ async function automaticAcceptance(a, b) {
     await generic.close()
     await until(() => [...automaticPids].every(exited), 'automatic fixture shutdown', 15_000)
     return { admissionPauseMs, uninterruptedCalls: calls }
+  } catch (error) {
+    await preserveFixtureEvidence(directory, error.stack)
+    throw error
   } finally {
     latestVersion = published
     await owner.close()
@@ -806,6 +810,9 @@ try {
       ]
     })
   )
+} catch (error) {
+  await preserveFixtureEvidence(root, error.stack)
+  throw error
 } finally {
   await control?.close()
   await Promise.allSettled(clients.map((client) => client.close()))

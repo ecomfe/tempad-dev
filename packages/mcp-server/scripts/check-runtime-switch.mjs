@@ -26,7 +26,12 @@ import { WebSocket } from 'ws'
 
 import { runtimeEndpoint } from '../src/runtime-platform.ts'
 import config from '../tsdown.prototype.config.ts'
-import { fixtureEnvironment, fixtureProcesses, fixtureRoot } from './runtime-test-platform.mjs'
+import {
+  fixtureEnvironment,
+  fixtureProcesses,
+  fixtureRoot,
+  preserveFixtureEvidence
+} from './runtime-test-platform.mjs'
 
 // Build fixtures from authored source and test-only manifest inputs. Never patch
 // a generated runtime or use the user's release/checkout stores and services.
@@ -647,6 +652,7 @@ async function scenario(a, b, mode, incompatible) {
     })
     passed = true
   } catch (error) {
+    await preserveFixtureEvidence(root, `${mode}: ${error.stack}\n${stderr}`)
     throw new Error(`${mode}: ${error.message}\n${stderr}\nRoot: ${root}`, { cause: error })
   } finally {
     conflict?.close()
@@ -713,6 +719,7 @@ async function coldAttachment(entry) {
     })
     passed = true
   } catch (error) {
+    await preserveFixtureEvidence(root, `cold-attach: ${error.stack}\n${stderr}`)
     throw new Error(`cold-attach: ${error.message}\n${stderr}\nRoot: ${root}`, { cause: error })
   } finally {
     await Promise.allSettled(clients.map((client) => client.close()))

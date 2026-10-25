@@ -22,6 +22,7 @@ jobs:
         suite: [contracts, prototype, switch, updates]
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      TEMPAD_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/runtime-ci-logs/fixtures
     steps:
       - name: Preserve reviewed source bytes
         run: git config --global core.autocrlf false

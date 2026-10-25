@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process'
+import console from 'node:console'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, realpath } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, sep } from 'node:path'
 import process from 'node:process'
 
 import { ensurePrivateDirectory, windowsPowerShellEnvironment } from '../src/runtime-platform.ts'
@@ -29,6 +30,48 @@ export function fixtureEnvironment(home, temp = home) {
     TMPDIR: temp,
     TEMP: temp,
     TMP: temp
+  }
+}
+
+/** Copy bounded fixture diagnostics before shutdown removes live ownership records. */
+export async function preserveFixtureEvidence(root, failure) {
+  const output = process.env.TEMPAD_RUNTIME_EVIDENCE_DIR
+  if (!output) return
+  try {
+    if (!isAbsolute(output)) throw new Error('Runtime evidence directory must be absolute.')
+    const destination = join(output, basename(root))
+    await mkdir(destination, { recursive: true })
+    await writeFile(join(destination, 'failure.txt'), `${String(failure)}\nRoot: ${root}\n`)
+    let remaining = 16 * 1024 * 1024
+    async function copy(directory, relative = '') {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name)
+        const target = join(destination, relative, entry.name)
+        if (entry.isDirectory()) {
+          // Runtime stores and the two nested update fixtures contain the evidence;
+          // packages, cached archives, images and executable bundles do not.
+          if (['run', 'state', 'runtime', 'log', 'logs', 'auto', 'f'].includes(entry.name))
+            await copy(path, join(relative, entry.name))
+        } else if (entry.isFile() && /\.(?:json|log|txt|lock)$/.test(entry.name)) {
+          try {
+            const { size } = await stat(path)
+            if (size > 2 * 1024 * 1024 || size > remaining) continue
+            const bytes = await readFile(path)
+            if (bytes.length > 2 * 1024 * 1024 || bytes.length > remaining) continue
+            remaining -= bytes.length
+            await mkdir(dirname(target), { recursive: true })
+            await writeFile(target, bytes)
+          } catch (error) {
+            if (error.code !== 'ENOENT') throw error
+          }
+        }
+      }
+    }
+    await copy(root)
+    console.error(`Copied runtime fixture diagnostics: ${destination}`)
+  } catch (error) {
+    // Diagnostics must never replace the test failure or prevent fixture shutdown.
+    console.error(`Could not copy runtime fixture diagnostics: ${error.message}`)
   }
 }
 

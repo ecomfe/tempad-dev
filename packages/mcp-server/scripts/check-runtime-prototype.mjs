@@ -19,6 +19,7 @@ import {
   fixtureEnvironment,
   fixtureProcesses as processes,
   fixtureRoot,
+  preserveFixtureEvidence,
   processMemory
 } from './runtime-test-platform.mjs'
 
@@ -357,6 +358,7 @@ try {
   )
   passed = true
 } catch (error) {
+  await preserveFixtureEvidence(root, `${error.stack}\n${stderr}`)
   throw new Error(`${error.message}\n${stderr}\nRoot: ${root}`, { cause: error })
 } finally {
   await Promise.allSettled(clients.map((client) => client.close()))
