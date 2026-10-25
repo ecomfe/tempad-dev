@@ -16,6 +16,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+// Keep real child processes while allowing the disappearance test to intercept
+// the helper launch; native ESM module namespace properties are not configurable.
+vi.mock('node:child_process', async (original) => ({
+  ...(await original<typeof import('node:child_process')>())
+}))
+
 import {
   assertPrivateEndpoint,
   assertPrivatePath,
