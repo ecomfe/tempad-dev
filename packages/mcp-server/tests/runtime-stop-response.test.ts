@@ -142,7 +142,7 @@ it('cancels an unflushed stop without letting its eventual reply shut down the H
   expect(f.control.admitting()).toBe(true)
 })
 
-it('does not stop if the control pipe fails while finishing the flushed reply', async () => {
+it('commits shutdown if the control pipe fails after the reply was flushed', async () => {
   const f = await fixture()
   vi.spyOn(f.socket, 'end').mockImplementation(() => {
     f.socket.destroy(new Error('Pipe finish failed'))
@@ -150,11 +150,43 @@ it('does not stop if the control pipe fails while finishing the flushed reply', 
   })
   await f.peer.request({ method: 'tempad/runtime-stop' }, ResultSchema).catch(() => {})
   await vi.waitFor(() => expect(f.socket.destroyed).toBe(true))
-  expect(f.stop).not.toHaveBeenCalled()
-  const next = await f.attach()
-  await next.peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)
   await vi.waitFor(() => expect(f.stop).toHaveBeenCalledOnce())
+  const next = await f.attach(false)
+  await expect(
+    next.peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)
+  ).rejects.toThrow('cannot change')
+  expect(f.control.admitting()).toBe(false)
 })
+
+it.each(['tempad/runtime-renew', 'tempad/runtime-inspect'])(
+  'finishes an acknowledged shutdown when %s arrives while the pipe ends',
+  async (method) => {
+    const f = await fixture()
+    const final = f.socket._final.bind(f.socket)
+    let finish: (() => void) | undefined
+    const release = () => {
+      const complete = finish
+      finish = undefined
+      complete?.()
+    }
+    vi.spyOn(f.socket, '_final').mockImplementation((callback) => {
+      finish = () => final(callback)
+    })
+    await f.peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)
+    expect(f.socket.writableEnded).toBe(true)
+    try {
+      // The rejected response proves the late write reached the ending socket;
+      // releasing _final earlier would merely test ordinary graceful shutdown.
+      await expect(f.peer.request({ method }, ResultSchema, { timeout: 1000 })).rejects.toThrow(
+        'Connection closed'
+      )
+      release()
+      await vi.waitFor(() => expect(f.stop).toHaveBeenCalledOnce())
+    } finally {
+      release()
+    }
+  }
+)
 
 it('keeps admission fenced if shutdown fails after the acknowledgement', async () => {
   const f = await fixture()

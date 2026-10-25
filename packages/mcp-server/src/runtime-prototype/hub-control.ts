@@ -107,13 +107,12 @@ export class HubControl {
         })
         socket.end()
         await ended
-      } catch (error) {
-        this.stopping = false
-        throw error
+      } finally {
+        // The flushed acknowledgement commits the stop. A later pipe failure
+        // cannot revoke the exit already promised to the supervisor.
+        // Partial shutdown also stays fenced until the process exits.
+        await this.handoff!.stop()
       }
-      // Shutdown may already have closed stores before failing. Keep that state
-      // fenced; the owner must finish exiting rather than reopen admission.
-      await this.handoff!.stop()
     })
     peer.onerror = () => {
       cancelStop()
