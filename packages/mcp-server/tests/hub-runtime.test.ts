@@ -702,6 +702,64 @@ describe('Hub runtime module', () => {
     }
   )
 
+  it('buffers a fragmented first frame once and preserves split UTF-8 and following frames', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const server = vi.mocked(createServer).mock.results.at(-1)!.value as Server
+    const accepted = once(server, 'connection')
+    const socket = connect(fixture.socketPath)
+    consumerSockets.push(socket)
+    const [incoming] = (await accepted) as [Socket]
+    const replies: { id: number; result?: unknown }[] = []
+    let received = ''
+    socket.on('data', (chunk) => {
+      received += String(chunk)
+      let newline: number
+      while ((newline = received.indexOf('\n')) !== -1) {
+        replies.push(JSON.parse(received.slice(0, newline)))
+        received = received.slice(newline + 1)
+      }
+    })
+    const frames = Buffer.from(
+      [
+        {
+          jsonrpc: '2.0',
+          id: 0,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: { name: '审阅', version: '1' }
+          }
+        },
+        { jsonrpc: '2.0', id: 1, method: 'ping' }
+      ]
+        .map((frame) => JSON.stringify(frame) + '\n')
+        .join('')
+    )
+    const split = frames.indexOf('审') + 1
+    const fragments = [
+      ...Array.from({ length: 64 }, () => Buffer.alloc(1024, 32)),
+      frames.subarray(0, split),
+      frames.subarray(split)
+    ]
+    const concat = vi.spyOn(Buffer, 'concat')
+    // Deliver deterministic fragments at the real socket boundary; TCP/pipe
+    // coalescing must not decide whether repeated-copy regressions are covered.
+    for (const fragment of fragments) incoming.emit('data', fragment)
+    const copied = concat.mock.calls.reduce(
+      (sum, [buffers]) => sum + buffers.reduce((bytes, buffer) => bytes + buffer.length, 0),
+      0
+    )
+    concat.mockRestore()
+    expect(copied).toBeLessThanOrEqual(
+      fragments.reduce((bytes, buffer) => bytes + buffer.length, 0)
+    )
+    await vi.waitFor(() => expect(replies.map(({ id }) => id)).toEqual([0, 1]))
+    expect(replies.every((reply) => reply.result !== undefined)).toBe(true)
+    expect(log.info).toHaveBeenCalledWith('Consumer connected. Total: 1')
+  })
+
   it('rejects invalid hook parameters before lifecycle effects and does not allow hook transport promotion', async () => {
     const { startHub } = await loadRuntime()
     await startHub()

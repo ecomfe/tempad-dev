@@ -1613,7 +1613,8 @@ export async function startHub(
     // Installed lifecycle hooks issue one request without initializing MCP. Keep
     // these short connections out of tool registration and consumer ownership.
     incomingSockets.add(sock)
-    let buffer = Buffer.alloc(0)
+    let chunks: Buffer[] = []
+    let bufferedBytes = 0
     const timeout = setTimeout(() => sock.destroy(), 5000)
     unrefTimer(timeout)
     const onError = (error: Error) => {
@@ -1627,13 +1628,17 @@ export async function startHub(
     })
     const onData = (chunk: Buffer) => {
       try {
-        if (buffer.length + chunk.length > STDIO_DEFAULT_MAX_BUFFER_SIZE)
+        bufferedBytes += chunk.length
+        if (bufferedBytes > STDIO_DEFAULT_MAX_BUFFER_SIZE)
           throw new Error('Incoming Hub frame exceeded the MCP buffer limit.')
-        buffer = Buffer.concat([buffer, chunk])
-        const newline = buffer.indexOf('\n')
+        chunks.push(chunk)
+        const newline = chunk.indexOf('\n')
         if (newline === -1) return
+        const frameEnd = bufferedBytes - chunk.length + newline
+        const buffer = Buffer.concat(chunks, bufferedBytes)
+        chunks = []
         const message = deserializeMessage(
-          buffer.subarray(0, newline).toString('utf8').replace(/\r$/, '')
+          buffer.subarray(0, frameEnd).toString('utf8').replace(/\r$/, '')
         )
         sock.pause()
         sock.off('data', onData)
@@ -1645,7 +1650,6 @@ export async function startHub(
           })
           clearTimeout(timeout)
           sock.unshift(buffer)
-          buffer = Buffer.alloc(0)
           void attachRuntimeRecovery(sock, terminalReceipts, (record) => {
             designTasks.finishOperation(record.id, record.extensionId)
             reject(
@@ -1674,7 +1678,6 @@ export async function startHub(
           if ('method' in message && message.method === 'tempad/runtime-acquire') {
             clearTimeout(timeout)
             sock.unshift(buffer)
-            buffer = Buffer.alloc(0)
             void runtimeControl
               .attach(sock)
               .then(() => sock.resume())
@@ -1695,9 +1698,8 @@ export async function startHub(
             incomingSockets.delete(sock)
             sock.off('error', onError)
             sock.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }) + '\n')
-            const remainder = buffer.subarray(newline + 1)
+            const remainder = buffer.subarray(frameEnd + 1)
             if (remainder.length) sock.unshift(remainder)
-            buffer = Buffer.alloc(0)
             attachConsumer(sock, registration)
             sock.resume()
             return
@@ -1720,7 +1722,6 @@ export async function startHub(
         incomingSockets.delete(sock)
         sock.off('error', onError)
         sock.unshift(buffer)
-        buffer = Buffer.alloc(0)
         attachConsumer(sock)
         sock.resume()
       } catch (error) {
