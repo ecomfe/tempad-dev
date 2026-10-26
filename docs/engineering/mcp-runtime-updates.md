@@ -783,13 +783,24 @@ initialization deadline and never replays MCP initialization or business request
 The supervisor owns the legacy hook socket while the Hub uses a private data socket. Received
 events enter a durable inbox; task effects and invocation receipts commit together before reply.
 Failed or unconfirmed delivery fences admission. Lost replies can be retried without reapplying
-effects. Each inbox/receipt set is bounded at 4,096 identities and fails closed at capacity.
-Phase 3 adds 24-hour expiry for completed v2 receipts, with a persisted rejection cutoff so
+effects. Pending inbox events and uncertain Hub receipts each have a 4,096-event limit;
+completed history does not consume pending capacity or fence otherwise healthy admission.
+The v2 ledger holds at most 4,096 pending events and completed responses in total. Completed
+responses expire after up to 24 hours, or sooner under result-cache pressure, with a persisted rejection cutoff so
 expired invocations cannot replay even after clock rollback. An expired pending v2 event
 is retired by the Hub with its session/task invalidation durably recorded; newer lifecycle
 evidence, Stop notices and execution fences survive. The inbox records a terminal expired
 outcome rather than an applied acknowledgment, allowing subsequent events and recovery to
-proceed. Unconfirmed retirement still fences admission; legacy receipts remain retained.
+proceed. Cache pressure cannot advance the cutoff past unresolved events. Unconfirmed retirement
+still fences admission. The separate legacy ledger retains at most 4,096 identities: result bodies
+expire after 24 hours, but v1 has no sender timestamp, so its identity tombstones cannot be discarded
+without allowing an old retry to reauthorize a session. Exhaustion rejects new v1 identities with
+an explicit plugin-upgrade error. Together the two ledgers retain at most 8,192 identities;
+unresolved events still share the 4,096-event admission limit. Before reopening general MCP admission, the authenticated Hub
+retires only v1-only sessions and durably pauses their tasks, preserving Stop and execution fences;
+v2 sessions remain usable, and a fresh v2 hook can establish current evidence. Known v1 identities
+remain deduplicated. Old snapshots without a legacy completion time are compacted on startup;
+pending and uncertain effects are preserved. Clock rollback never lowers a persisted rejection cutoff.
 Live legacy Claude
 bindings defer even manual switching in this prototype. A legacy hook that exits before its request
 arrives is still unobservable; this implementation does not claim to preserve that event.

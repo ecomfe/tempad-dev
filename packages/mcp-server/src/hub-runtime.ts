@@ -64,7 +64,11 @@ import { DesignTaskStore } from './design-task-store'
 import { DesignTasks, resolveDesignTarget, type DesignTaskRecord } from './design-tasks'
 import { ExtensionRegistry } from './extension-registry'
 import { attachExtensionSocket } from './extension-socket'
-import { isExpiredHookResult } from './hook-receipts'
+import {
+  isExpiredHookResult,
+  LegacyHookCapacityError,
+  LEGACY_HOOK_EXHAUSTED_RESULT
+} from './hook-receipts'
 import MCP_INSTRUCTIONS from './instructions.md?raw'
 import { extensionUpgradeRequired, legacyToolPayload } from './legacy-extension'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
@@ -179,6 +183,7 @@ export async function startHub(
         inspect: handoffStatus,
         flush: flushHandoff,
         stop: shutdownHandoff,
+        retireLegacyHooks: () => agentClients.retireLegacyHooks(),
         hook: (input, fresh) => receiveHook(input, true, fresh)
       })
     : undefined
@@ -289,15 +294,23 @@ export async function startHub(
     if (input.version === 2 && !sameRuntimeProfile(input.profile, RUNTIME_PROFILE))
       throw new Error('Lifecycle hook belongs to a different runtime profile.')
     noteActivity()
-    const result =
-      durable || input.version === 2
-        ? designTasks.applyHook(
-            input.invocationId,
-            input,
-            () => agentClients.clientHook(input, fresh),
-            durable ? () => agentClients.retireHook(input) : undefined
-          )
-        : agentClients.clientHook(input)
+    let result: Record<string, unknown>
+    try {
+      result =
+        durable || input.version === 2
+          ? designTasks.applyHook(
+              input.invocationId,
+              input,
+              () => agentClients.clientHook(input, fresh),
+              durable ? () => agentClients.retireHook(input) : undefined
+            )
+          : agentClients.clientHook(input)
+    } catch (error) {
+      if (!durable || !(error instanceof LegacyHookCapacityError)) throw error
+      agentClients.retireLegacyHooks()
+      designTasks.flush()
+      return LEGACY_HOOK_EXHAUSTED_RESULT
+    }
     return input.version === 2 && !isExpiredHookResult(result)
       ? { ...result, receipt: { version: 2, invocationId: input.invocationId, state: 'applied' } }
       : result

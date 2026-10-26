@@ -44,6 +44,18 @@ export class ClientHooks {
     if (session) session.active = false
   }
 
+  retireLegacy(): string[] {
+    const retired: string[] = []
+    for (const [key, session] of this.sessions) {
+      if (session.receiptCapable) continue
+      const [kind, sessionId] = JSON.parse(key) as [string, string]
+      if (kind !== 'claude') continue
+      this.sessions.delete(key)
+      retired.push(sessionId)
+    }
+    return retired
+  }
+
   /** Expiry is loss of old evidence, never a replay of the historical event. */
   retire(input: ClientHook): boolean {
     const key = scope(input.kind, input.sessionId)

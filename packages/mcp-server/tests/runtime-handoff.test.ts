@@ -427,7 +427,7 @@ it.skipIf(process.platform === 'win32')(
 )
 
 it.skipIf(process.platform === 'win32')(
-  'keeps admission fenced when a restored inbox remains full after pending delivery',
+  'retires legacy sessions after draining a full restored legacy history without permanently fencing MCP',
   async () => {
     const root = directory()
     const entries = Array.from({ length: HOOK_RECEIPT_LIMIT }, (_, index) => ({
@@ -443,17 +443,19 @@ it.skipIf(process.platform === 'win32')(
     writeDurableJson(join(root, 'hooks.json'), entries)
     const fault = vi.fn()
     const deliver = vi.fn(async () => ({}))
-    const gateway = await startHookGateway(root, deliver, fault)
+    const retire = vi.fn(async () => {})
+    const gateway = await startHookGateway(root, deliver, fault, undefined, retire)
     cleanup.push(() => gateway.close())
     expect(fault).toHaveBeenLastCalledWith(
-      expect.objectContaining({ message: 'Hook inbox capacity reached.' })
+      expect.objectContaining({ message: 'Lifecycle hooks remain queued.' })
     )
     await gateway.flush()
     expect(deliver).toHaveBeenCalledOnce()
-    expect(fault.mock.calls.every(([error]) => error instanceof Error)).toBe(true)
+    expect(fault).toHaveBeenLastCalledWith(undefined)
+    expect(retire).toHaveBeenCalledOnce()
     const socket = connect(join(root, 'run/mcp.sock'))
     await once(socket, 'connect')
-    const closed = once(socket, 'close')
+    const reply = once(socket, 'data')
     socket.write(
       JSON.stringify({
         jsonrpc: '2.0',
@@ -462,7 +464,10 @@ it.skipIf(process.platform === 'win32')(
         params: { ...entries[0]!.input, invocationId: randomUUID() }
       }) + '\n'
     )
-    await closed
+    expect(JSON.parse(String((await reply)[0])).error.data.code).toBe(
+      'MCP_HOOK_LEGACY_UPGRADE_REQUIRED'
+    )
+    socket.destroy()
     expect(deliver).toHaveBeenCalledOnce()
     expect(JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8')).entries).toHaveLength(
       HOOK_RECEIPT_LIMIT

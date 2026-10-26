@@ -181,6 +181,14 @@ export class AgentClients {
     })
   }
 
+  retireLegacyHooks(): void {
+    for (const sessionId of this.hooks.retireLegacy())
+      this.event('hook', {
+        method: 'notifications/tempad/client-event',
+        params: { event: 'SessionEnd', kind: 'claude', sessionId }
+      })
+  }
+
   event(connectionId: string, input: unknown): void {
     const { params } = ClientEventSchema.parse(input)
     if (params.event === 'connect') {

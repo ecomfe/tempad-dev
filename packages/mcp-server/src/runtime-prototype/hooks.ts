@@ -11,18 +11,23 @@ import { writeDurableJson } from '../durable-json'
 import {
   ExpiredHookError,
   HOOK_RECEIPT_LIMIT,
+  LEGACY_HOOK_EXHAUSTED_RESULT,
+  LegacyHookCapacityError,
   hookCutoff,
+  hookPressureCutoff,
+  hookRetentionCutoff,
   hookSignature,
   isExpiredHookResult
 } from '../hook-receipts'
 import { cleanupEndpoint, runtimeEndpoint } from '../runtime-platform'
 import { listenPrivate } from './processes'
-import { readPrivateJson } from './state'
+import { readPrivateJsonAsync } from './state'
 
 const InboxSchema = z.array(
   z.object({
     input: ClientHookRequestSchema.shape.params,
     admittedHubId: z.uuid().optional(),
+    recordedAt: z.number().optional(),
     retired: z.literal('expired').optional(),
     result: z.record(z.string(), z.unknown()).optional()
   })
@@ -35,10 +40,14 @@ export async function startHookGateway(
   root: string,
   deliver: (input: ClientHook, admittedHubId?: string) => Promise<Record<string, unknown>>,
   onFault: (error?: unknown) => void = () => {},
-  socketPath = runtimeEndpoint(join(root, 'run'), 'mcp.sock')
+  socketPath = runtimeEndpoint(join(root, 'run'), 'mcp.sock'),
+  retireLegacy: () => Promise<void> = async () => {
+    throw new Error('Legacy lifecycle retirement requires a connected Hub.')
+  },
+  signal?: AbortSignal
 ) {
   const path = join(root, 'hooks.json')
-  const stored = readPrivateJson(
+  const stored = await readPrivateJsonAsync(
     path,
     z.union([
       InboxSchema,
@@ -50,19 +59,23 @@ export async function startHookGateway(
       })
     ])
   )
+  signal?.throwIfAborted()
   let entries = Array.isArray(stored) ? stored : (stored?.entries ?? [])
   let cutoff = Array.isArray(stored) ? 0 : (stored?.cutoff ?? 0)
   let receiver = Array.isArray(stored) ? undefined : stored?.receiver
   let flushing: Promise<void> | undefined
+  let legacyRetiredFor: string | undefined
   let closed = false
   const sockets = new Set<import('node:net').Socket>()
-  const retained = (entry: (typeof entries)[number]) =>
-    (!entry.result && !entry.retired) || entry.input.version !== 2 || entry.input.issuedAt > cutoff
+  const pendingEntry = (entry: (typeof entries)[number]) => !entry.result && !entry.retired
   const capacityFailure = () =>
-    entries.filter(retained).length >= HOOK_RECEIPT_LIMIT
+    entries.filter(pendingEntry).length >= HOOK_RECEIPT_LIMIT
       ? new Error('Hook inbox capacity reached.')
       : undefined
-  const pending = () => entries.some((entry) => !entry.result && !entry.retired)
+  const pending = () => entries.some(pendingEntry)
+  const legacyExhausted = () =>
+    entries.some((entry) => entry.result?.runtimeHookLegacyUpgradeRequired === true) ||
+    entries.filter((entry) => entry.input.version === 1).length >= HOOK_RECEIPT_LIMIT
   const evidenceHub = (input: ClientHook) =>
     receiver &&
     (input.version !== 2 ||
@@ -70,26 +83,85 @@ export async function startHookGateway(
       input.issuedAt > receiver.freshAfter)
       ? receiver.hubId
       : undefined
-  function save(next: typeof entries, nextReceiver = receiver) {
+  function save(next: typeof entries, nextReceiver = receiver, nextCutoff = cutoff) {
     if (closed) throw new Error('The hook inbox owner has closed.')
     try {
-      writeDurableJson(path, { version: 2, cutoff, entries: next, receiver: nextReceiver })
+      writeDurableJson(path, {
+        version: 2,
+        cutoff: nextCutoff,
+        entries: next,
+        receiver: nextReceiver
+      })
       entries = next
       receiver = nextReceiver
+      cutoff = nextCutoff
     } catch (error) {
       onFault(error)
       throw error
     }
   }
+  function compact(reserveResult = false) {
+    let nextCutoff = hookRetentionCutoff(cutoff)
+    const legacyCutoff = hookRetentionCutoff(0)
+    if (reserveResult) {
+      const completed: number[] = []
+      const unresolved: number[] = []
+      for (const entry of entries)
+        if (entry.input.version === 2)
+          (pendingEntry(entry) ? unresolved : completed).push(entry.input.issuedAt)
+      nextCutoff = hookPressureCutoff(nextCutoff, completed, unresolved)
+    }
+    const next = entries.filter(
+      (entry) =>
+        pendingEntry(entry) || entry.input.version !== 2 || entry.input.issuedAt > nextCutoff
+    )
+    const compacted = next.map((entry) => {
+      if (
+        entry.input.version === 1 &&
+        entry.result &&
+        !entry.retired &&
+        (entry.recordedAt === undefined || entry.recordedAt <= legacyCutoff)
+      ) {
+        // Legacy senders have no timestamp. Keep their identity as an old-reader-safe
+        // tombstone: forgetting it would let a retry become fresh lifecycle evidence.
+        return {
+          input: entry.input,
+          retired: 'expired' as const,
+          ...(entry.result.runtimeHookLegacyUpgradeRequired
+            ? { result: LEGACY_HOOK_EXHAUSTED_RESULT }
+            : {})
+        }
+      }
+      return entry
+    })
+    if (
+      nextCutoff !== cutoff ||
+      compacted.length !== entries.length ||
+      compacted.some((entry, index) => entry !== entries[index])
+    )
+      save(compacted, receiver, nextCutoff)
+  }
   async function flush() {
     if (flushing) return flushing
     const run = async () => {
+      compact()
       while (true) {
-        const entry = entries.find((value) => !value.result && !value.retired)
+        const entry = entries.find(pendingEntry)
         if (!entry) {
           // A later Stop (including one admitted during this drain) must commit
           // before an earlier delivery fault can reopen the data plane.
-          onFault(capacityFailure())
+          const receiverId = receiver?.hubId ?? ''
+          if (legacyExhausted() && legacyRetiredFor !== receiverId) {
+            try {
+              await retireLegacy()
+              legacyRetiredFor = receiverId
+            } catch (error) {
+              onFault(error)
+              throw error
+            }
+          }
+          if (pending() || receiverId !== (receiver?.hubId ?? '')) continue
+          onFault(undefined)
           return
         }
         const result = await deliver(
@@ -100,9 +172,14 @@ export async function startHookGateway(
           throw error
         })
         const retired = isExpiredHookResult(result)
-        if (retired && entry.input.version === 2) cutoff = Math.max(cutoff, entry.input.issuedAt)
-        const outcome = retired ? { retired: 'expired' as const } : { result }
-        save(entries.map((value) => (value === entry ? { ...value, ...outcome } : value)))
+        const outcome = retired ? { retired: 'expired' as const, result } : { result }
+        save(
+          entries.map((value) =>
+            value === entry ? { ...value, ...outcome, recordedAt: Date.now() } : value
+          ),
+          receiver,
+          retired && entry.input.version === 2 ? Math.max(cutoff, entry.input.issuedAt) : cutoff
+        )
       }
     }
     flushing = run()
@@ -172,25 +249,40 @@ export async function startHookGateway(
           if (input.version === 2 && input.profile.kind !== 'release')
             throw new Error('Lifecycle hook belongs to a different runtime profile.')
           const admittedAt = Date.now()
-          cutoff = hookCutoff(input, cutoff, admittedAt)
-          const live = entries.filter(retained)
-          if (live.length !== entries.length) save(live)
-          const existing = entries.find((entry) => entry.input.invocationId === input.invocationId)
-          if (existing && hookSignature(existing.input) !== hookSignature(input))
-            throw new Error('Lifecycle invocation identity changed.')
-          if (!existing) {
-            // Cross-process wall clocks can differ slightly. Do not acknowledge
-            // a future hook as historical; its sender can retry the same ID.
-            if (input.version === 2 && input.issuedAt > admittedAt)
+          const known = entries.some((entry) => entry.input.invocationId === input.invocationId)
+          compact()
+          hookCutoff(input, cutoff, admittedAt)
+          if (input.version === 2 && !known) {
+            // A retryable clock skew must not evict completed results before admission.
+            if (input.issuedAt > admittedAt)
               throw new FutureHookError(
                 'Lifecycle invocation is ahead of the runtime clock; retry the same invocation.'
               )
+            compact(true)
+            hookCutoff(input, cutoff, admittedAt)
+          }
+          const existing = entries.find((entry) => entry.input.invocationId === input.invocationId)
+          if (existing && hookSignature(existing.input) !== hookSignature(input))
+            throw new Error('Lifecycle invocation identity changed.')
+          if (existing?.retired) throw new ExpiredHookError(cutoff)
+          if (!existing) {
+            if (input.version === 1 && legacyExhausted()) {
+              await flush()
+              throw new LegacyHookCapacityError()
+            }
             const error = capacityFailure()
-            if (error) {
-              onFault(error)
-              throw error
+            const historyFull =
+              input.version === 2 &&
+              entries.filter((entry) => entry.input.version === 2).length >= HOOK_RECEIPT_LIMIT
+            if (error || historyFull) {
+              const fault =
+                error ??
+                new Error('Hook result history is waiting for unresolved lifecycle effects.')
+              onFault(fault)
+              throw fault
             }
             save([...entries, { input, admittedHubId: evidenceHub(input) }])
+            if (legacyExhausted()) onFault(new LegacyHookCapacityError())
           }
           if (input.version === 2) {
             void flush().catch(() => {})
@@ -198,6 +290,7 @@ export async function startHookGateway(
           const result = entries.find(
             (entry) => entry.input.invocationId === input.invocationId
           )?.result
+          if (result?.runtimeHookLegacyUpgradeRequired) throw new LegacyHookCapacityError()
           if (input.version === 1 && !result)
             throw new Error('Hook remains queued during runtime handoff.')
           socket.end(
@@ -218,7 +311,11 @@ export async function startHookGateway(
             }) + '\n'
           )
         })().catch((error: unknown) => {
-          if (error instanceof ExpiredHookError || error instanceof FutureHookError)
+          if (
+            error instanceof ExpiredHookError ||
+            error instanceof FutureHookError ||
+            error instanceof LegacyHookCapacityError
+          )
             socket.end(
               JSON.stringify({
                 jsonrpc: '2.0',
@@ -226,8 +323,15 @@ export async function startHookGateway(
                 error: {
                   code: -32001,
                   message: error.message,
-                  ...(error instanceof FutureHookError
-                    ? { data: { code: 'MCP_HOOK_CLOCK_AHEAD' } }
+                  ...(error instanceof FutureHookError || error instanceof LegacyHookCapacityError
+                    ? {
+                        data: {
+                          code:
+                            error instanceof FutureHookError
+                              ? 'MCP_HOOK_CLOCK_AHEAD'
+                              : 'MCP_HOOK_LEGACY_UPGRADE_REQUIRED'
+                        }
+                      }
                     : {})
                 }
               }) + '\n'
@@ -238,10 +342,16 @@ export async function startHookGateway(
       }
     })
   })
+  compact()
   cleanupEndpoint(socketPath)
-  await listenPrivate(server, socketPath)
+  await listenPrivate(server, socketPath, signal)
   onFault(
-    capacityFailure() ?? (pending() ? new Error('Lifecycle hooks remain queued.') : undefined)
+    capacityFailure() ??
+      (pending()
+        ? new Error('Lifecycle hooks remain queued.')
+        : legacyExhausted()
+          ? new LegacyHookCapacityError()
+          : undefined)
   )
   return {
     flush,
@@ -262,6 +372,9 @@ export async function startHookGateway(
     },
     get pending() {
       return pending()
+    },
+    get legacyExhausted() {
+      return legacyExhausted()
     },
     close: async () => {
       closed = true

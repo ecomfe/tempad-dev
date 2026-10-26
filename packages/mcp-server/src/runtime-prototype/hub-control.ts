@@ -47,6 +47,7 @@ export class HubControl {
       }
       flush: () => void
       stop: () => Promise<void>
+      retireLegacyHooks?: () => void
       hook: (
         input: import('../agent-clients/hooks').ClientHook,
         fresh: boolean
@@ -151,6 +152,17 @@ export class HubControl {
     const requireLease = () => {
       if (this.peer !== peer || !this.available()) throw unavailable()
     }
+    peer.setRequestHandler(
+      z.object({ method: z.literal('tempad/runtime-retire-legacy-hooks') }),
+      () => {
+        requireLease()
+        if (!this.handoff?.retireLegacyHooks)
+          throw unavailable('This Hub cannot retire legacy lifecycle evidence.')
+        this.handoff.retireLegacyHooks()
+        this.handoff.flush()
+        return {}
+      }
+    )
     peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-renew') }), () => {
       requireLease()
       this.expires = this.now() + LEASE_MS

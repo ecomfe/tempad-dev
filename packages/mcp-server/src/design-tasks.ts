@@ -27,7 +27,10 @@ import {
   EXPIRED_HOOK_RESULT,
   ExpiredHookError,
   HOOK_RECEIPT_LIMIT,
+  LegacyHookCapacityError,
   hookCutoff,
+  hookPressureCutoff,
+  hookRetentionCutoff,
   hookSignature,
   type HookReceipt
 } from './hook-receipts'
@@ -489,6 +492,7 @@ export class DesignTasks {
     apply: () => Record<string, unknown>,
     retireExpired?: () => void
   ): Record<string, unknown> {
+    this.compactHookReceipts(invocationId)
     const signature = hookSignature(input)
     const existing = this.hookReceipts.get(invocationId)
     if (existing && existing.signature !== signature)
@@ -503,14 +507,6 @@ export class DesignTasks {
         this.hookReceiptCutoff = error.cutoff
         expired = true
       }
-      for (const [id, receipt] of this.hookReceipts)
-        if (
-          id !== invocationId &&
-          receipt.issuedAt !== undefined &&
-          receipt.issuedAt <= this.hookReceiptCutoff &&
-          (!receipt.error || receipt.retired)
-        )
-          this.hookReceipts.delete(id)
     }
     if (existing && (!expired || existing.retired)) {
       this.flush()
@@ -518,7 +514,33 @@ export class DesignTasks {
         throw new Error(`Lifecycle effect remains uncertain: ${existing.error}`)
       return existing.result
     }
-    if (!existing && this.hookReceipts.size >= HOOK_RECEIPT_LIMIT)
+    if (!existing && !expired && parsed.success && parsed.data.version === 2) {
+      this.compactHookReceipts(invocationId, true)
+      hookCutoff(parsed.data, this.hookReceiptCutoff, this.now())
+    }
+    if (
+      !existing &&
+      parsed.success &&
+      parsed.data.version === 1 &&
+      [...this.hookReceipts.values()].filter((receipt) => receipt.issuedAt === undefined).length >=
+        HOOK_RECEIPT_LIMIT
+    )
+      throw new LegacyHookCapacityError()
+    if (
+      !existing &&
+      !expired &&
+      parsed.success &&
+      parsed.data.version === 2 &&
+      [...this.hookReceipts.values()].filter((receipt) => receipt.issuedAt !== undefined).length >=
+        HOOK_RECEIPT_LIMIT
+    )
+      throw new Error('Hook result history is waiting for uncertain lifecycle effects.')
+    if (
+      !existing &&
+      !expired &&
+      [...this.hookReceipts.values()].filter((receipt) => receipt.error && !receipt.retired)
+        .length >= HOOK_RECEIPT_LIMIT
+    )
       throw new Error(
         'Runtime hook receipt capacity reached. Preserve the runtime state for diagnosis.'
       )
@@ -544,9 +566,34 @@ export class DesignTasks {
       receipt.error = String(error).slice(0, 1000)
       throw error
     } finally {
-      this.hookReceipts.set(invocationId, receipt)
+      // A newly observed expired invocation is already fenced by the durable cutoff.
+      // Its idempotent retirement needs no new receipt slot, even at full capacity.
+      if (existing || !expired) this.hookReceipts.set(invocationId, receipt)
       this.applyingHook = false
       this.flush()
+    }
+  }
+
+  private compactHookReceipts(preserveId?: string, reserveResult = false): void {
+    this.hookReceiptCutoff = hookRetentionCutoff(this.hookReceiptCutoff, this.now())
+    const legacyCutoff = hookRetentionCutoff(0, this.now())
+    if (reserveResult) {
+      const completed: number[] = []
+      const unresolved: number[] = []
+      for (const receipt of this.hookReceipts.values())
+        if (receipt.issuedAt !== undefined)
+          (receipt.error && !receipt.retired ? unresolved : completed).push(receipt.issuedAt)
+      this.hookReceiptCutoff = hookPressureCutoff(this.hookReceiptCutoff, completed, unresolved)
+    }
+    for (const [id, receipt] of this.hookReceipts) {
+      if (receipt.error && !receipt.retired) continue
+      if (receipt.issuedAt !== undefined) {
+        if (id !== preserveId && receipt.issuedAt <= this.hookReceiptCutoff)
+          this.hookReceipts.delete(id)
+      } else if (!receipt.retired && receipt.recordedAt <= legacyCutoff) {
+        receipt.retired = 'expired'
+        receipt.result = EXPIRED_HOOK_RESULT
+      }
     }
   }
 
@@ -981,6 +1028,7 @@ export class DesignTasks {
     for (const receipt of snapshot.hookReceipts ?? [])
       this.hookReceipts.set(receipt.invocationId, receipt)
     this.hookReceiptCutoff = snapshot.hookReceiptCutoff ?? 0
+    this.compactHookReceipts()
     for (const fileKey of snapshot.filesNeedingRead ?? [])
       this.filesNeedingRead.set(fileKey, ++this.readGeneration)
     for (const [fileKey, stopped] of Object.entries(snapshot.fileFences ?? {}))

@@ -25,6 +25,7 @@ import { AgentClients } from '../src/agent-clients/registry'
 import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
 import { writeDurableJson } from '../src/durable-json'
+import { HOOK_RECEIPT_LIMIT } from '../src/hook-receipts'
 import { createHubRuntimeIdentity, writeHubRuntimeIdentity } from '../src/runtime-identity'
 import { cleanupEndpoint, runtimeEndpoint } from '../src/runtime-platform'
 import * as processes from '../src/runtime-prototype/processes'
@@ -95,7 +96,8 @@ afterEach(async () => {
 async function fixture(
   hook?: (input: ClientHook, fresh: boolean) => Record<string, unknown>,
   automatic = false,
-  initial?: { phase: 'committed' | 'preparing'; staged?: boolean }
+  initial?: { phase: 'committed' | 'preparing'; staged?: boolean },
+  beforeStart?: (root: string) => void
 ) {
   const root = await fixtureRoot('tp-switch-test-')
   await mkdir(join(root, 'run'), { mode: 0o700 })
@@ -157,6 +159,7 @@ async function fixture(
   let admissionBarrier = true
   let onPause: ((signal: AbortSignal) => Promise<void>) | undefined
   const admissions: boolean[] = []
+  const retireLegacy = vi.fn(() => ({}))
   const hubs: { pid: number; stop: (exiting?: boolean) => Promise<void>; artifact: Artifact }[] = []
   const launches = new Set<Promise<void>>()
   const launchFailures: unknown[] = []
@@ -228,6 +231,10 @@ async function fixture(
         setTimeout(() => void stop(), 5)
         return {}
       })
+      peer.setRequestHandler(
+        z.object({ method: z.literal('tempad/runtime-retire-legacy-hooks') }),
+        retireLegacy
+      )
       if (hook)
         peer.setRequestHandler(
           z.object({
@@ -279,6 +286,7 @@ async function fixture(
         ...(initial.staged ? { candidate: b } : {})
       })
   }
+  beforeStart?.(root)
   const stops = new Set(process.listeners('SIGTERM'))
   await startSupervisor(config)
   shutdown = process.listeners('SIGTERM').find((listener) => !stops.has(listener))!
@@ -349,6 +357,7 @@ async function fixture(
     hubs,
     control,
     admissions,
+    retireLegacy,
     pauseWith: (handler: (signal: AbortSignal) => Promise<void>) => {
       onPause = handler
     },
@@ -448,6 +457,31 @@ it('requires explicit barrier support before switching an older edge', async () 
   expect(f.admissions).toEqual([])
   expect(f.hubs).toHaveLength(1)
   expect(fake.probe).not.toHaveBeenCalled()
+})
+
+it('retires exhausted legacy lifecycle evidence before reopening admission and reports the upgrade boundary', async () => {
+  const f = await fixture(undefined, false, undefined, (root) => {
+    writeDurableJson(join(root, 'hooks.json'), {
+      version: 2,
+      cutoff: 0,
+      entries: Array.from({ length: HOOK_RECEIPT_LIMIT }, () => ({
+        input: {
+          version: 1,
+          invocationId: randomUUID(),
+          kind: 'claude',
+          sessionId: 'legacy',
+          event: 'UserPromptSubmit'
+        },
+        result: {}
+      }))
+    })
+  })
+  expect(f.retireLegacy).toHaveBeenCalledOnce()
+  expect(await f.status()).toMatchObject({
+    gated: false,
+    legacyHookWarning: expect.stringContaining('Update the TemPad Dev plugin')
+  })
+  expect(await f.status()).not.toHaveProperty('hookFault')
 })
 
 it('automatically replaces a compatible idle runtime once', async () => {

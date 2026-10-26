@@ -314,7 +314,14 @@ export async function startSupervisor(config: PrototypeConfig) {
         hookFault = error === undefined ? undefined : String(error)
         if (hookFault || (recovering && !transitioning)) void gate(!!hookFault).catch(() => {})
       },
-      config.directories ? SOCK_PATH : runtimeEndpoint(paths.runtime, 'mcp.sock')
+      config.directories ? SOCK_PATH : runtimeEndpoint(paths.runtime, 'mcp.sock'),
+      async () => {
+        await requireHub().request({ method: 'tempad/runtime-retire-legacy-hooks' }, ResultSchema, {
+          timeout: 5000,
+          signal: lifetime.signal
+        })
+      },
+      lifetime.signal
     )
     hooks.setReceiver(lease!.hubId)
   }
@@ -967,6 +974,9 @@ export async function startSupervisor(config: PrototypeConfig) {
         candidate: journal.candidate,
         failure: journal.failure,
         hookFault,
+        legacyHookWarning: hooks?.legacyExhausted
+          ? 'Legacy lifecycle history is full. Update the TemPad Dev plugin to restore Claude lifecycle support.'
+          : undefined,
         controlComponents: controlComponentStatus(
           PACKAGE_VERSION,
           [...edges.values()].map((edge) => edge.registration),

@@ -129,12 +129,13 @@ it.skipIf(process.platform === 'win32')(
       fresh.invocationId
     ])
     expect(fault).toHaveBeenLastCalledWith(undefined)
-    const entries = JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8')).entries
+    const stored = JSON.parse(readFileSync(join(root, 'hooks.json'), 'utf8'))
+    expect(stored.cutoff).toBeGreaterThanOrEqual(input.issuedAt)
     expect(
-      entries.find(
+      stored.entries.some(
         (entry: { input: ClientHook }) => entry.input.invocationId === input.invocationId
       )
-    ).toMatchObject({ retired: 'expired' })
+    ).toBe(false)
     expect((await request(root, input)).error.message).toContain('cannot be replayed')
     expect(after.tasks.find(task.task.taskId)).toMatchObject({
       task: { status: 'cancelled' },
