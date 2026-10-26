@@ -1,3 +1,4 @@
+import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { execFileSync, spawn } from 'node:child_process'
 import * as childProcess from 'node:child_process'
 import { once } from 'node:events'
@@ -27,6 +28,7 @@ vi.mock('node:child_process', async (original) => ({
 import {
   assertPrivateEndpoint,
   assertPrivatePath,
+  assertPrivatePathAsync,
   cleanupEndpoint,
   createPrivateTempDirectory,
   ensurePrivateDirectory,
@@ -35,6 +37,8 @@ import {
   runtimeEndpoint,
   windowsPowerShellEnvironment
 } from '../src/runtime-platform'
+import { HubControl, LeaseSchema } from '../src/runtime-prototype/hub-control'
+import { ControlPeer, LEASE_MS, RENEW_MS, SocketTransport } from '../src/runtime-prototype/protocol'
 import { readPrivateJson } from '../src/runtime-prototype/state'
 
 const roots: string[] = []
@@ -95,6 +99,54 @@ describe.skipIf(process.platform === 'win32')('Unix storage', () => {
 })
 
 describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
+  it('keeps a real control lease alive during a native ACL check longer than the lease', async () => {
+    const path = join(fixture(), 'heartbeat.json')
+    writeFileSync(path, '{}')
+    const control = new HubControl('secret')
+    const server = createServer((socket) => void control.attach(socket))
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const peer = new ControlPeer()
+    const socket = createConnection((server.address() as { port: number }).port, '127.0.0.1')
+    const execute = childProcess.execFile
+    const helper = vi.spyOn(childProcess, 'execFile').mockImplementationOnce((...args) => {
+      const command = [...(args[1] as string[])]
+      const index = command.indexOf('-EncodedCommand') + 1
+      const script = Buffer.from(command[index]!, 'base64').toString('utf16le')
+      command[index] = Buffer.from(
+        script.replace('$request = ', `[Threading.Thread]::Sleep(${LEASE_MS + 500}); $request = `),
+        'utf16le'
+      ).toString('base64')
+      return Reflect.apply(execute, childProcess, [args[0], command, ...args.slice(2)])
+    })
+    let timer: ReturnType<typeof setInterval> | undefined
+    const renewals: Promise<unknown>[] = []
+    try {
+      await peer.connect(new SocketTransport(socket))
+      await peer.request(
+        { method: 'tempad/runtime-acquire', params: { secret: 'secret', versions: [2] } },
+        LeaseSchema
+      )
+      timer = setInterval(() => {
+        const renewal = peer.request({ method: 'tempad/runtime-renew' }, ResultSchema)
+        void renewal.catch(() => {})
+        renewals.push(renewal)
+      }, RENEW_MS)
+      await assertPrivatePathAsync(path, 'file')
+      await Promise.all(renewals)
+      expect(renewals.length).toBeGreaterThanOrEqual(5)
+      expect(control.available()).toBe(true)
+      expect(helper).toHaveBeenCalledOnce()
+    } finally {
+      clearInterval(timer)
+      helper.mockRestore()
+      await peer.close()
+      await control.close()
+      socket.destroy()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }, 30_000)
+
   it('revalidates a snapshot replaced after the native ACL helper returns', () => {
     const path = join(fixture(), 'switch.json')
     writeFileSync(path, '{"revision":1}')

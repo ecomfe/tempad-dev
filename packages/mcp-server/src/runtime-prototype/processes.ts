@@ -10,11 +10,11 @@ import lockfile from 'proper-lockfile'
 
 import { hubEnvironment } from '../process-environment'
 import {
-  assertPrivateEndpoint,
+  assertPrivateEndpointAsync,
   assertPrivatePath,
   ensurePrivateDirectory,
   isPipe,
-  protectPipe,
+  protectPipeAsync,
   runtimeEndpoint
 } from '../runtime-platform'
 import { verifyReleaseArtifact } from '../runtime-update/artifact'
@@ -111,7 +111,11 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
   if (!isPipe(path)) assertTrustedSocket(path)
   return new Promise((resolve, reject) => {
     const socket = connect(path)
-    const deadline = performance.now() + 1000
+    let deadline = performance.now() + 1000
+    const inspection = new AbortController()
+    const inspectionSignal = signal
+      ? AbortSignal.any([signal, inspection.signal])
+      : inspection.signal
     let pendingInspection: Error | undefined
     const cleanup = () => {
       clearTimeout(timer)
@@ -120,26 +124,22 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
     }
     const fail = (error: Error) => {
       cleanup()
+      inspection.abort()
       socket.destroy()
       reject(error)
     }
     const abort = () => fail(new Error('Runtime connection cancelled.'))
-    const timer = setTimeout(
-      () =>
-        fail(
-          pendingInspection ??
-            Object.assign(new Error('Runtime connection timed out.'), { code: 'ETIMEDOUT' })
-        ),
-      1000
-    )
+    const timedOut = () =>
+      fail(
+        pendingInspection ??
+          Object.assign(new Error('Runtime connection timed out.'), { code: 'ETIMEDOUT' })
+      )
+    let timer = setTimeout(timedOut, 1000)
     socket.once('error', fail)
     const verify = async () => {
-      // The ACL inspector opens a second pipe instance. Let a same-process server
-      // accept this connection and rearm its listener before the blocking inspection.
-      if (isPipe(path)) await delay(0, undefined, { signal })
       while (!socket.destroyed) {
         try {
-          if (isPipe(path)) assertPrivateEndpoint(path)
+          if (isPipe(path)) await assertPrivateEndpointAsync(path, inspectionSignal)
           return
         } catch (error) {
           if (
@@ -148,11 +148,18 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
           )
             throw error
           pendingInspection = error instanceof Error ? error : new Error(String(error))
-          await delay(25, undefined, { signal })
+          await delay(25, undefined, { signal: inspectionSignal })
         }
       }
     }
     socket.once('connect', () => {
+      if (isPipe(path)) {
+        // Connection acquisition and ACL inspection have separate bounds. The
+        // helper may take 15s, but must not block the Hub's 10s control lease.
+        clearTimeout(timer)
+        deadline = performance.now() + 15_000
+        timer = setTimeout(timedOut, 15_000)
+      }
       // Keep the connection open while inspecting: a connected pipe cannot be replaced by
       // a different owner between this check and the caller's first authenticated frame.
       void verify().then(
@@ -177,23 +184,35 @@ export async function waitForSocket(
 ) {
   if (timeoutMs <= 0) throw unavailable('Runtime process has not published its endpoint yet.')
   const until = performance.now() + timeoutMs
-  do {
-    if (processId !== undefined) {
-      try {
-        process.kill(processId, 0)
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
-        throw new Error('Runtime process exited before endpoint publication.', { cause: error })
+  const deadline = AbortSignal.timeout(Math.ceil(timeoutMs))
+  const bounded = signal ? AbortSignal.any([signal, deadline]) : deadline
+  try {
+    do {
+      if (processId !== undefined) {
+        try {
+          process.kill(processId, 0)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+          throw new Error('Runtime process exited before endpoint publication.', { cause: error })
+        }
       }
-    }
-    try {
-      return await connectSocket(path, signal)
-    } catch (error) {
-      signal?.throwIfAborted()
-      if (!unavailableSocket(error) && !isSocketPending(error)) throw error
-      await delay(100, undefined, { signal })
-    }
-  } while (performance.now() < until)
+      try {
+        const socket = await connectSocket(path, bounded)
+        if (bounded.aborted) {
+          socket.destroy()
+          bounded.throwIfAborted()
+        }
+        return socket
+      } catch (error) {
+        bounded.throwIfAborted()
+        if (!unavailableSocket(error) && !isSocketPending(error)) throw error
+        await delay(100, undefined, { signal: bounded })
+      }
+    } while (performance.now() < until)
+  } catch (error) {
+    signal?.throwIfAborted()
+    if (!deadline.aborted) throw error
+  }
   throw unavailable('Runtime process has not published its endpoint yet.')
 }
 
@@ -296,7 +315,8 @@ export async function withStartupLock<T>(root: string, action: () => Promise<T>,
   }
 }
 
-export async function listenPrivate(server: Server, path: string) {
+export async function listenPrivate(server: Server, path: string, signal?: AbortSignal) {
+  signal?.throwIfAborted()
   const connectionListeners = isPipe(path) ? server.rawListeners('connection') : undefined
   const rejectUnprotected = (socket: Socket) => socket.destroy()
   if (connectionListeners) {
@@ -304,36 +324,48 @@ export async function listenPrivate(server: Server, path: string) {
     server.on('connection', rejectUnprotected)
   }
   await new Promise<void>((resolve, reject) => {
+    const inspection = new AbortController()
+    let settled = false
     const cleanup = () => {
       clearTimeout(timer)
       server.off('error', fail)
       server.off('close', closed)
+      signal?.removeEventListener('abort', abort)
     }
     const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      inspection.abort()
       cleanup()
+      server.close()
       reject(error)
     }
     const closed = () => fail(new Error('Runtime listener closed during startup.'))
-    const timer = setTimeout(() => fail(new Error('Runtime listener startup timed out.')), 5000)
+    const abort = () => fail(signal?.reason ?? new Error('Runtime listener startup cancelled.'))
+    let timer = setTimeout(() => fail(new Error('Runtime listener startup timed out.')), 5000)
     server.once('error', fail)
     server.once('close', closed)
+    signal?.addEventListener('abort', abort, { once: true })
     const mask = process.umask(0o177)
     try {
       server.listen(path, () => {
-        try {
-          // This synchronous ACL operation completes before connection callbacks can run.
-          if (isPipe(path)) protectPipe(path)
+        clearTimeout(timer)
+        timer = setTimeout(() => fail(new Error('Runtime listener protection timed out.')), 15_000)
+        void (async () => {
+          // Reject connections until the real ACL is installed and verified.
+          if (isPipe(path)) await protectPipeAsync(path, inspection.signal)
+          if (settled) return
           if (connectionListeners) {
             server.off('connection', rejectUnprotected)
             for (const listener of connectionListeners)
               server.on('connection', listener as (socket: Socket) => void)
           }
           cleanup()
+          settled = true
           resolve()
-        } catch (error) {
-          server.close()
+        })().catch((error: unknown) => {
           fail(error instanceof Error ? error : new Error(String(error)))
-        }
+        })
       })
     } catch (error) {
       fail(error instanceof Error ? error : new Error(String(error)))
@@ -341,4 +373,8 @@ export async function listenPrivate(server: Server, path: string) {
       process.umask(mask)
     }
   })
+  if (signal?.aborted) {
+    server.close()
+    signal.throwIfAborted()
+  }
 }

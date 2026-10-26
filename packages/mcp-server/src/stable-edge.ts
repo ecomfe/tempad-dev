@@ -40,7 +40,7 @@ export interface StableEdgeOptions {
     contract: RuntimeContract,
     version: string,
     previous?: RuntimeContract
-  ) => void
+  ) => void | Promise<void>
 }
 type RuntimeContract = Awaited<ReturnType<typeof readRuntimeContract>>
 
@@ -246,7 +246,7 @@ export async function startStableEdge(host: Transport, options: StableEdgeOption
       })
       await options.register?.(client)
       const observed = await readRuntimeContract(client, lifetime.signal, options.requestTimeoutMs)
-      options.validateContract?.(observed, client.getServerVersion()!.version, contract)
+      await options.validateContract?.(observed, client.getServerVersion()!.version, contract)
       lifetime.signal.throwIfAborted()
       if (!client.transport) throw unavailable()
       return { client, observed }

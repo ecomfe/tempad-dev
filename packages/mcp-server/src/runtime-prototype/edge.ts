@@ -34,7 +34,7 @@ import {
   type Grant,
   type Registration
 } from './protocol'
-import { readJournal } from './state'
+import { readJournalAsync } from './state'
 
 export async function startPrototypeEdge(
   config: PrototypeConfig,
@@ -304,8 +304,8 @@ export async function startPrototypeEdge(
   edge = await startStableEdge(host, {
     ...(config.release
       ? {
-          validateContract: (observed, version, previous) => {
-            const journal = readJournal(config.root)
+          validateContract: async (observed, version, previous) => {
+            const journal = await readJournalAsync(config.root)
             const artifact = [journal?.active, journal?.candidate, journal?.previous].find(
               (value) => value?.version === version
             )

@@ -14,11 +14,11 @@ vi.mock('node:child_process', async (original) => ({
 }))
 vi.mock('../src/runtime-platform', async (original) => ({
   ...(await original<typeof import('../src/runtime-platform')>()),
-  assertPrivateEndpoint: vi.fn(),
+  assertPrivateEndpointAsync: vi.fn(),
   runtimeEndpoint: () => '\\\\.\\pipe\\test'
 }))
 
-import { assertPrivateEndpoint } from '../src/runtime-platform'
+import { assertPrivateEndpointAsync as assertPrivateEndpoint } from '../src/runtime-platform'
 import {
   connectSocket,
   supervisorConnection,
@@ -47,7 +47,10 @@ beforeEach(() => {
   socket = createSocket()
   vi.mocked(connect).mockReturnValue(socket)
 })
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+})
 
 it('waits past the endpoint probe window for its own living launch', async () => {
   const child = new EventEmitter() as ChildProcess
@@ -143,7 +146,6 @@ it.each(['EPIPEUNPROTECTED', 'EBUSY'])(
     })
     socket.emit('connect')
     expect(ready).not.toHaveBeenCalled()
-    expect(assertPrivateEndpoint).not.toHaveBeenCalled()
     expect(socket.write).not.toHaveBeenCalled()
     await expect(connection).resolves.toBe(socket)
     expect(connect).toHaveBeenCalledOnce()
@@ -153,14 +155,16 @@ it.each(['EPIPEUNPROTECTED', 'EBUSY'])(
 )
 
 it.each(['EPIPEUNPROTECTED', 'EBUSY'])(
-  'preserves %s when inspection cannot finish within the existing connection deadline',
+  'preserves %s when inspection cannot finish within its bounded verification deadline',
   async (code) => {
+    vi.useFakeTimers()
     const error = Object.assign(new Error('not ready yet'), { code })
     vi.mocked(assertPrivateEndpoint).mockImplementation(() => {
       throw error
     })
     const rejected = expect(connectSocket('\\\\.\\pipe\\test')).rejects.toBe(error)
     socket.emit('connect')
+    await vi.advanceTimersByTimeAsync(15_000)
     await rejected
     expect(assertPrivateEndpoint).toHaveBeenCalled()
     expect(socket.destroy).toHaveBeenCalled()
@@ -218,6 +222,7 @@ it.each([
 ] as const)(
   'waits for %s %s across connection attempts without launching another owner',
   async (kind, code) => {
+    vi.useFakeTimers()
     const pending = Object.assign(new Error('Endpoint acquisition pending'), { code })
     expect(unavailableSocket(pending)).toBe(false)
     const sockets: Socket[] = []
@@ -227,12 +232,18 @@ it.each([
       if (code !== 'ETIMEDOUT' || sockets.length > 1) queueMicrotask(() => next.emit('connect'))
       return next
     })
-    vi.mocked(assertPrivateEndpoint).mockImplementation(() => {
+    vi.mocked(assertPrivateEndpoint).mockImplementation(async () => {
       if (sockets.length === 1) throw pending
     })
-    const connected = await (kind === 'endpoint'
-      ? waitForSocket('\\\\.\\pipe\\test')
-      : supervisorConnection({ root: '/unused' } as PrototypeConfig, AbortSignal.timeout(5000)))
+    const connection =
+      kind === 'endpoint'
+        ? waitForSocket('\\\\.\\pipe\\test', undefined, RECOVER_MS)
+        : supervisorConnection(
+            { root: '/unused' } as PrototypeConfig,
+            AbortSignal.timeout(RECOVER_MS)
+          )
+    await vi.advanceTimersByTimeAsync(16_000)
+    const connected = await connection
     expect(sockets).toHaveLength(2)
     expect(connected).toBe(sockets[1])
     expect(sockets[0]!.destroyed).toBe(true)

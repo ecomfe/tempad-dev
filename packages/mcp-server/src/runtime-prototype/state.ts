@@ -3,7 +3,7 @@ import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 
 import { writeDurableJson } from '../durable-json'
-import { assertPrivatePath } from '../runtime-platform'
+import { assertPrivatePath, assertPrivatePathAsync } from '../runtime-platform'
 
 export const ArtifactSchema = z
   .object({
@@ -86,6 +86,27 @@ export function readPrivateJson<T extends z.ZodType>(
 
 export function readEndpoints(root: string) {
   return readPrivateJson(join(root, 'endpoints.json'), EndpointsSchema)
+}
+
+export async function readPrivateJsonAsync<T extends z.ZodType>(
+  path: string,
+  schema: T
+): Promise<z.output<T> | undefined> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await assertPrivatePathAsync(path, 'file')
+      return schema.parse(JSON.parse(readFileSync(path, 'utf8')))
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') return
+      if (attempt === 0 && code === 'ERUNTIMEPATHCHANGED') continue
+      throw error
+    }
+  }
+}
+
+export function readJournalAsync(root: string) {
+  return readPrivateJsonAsync(join(root, 'switch.json'), JournalSchema)
 }
 export function writeEndpoints(root: string, endpoints: Endpoints) {
   writeDurableJson(join(root, 'endpoints.json'), EndpointsSchema.parse(endpoints))

@@ -15,7 +15,7 @@ import { dirname, join, sep } from 'node:path'
 
 import type { Artifact } from '../runtime-prototype/state'
 
-import { ensurePrivateDirectory } from '../runtime-platform'
+import { ensurePrivateDirectory, ensurePrivateDirectoryAsync } from '../runtime-platform'
 import { IntegritySchema, MANIFEST_PATH } from './manifest'
 import { readInstalledPackage, sha256, verifyArchive, verifyPackage } from './package'
 
@@ -29,8 +29,13 @@ export function cacheDirectory(cache: string, integrity: string) {
 }
 
 /** Called by the sole owner after an acquisition worker has exited. */
-export function pruneCache(cache: string, retained: (Artifact | undefined)[]) {
-  privateDirectory(cache)
+export async function pruneCache(
+  cache: string,
+  retained: (Artifact | undefined)[],
+  signal?: AbortSignal
+) {
+  await ensurePrivateDirectoryAsync(cache)
+  signal?.throwIfAborted()
   for (const entry of readdirSync(cache, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const path = join(cache, entry.name)

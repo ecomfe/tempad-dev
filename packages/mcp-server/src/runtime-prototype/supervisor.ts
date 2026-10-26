@@ -46,7 +46,14 @@ import {
   unavailable,
   type Registration
 } from './protocol'
-import { newerVersion, readJournal, writeJournal, type Artifact, type Journal } from './state'
+import {
+  newerVersion,
+  readJournal,
+  readJournalAsync,
+  writeJournal,
+  type Artifact,
+  type Journal
+} from './state'
 import { controlComponentStatus } from './status'
 
 const InspectionSchema = ResultSchema.extend({
@@ -140,14 +147,18 @@ export async function startSupervisor(config: PrototypeConfig) {
               signal,
               cursor
             )
-            pruneCache(join(config.root, 'cache'), [
-              control,
-              journal.active,
-              journal.previous,
-              journal.candidate,
-              result.candidate,
-              updates?.status.candidate
-            ])
+            await pruneCache(
+              join(config.root, 'cache'),
+              [
+                control,
+                journal.active,
+                journal.previous,
+                journal.candidate,
+                result.candidate,
+                updates?.status.candidate
+              ],
+              signal
+            )
             return result
           } finally {
             await hub
@@ -685,7 +696,7 @@ export async function startSupervisor(config: PrototypeConfig) {
   }
 
   async function rollback(error: unknown) {
-    journal = readJournal(config.root) ?? journal
+    journal = (await readJournalAsync(config.root)) ?? journal
     const failed = journal.candidate ?? journal.active
     const fallback =
       journal.phase === 'committed' || journal.candidate?.bundle === journal.active.bundle
@@ -837,7 +848,7 @@ export async function startSupervisor(config: PrototypeConfig) {
       try {
         await activate(candidate.artifact, automatic)
       } catch (error) {
-        journal = readJournal(config.root) ?? journal
+        journal = (await readJournalAsync(config.root)) ?? journal
         // A definite pre-shutdown refusal leaves the original writer intact.
         // Reopen it instead of draining newly arrived work for a rollback.
         if (
@@ -1050,7 +1061,7 @@ export async function startSupervisor(config: PrototypeConfig) {
     ensureDir(paths.runtime)
     await recover()
     cleanupEndpoint(socketPath)
-    await listenPrivate(server, socketPath)
+    await listenPrivate(server, socketPath, lifetime.signal)
     publish()
     process.once('SIGTERM', stop)
     process.once('SIGINT', stop)

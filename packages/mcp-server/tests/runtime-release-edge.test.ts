@@ -17,7 +17,7 @@ vi.mock('../src/stable-edge', async (original) => ({
 }))
 vi.mock('../src/runtime-prototype/state', async (original) => ({
   ...(await original<typeof import('../src/runtime-prototype/state')>()),
-  readJournal: () => fake.journal
+  readJournalAsync: async () => fake.journal
 }))
 vi.mock('../src/runtime-update/artifact', () => ({ releaseManifest: () => fake.manifest }))
 vi.mock('../src/shared', async (original) => ({
@@ -42,16 +42,16 @@ it('requires retained identity and exact wire/guidance while allowing reviewed p
     capabilities: { tools: {} },
     pages: new Map([['', { tools: [] }]])
   }
-  expect(() => validate(original, '0.12.0')).toThrow('retained release')
+  await expect(validate(original, '0.12.0')).rejects.toThrow('retained release')
   fake.journal = { active: { version: '0.12.0' } }
   fake.manifest = { ...contractHashes(original), guidanceEpoch: 1 }
-  validate(original, '0.12.0')
+  await validate(original, '0.12.0')
   const correction = { ...original, instructions: 'Reviewed typo correction' }
   fake.manifest = { ...contractHashes(correction), guidanceEpoch: 1 }
-  validate(correction, '0.12.0', original)
+  await validate(correction, '0.12.0', original)
   fake.manifest.guidanceEpoch = 2
-  expect(() => validate(correction, '0.12.0', original)).toThrow('RESTART_REQUIRED')
+  await expect(validate(correction, '0.12.0', original)).rejects.toThrow('RESTART_REQUIRED')
   fake.manifest.guidanceEpoch = 1
   fake.manifest.wireHash = 'incorrect'
-  expect(() => validate(correction, '0.12.0', original)).toThrow('RESTART_REQUIRED')
+  await expect(validate(correction, '0.12.0', original)).rejects.toThrow('RESTART_REQUIRED')
 })

@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { lstatSync, mkdirSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
@@ -59,29 +59,52 @@ function rememberPermissions(path: string, state: ReturnType<typeof inspectPath>
   checkedPermissions.set(path, state)
 }
 
-export function assertPrivatePath(path: string, kind: 'file' | 'directory') {
-  let state = inspectPath(path, kind)
+function uncheckedPath(path: string, kind: 'file' | 'directory') {
+  const state = inspectPath(path, kind)
   if (process.platform !== 'win32') return
   const cached = checkedPermissions.get(path)
   if (cached?.identity === state.identity && cached.revision === state.revision) return
   checkedPermissions.delete(path)
+  return state
+}
+
+function checkedPath(
+  path: string,
+  kind: 'file' | 'directory',
+  state: ReturnType<typeof inspectPath>
+) {
+  const next = inspectPath(path, kind)
+  if (next.identity !== state.identity)
+    throw Object.assign(new Error(`Runtime ${kind} changed during its permission check: ${path}`), {
+      code: 'ERUNTIMEPATHCHANGED'
+    })
+  if (next.revision === state.revision) {
+    rememberPermissions(path, next)
+    return
+  }
+  return next
+}
+
+export function assertPrivatePath(path: string, kind: 'file' | 'directory') {
+  let state = uncheckedPath(path, kind)
+  if (!state) return
   for (let attempt = 0; attempt < 2; attempt++) {
     windowsSecurity('inspect', path, kind)
-    const next = inspectPath(path, kind)
-    if (next.identity !== state.identity)
-      throw Object.assign(
-        new Error(`Runtime ${kind} changed during its permission check: ${path}`),
-        {
-          code: 'ERUNTIMEPATHCHANGED'
-        }
-      )
-    if (next.revision === state.revision) {
-      rememberPermissions(path, next)
-      return
-    }
     // ChangeTime covers ACL edits and ordinary child creation. Recheck once when it
     // changes, rejecting replacement but leaving an actively changing object uncached.
-    state = next
+    state = checkedPath(path, kind, state)
+    if (!state) return
+  }
+}
+
+/** Serving processes must let control leases renew while Windows checks permissions. */
+export async function assertPrivatePathAsync(path: string, kind: 'file' | 'directory') {
+  let state = uncheckedPath(path, kind)
+  if (!state) return
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await windowsSecurityAsync('inspect', path, kind)
+    state = checkedPath(path, kind, state)
+    if (!state) return
   }
 }
 
@@ -97,6 +120,17 @@ export function ensurePrivateDirectory(path: string) {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     windowsSecurity('ensure', path, 'directory')
+    rememberPermissions(path, inspectPath(path, 'directory'))
+  }
+}
+
+export async function ensurePrivateDirectoryAsync(path: string) {
+  if (process.platform !== 'win32') return ensurePrivateDirectory(path)
+  try {
+    await assertPrivatePathAsync(path, 'directory')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    await windowsSecurityAsync('ensure', path, 'directory')
     rememberPermissions(path, inspectPath(path, 'directory'))
   }
 }
@@ -123,6 +157,16 @@ export function protectPipe(path: string) {
   windowsSecurity('protect', path, 'pipe')
 }
 
+export async function assertPrivateEndpointAsync(path: string, signal?: AbortSignal) {
+  if (!isPipe(path)) throw new Error('Expected a Windows runtime pipe.')
+  await windowsSecurityAsync('inspect', path, 'pipe', signal)
+}
+
+export async function protectPipeAsync(path: string, signal?: AbortSignal) {
+  if (!isPipe(path)) throw new Error('Expected a Windows runtime pipe.')
+  await windowsSecurityAsync('protect', path, 'pipe', signal)
+}
+
 export function windowsPowerShellEnvironment(env: NodeJS.ProcessEnv = process.env) {
   // PowerShell 7's module paths can load incompatible modules in Windows PowerShell 5.
   return Object.fromEntries(
@@ -133,56 +177,80 @@ export function windowsPowerShellEnvironment(env: NodeJS.ProcessEnv = process.en
 // Built-in Windows PowerShell supplies the platform ACL API without an npm/native dependency.
 // JSON stays in a child-only environment value, never executable source or shell arguments.
 // Helper input is independent of host stdio and the Windows console's input code page.
-function windowsSecurity(action: 'ensure' | 'inspect' | 'protect', path: string, kind: string) {
+function securityCommand(action: 'ensure' | 'inspect' | 'protect', path: string, kind: string) {
   const systemRoot = process.env.SystemRoot
   if (!systemRoot || !isAbsolute(systemRoot))
     throw new Error('Windows SystemRoot is required to verify private runtime storage.')
-  try {
-    execFileSync(
-      join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-      [
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-EncodedCommand',
-        Buffer.from(SECURITY_SCRIPT, 'utf16le').toString('base64')
-      ],
-      {
-        encoding: 'utf8',
-        timeout: 15_000,
-        maxBuffer: 64 * 1024,
-        windowsHide: true,
-        env: {
-          ...windowsPowerShellEnvironment(),
-          TEMPAD_RUNTIME_ACL_REQUEST: JSON.stringify({ action, path, kind })
-        },
-        stdio: ['ignore', 'pipe', 'pipe']
+  return {
+    file: join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    args: [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-EncodedCommand',
+      Buffer.from(SECURITY_SCRIPT, 'utf16le').toString('base64')
+    ],
+    options: {
+      encoding: 'utf8' as const,
+      timeout: 15_000,
+      maxBuffer: 64 * 1024,
+      windowsHide: true,
+      env: {
+        ...windowsPowerShellEnvironment(),
+        TEMPAD_RUNTIME_ACL_REQUEST: JSON.stringify({ action, path, kind })
       }
-    )
-  } catch (cause) {
-    const error = cause as { stdout?: string; stderr?: string }
-    const detail = [error.stdout, error.stderr].filter(Boolean).join('\n').trim()
-    let code: number | string | undefined
-    let reportedFailure = false
-    try {
-      const report = JSON.parse(error.stderr ?? '{}')
-      code = report.code
-      reportedFailure = typeof report.message === 'string'
-    } catch {
-      // Startup and policy failures need not be JSON; they still fail closed.
     }
-    const failure = new Error(
-      `Refusing untrusted Windows runtime ${kind}: ${path}${detail ? ` (${detail})` : ''}`,
-      {
-        cause
-      }
-    ) as NodeJS.ErrnoException
-    if (code === 2 || code === 3) failure.code = 'ENOENT'
-    if (code === 231) failure.code = 'EBUSY'
-    if (code === 'EPIPEUNPROTECTED') failure.code = code
-    if (!failure.code && kind === 'pipe' && reportedFailure) failure.code = 'EPIPEUNTRUSTED'
-    throw failure
   }
+}
+
+function windowsSecurity(action: 'ensure' | 'inspect' | 'protect', path: string, kind: string) {
+  const { file, args, options } = securityCommand(action, path, kind)
+  try {
+    execFileSync(file, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (cause) {
+    throw securityFailure(cause, path, kind)
+  }
+}
+
+async function windowsSecurityAsync(
+  action: 'ensure' | 'inspect' | 'protect',
+  path: string,
+  kind: string,
+  signal?: AbortSignal
+) {
+  const { file, args, options } = securityCommand(action, path, kind)
+  await new Promise<void>((resolve, reject) => {
+    const child = execFile(file, args, { ...options, signal }, (error, stdout, stderr) => {
+      if (error) reject(securityFailure(Object.assign(error, { stdout, stderr }), path, kind))
+      else resolve()
+    })
+    child.stdin?.end()
+  })
+}
+
+function securityFailure(cause: unknown, path: string, kind: string) {
+  const error = cause as { stdout?: string; stderr?: string }
+  const detail = [error.stdout, error.stderr].filter(Boolean).join('\n').trim()
+  let code: number | string | undefined
+  let reportedFailure = false
+  try {
+    const report = JSON.parse(error.stderr ?? '{}')
+    code = report.code
+    reportedFailure = typeof report.message === 'string'
+  } catch {
+    // Startup and policy failures need not be JSON; they still fail closed.
+  }
+  const failure = new Error(
+    `Refusing untrusted Windows runtime ${kind}: ${path}${detail ? ` (${detail})` : ''}`,
+    {
+      cause
+    }
+  ) as NodeJS.ErrnoException
+  if (code === 2 || code === 3) failure.code = 'ENOENT'
+  if (code === 231) failure.code = 'EBUSY'
+  if (code === 'EPIPEUNPROTECTED') failure.code = code
+  if (!failure.code && kind === 'pipe' && reportedFailure) failure.code = 'EPIPEUNTRUSTED'
+  return failure
 }
 
 const SECURITY_SCRIPT = String.raw`
