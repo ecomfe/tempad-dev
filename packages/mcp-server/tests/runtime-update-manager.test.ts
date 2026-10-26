@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -175,16 +175,84 @@ it('cancels background acquisition after the last opt-in edge leaves', async () 
   await expect(checking).rejects.toThrow('aborted')
 })
 
-it('preserves corrupt scheduling evidence without querying the network', async () => {
+it.each(['broken', JSON.stringify({ version: 1, nextCheck: 'invalid' })])(
+  'rebuilds corrupt scheduling metadata after preserving %s and backs off across restarts',
+  async (corrupt) => {
+    vi.useFakeTimers()
+    const directory = root()
+    writeFileSync(join(directory, 'updates.json'), corrupt, { mode: 0o600 })
+    for (const name of ['switch.json', 'design-tasks.json', 'hooks.json'])
+      writeFileSync(join(directory, name), `authoritative ${name}`, { mode: 0o600 })
+    const acquire = vi.fn(async () => ({ candidate }))
+    const updates = owner({ root: directory, enrolled: () => true, acquire })
+    const backup = readdirSync(directory).find((name) => name.startsWith('updates.invalid-'))!
+    expect(readFileSync(join(directory, backup), 'utf8')).toBe(corrupt)
+    expect(updates.status).toMatchObject({
+      disabled: false,
+      failures: 1,
+      error: expect.stringContaining(backup)
+    })
+    expect(updates.status.candidate).toBeUndefined()
+    updates.schedule()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(acquire).not.toHaveBeenCalled()
+    updates.close()
+    const restarted = owner({ root: directory, enrolled: () => true, acquire })
+    restarted.schedule()
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 - 1)
+    expect(acquire).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(restarted.status.candidate).toEqual(candidate)
+    expect(readFileSync(join(directory, backup), 'utf8')).toBe(corrupt)
+    for (const name of ['switch.json', 'design-tasks.json', 'hooks.json'])
+      expect(readFileSync(join(directory, name), 'utf8')).toBe(`authoritative ${name}`)
+  }
+)
+
+it('allows an explicit check after rebuilding derived metadata', async () => {
   const directory = root()
   writeFileSync(join(directory, 'updates.json'), 'broken', { mode: 0o600 })
   const acquire = vi.fn(async () => ({ candidate }))
   const updates = owner({ root: directory, enrolled: () => true, acquire })
-  updates.schedule()
-  await expect(updates.check('latest', true)).rejects.toThrow('metadata is unreadable')
-  expect(readFileSync(join(directory, 'updates.json'), 'utf8')).toBe('broken')
+  await expect(updates.check('latest', true)).resolves.toEqual(candidate)
+  expect(acquire).toHaveBeenCalledOnce()
+})
+
+it('does not replace corrupt metadata if the repaired snapshot cannot commit', async () => {
+  const directory = root()
+  const path = join(directory, 'updates.json')
+  writeFileSync(path, 'broken', { mode: 0o600 })
+  vi.spyOn(durable, 'writeDurableJson').mockImplementation(() => {
+    throw new Error('ENOSPC')
+  })
+  const acquire = vi.fn()
+  const updates = owner({ root: directory, enrolled: () => true, acquire })
+  expect(updates.status).toMatchObject({ disabled: true, error: expect.stringContaining('ENOSPC') })
+  expect(readFileSync(path, 'utf8')).toBe('broken')
+  await expect(updates.check('latest', true)).rejects.toThrow('ENOSPC')
   expect(acquire).not.toHaveBeenCalled()
 })
+
+it.skipIf(process.platform === 'win32')(
+  'does not quarantine or replace untrusted metadata',
+  async () => {
+    const directory = root()
+    const original = join(directory, 'original.json')
+    writeFileSync(original, 'broken', { mode: 0o600 })
+    symlinkSync(original, join(directory, 'updates.json'))
+    const acquire = vi.fn()
+    const updates = owner({ root: directory, enrolled: () => true, acquire })
+    expect(updates.status).toMatchObject({
+      disabled: true,
+      error: expect.stringContaining('untrusted')
+    })
+    expect(readdirSync(directory).some((name) => name.startsWith('updates.invalid-'))).toBe(false)
+    expect(readFileSync(original, 'utf8')).toBe('broken')
+    await expect(updates.check('latest', true)).rejects.toThrow('untrusted')
+    expect(acquire).not.toHaveBeenCalled()
+  }
+)
 
 it('rejects contradictory checkout enrollment before constructing an updater', () => {
   expect(updateIntent([], true)).toEqual({ command: undefined, policy: 'off' })

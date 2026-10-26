@@ -1,10 +1,13 @@
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { z } from 'zod'
 
 import { writeDurableJson } from '../durable-json'
 import { hubEnvironment } from '../process-environment'
+import { assertPrivatePath } from '../runtime-platform'
 import { ArtifactSchema, readPrivateJson, type Artifact } from '../runtime-prototype/state'
 import {
   AcquisitionResultSchema,
@@ -57,8 +60,28 @@ export class ReleaseUpdates {
     try {
       this.state = readPrivateJson(join(options.root, 'updates.json'), StateSchema) ?? this.state
     } catch (error) {
-      this.disabled = true
-      this.state.error = `Update metadata is unreadable; automatic checks are disabled: ${String(error)}`
+      try {
+        // Only this derived download/check state is reconstructible. Preserve
+        // its bytes before replacing it; trust and I/O failures remain fatal.
+        if (!(error instanceof SyntaxError || error instanceof z.ZodError)) throw error
+        const path = join(options.root, 'updates.json')
+        assertPrivatePath(path, 'file')
+        const backup = join(options.root, `updates.invalid-${randomUUID()}.json`)
+        writeFileSync(backup, readFileSync(path), { flag: 'wx', mode: 0o600, flush: true })
+        this.save({
+          version: 1,
+          nextCheck: this.now() + 5 * 60 * 1000,
+          failures: 1,
+          error: `Update metadata was rebuilt; diagnostic copy: ${backup}. ${String(error)}`.slice(
+            0,
+            2000
+          )
+        })
+      } catch (failure) {
+        this.disabled = true
+        this.state.error =
+          `Update metadata is unreadable; checks are disabled: ${String(failure)}`.slice(0, 2000)
+      }
     }
   }
 
