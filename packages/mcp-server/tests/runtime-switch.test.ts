@@ -24,6 +24,7 @@ import { captureHostContext } from '../src/agent-clients/host-context'
 import { AgentClients } from '../src/agent-clients/registry'
 import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
+import { writeDurableJson } from '../src/durable-json'
 import { createHubRuntimeIdentity, writeHubRuntimeIdentity } from '../src/runtime-identity'
 import { cleanupEndpoint, runtimeEndpoint } from '../src/runtime-platform'
 import * as processes from '../src/runtime-prototype/processes'
@@ -93,7 +94,8 @@ afterEach(async () => {
 
 async function fixture(
   hook?: (input: ClientHook, fresh: boolean) => Record<string, unknown>,
-  automatic = false
+  automatic = false,
+  initial?: { phase: 'committed' | 'preparing'; staged?: boolean }
 ) {
   const root = await fixtureRoot('tp-switch-test-')
   await mkdir(join(root, 'run'), { mode: 0o700 })
@@ -150,6 +152,7 @@ async function fixture(
   let idleForMs = 5000
   let busyOnGate = false
   let refuseStop = false
+  let refuseCandidateOpen = false
   let waitForRuntime = true
   let admissionBarrier = true
   let onPause: ((signal: AbortSignal) => Promise<void>) | undefined
@@ -213,6 +216,8 @@ async function fixture(
           params: z.object({ closed: z.boolean() })
         }),
         ({ params }) => {
+          if (!params.closed && refuseCandidateOpen && artifact.bundle === b.bundle)
+            throw unavailable('Candidate could not reopen after commit.')
           gated = params.closed
           if (gated && busyOnGate) drained = false
           return status()
@@ -257,6 +262,23 @@ async function fixture(
     contract: 'identical'
   }))
   await start(a)
+  if (initial) {
+    journalState.writeJournal(root, {
+      version: 1,
+      revision: 1,
+      phase: initial.phase,
+      active: a,
+      candidate: b,
+      failedBundles: []
+    })
+    if (automatic)
+      writeDurableJson(join(root, 'updates.json'), {
+        version: 1,
+        nextCheck: Date.now() + 60_000,
+        failures: 0,
+        ...(initial.staged ? { candidate: b } : {})
+      })
+  }
   const stops = new Set(process.listeners('SIGTERM'))
   await startSupervisor(config)
   shutdown = process.listeners('SIGTERM').find((listener) => !stops.has(listener))!
@@ -348,6 +370,9 @@ async function fixture(
     rejectCandidate: () => {
       peerFailure = true
     },
+    rejectCandidateOpen: () => {
+      refuseCandidateOpen = true
+    },
     auto: {
       allow: () => {
         autoBlockers = []
@@ -427,6 +452,7 @@ it('requires explicit barrier support before switching an older edge', async () 
 
 it('automatically replaces a compatible idle runtime once', async () => {
   const f = await fixture(undefined, true)
+  const writes = vi.spyOn(journalState, 'writeJournal')
   f.auto.allow()
   await vi.waitFor(
     async () => expect(await f.status()).toMatchObject({ active: f.b, gated: false }),
@@ -434,7 +460,70 @@ it('automatically replaces a compatible idle runtime once', async () => {
   )
   expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b])
   expect(readJournal(f.root)).toMatchObject({ phase: 'committed', previous: f.a })
+  expect(
+    writes.mock.calls.every(([, journal]) => journal.phase !== 'committed' || !journal.candidate)
+  ).toBe(true)
 })
+
+it('keeps managed staging out of the switch journal until the old Hub drains', async () => {
+  const f = await fixture(undefined, true)
+  await f.control.request(
+    { method: 'tempad/runtime-check', params: { version: f.b.version } },
+    ResultSchema
+  )
+  const writes = vi.spyOn(journalState, 'writeJournal')
+  f.defer()
+  expect(
+    await f.control.request(
+      {
+        method: 'tempad/runtime-activate',
+        params: { version: f.b.version, integrity: f.b.release!.integrity }
+      },
+      ResultSchema
+    )
+  ).toMatchObject({ status: 'staged' })
+  expect(await f.status()).toMatchObject({
+    active: f.a,
+    gated: false,
+    updates: { candidate: f.b }
+  })
+  expect(readJournal(f.root)?.candidate).toBeUndefined()
+  expect(writes.mock.calls.every(([, journal]) => !journal.candidate)).toBe(true)
+  expect(f.hubs).toHaveLength(1)
+})
+
+it.each(['committed', 'preparing'] as const)(
+  'removes obsolete managed %s staging without promoting an unrecorded release',
+  async (phase) => {
+    const f = await fixture(undefined, true, { phase })
+    expect(readJournal(f.root)).toMatchObject({ phase: 'committed', active: f.a })
+    expect(readJournal(f.root)?.candidate).toBeUndefined()
+    expect(await f.status()).toMatchObject({ active: f.a, gated: false })
+    expect((await f.status()).updates).not.toHaveProperty('candidate')
+    expect(f.hubs).toHaveLength(1)
+    expect(releaseAcquisition.acquireRelease).not.toHaveBeenCalled()
+  }
+)
+
+it.each([
+  { phase: 'committed' as const, managed: false },
+  { phase: 'preparing' as const, managed: false },
+  { phase: 'committed' as const, managed: true },
+  { phase: 'preparing' as const, managed: true }
+])(
+  'recovers $phase staging in its owning store (managed: $managed)',
+  async ({ phase, managed }) => {
+    const f = await fixture(undefined, managed, { phase, staged: true })
+    expect(readJournal(f.root)).toMatchObject({ phase: 'committed', active: f.a })
+    expect(readJournal(f.root)?.candidate).toEqual(managed ? undefined : f.b)
+    expect(await f.status()).toMatchObject({
+      active: f.a,
+      gated: false,
+      ...(managed ? { updates: { candidate: f.b } } : { candidate: f.b })
+    })
+    expect(f.hubs).toHaveLength(1)
+  }
+)
 
 it('retains a living unverified candidate for explicit recovery instead of launching fallback', async () => {
   const f = await fixture()
@@ -536,6 +625,8 @@ it.each(['raceGate', 'refuseStop'] as const)(
     )
     expect(f.hubs).toHaveLength(1)
     expect(readJournal(f.root)?.failedBundles).toEqual([])
+    expect(readJournal(f.root)?.candidate).toBeUndefined()
+    expect(await f.status()).toHaveProperty('updates.candidate', f.b)
   }
 )
 
@@ -763,6 +854,32 @@ it('rolls back a candidate refused by an initialized edge', async () => {
   expect(await f.status()).toMatchObject({ active: f.a, gated: false })
   expect(readJournal(f.root)?.failedBundles).toContain(f.b.bundle)
 })
+
+it.each([false, true])(
+  'rolls back when the committed Hub cannot reopen (managed: %s)',
+  async (managed) => {
+    const f = await fixture(undefined, managed)
+    f.rejectCandidateOpen()
+    if (managed)
+      await f.control.request(
+        { method: 'tempad/runtime-check', params: { version: f.b.version } },
+        ResultSchema
+      )
+    const result = managed
+      ? await f.control.request(
+          {
+            method: 'tempad/runtime-activate',
+            params: { version: f.b.version, integrity: f.b.release!.integrity }
+          },
+          ResultSchema
+        )
+      : await f.update()
+    expect(result).toMatchObject({ status: 'rolled-back' })
+    expect(await f.status()).toMatchObject({ active: f.a, phase: 'committed', gated: false })
+    expect(readJournal(f.root)?.failedBundles).toEqual([f.b.bundle])
+    expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b, f.a])
+  }
+)
 
 it('cannot finish a pending update after releasing supervisor ownership', async () => {
   const f = await fixture()

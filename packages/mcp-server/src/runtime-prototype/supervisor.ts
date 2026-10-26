@@ -652,6 +652,7 @@ export async function startSupervisor(config: PrototypeConfig) {
       ...journal,
       phase: 'preparing',
       candidate,
+      failure: undefined,
       oldHub: { id: lease!.hubId, pid: lease!.hubPid }
     })
     await stopHub(automatic)
@@ -749,6 +750,10 @@ export async function startSupervisor(config: PrototypeConfig) {
     transitioning = true
     let observedPid: number | undefined
     try {
+      // Managed staging belongs to updates.json. Older supervisors also copied
+      // it here before drain; that copy cannot authorize or preserve an offer.
+      if (updates && journal.phase === 'committed' && journal.candidate)
+        persist({ ...journal, candidate: undefined })
       const identityPath = join(paths.runtime, 'hub-runtime.json')
       const identity = existsSync(identityPath)
         ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
@@ -772,9 +777,10 @@ export async function startSupervisor(config: PrototypeConfig) {
           persist({
             ...journal,
             phase: 'committed',
+            candidate: updates ? undefined : journal.candidate,
             oldHub: undefined,
             failure:
-              'The supervisor stopped before the old Hub exited; the candidate remains staged.'
+              'The supervisor stopped before the old Hub exited; the active runtime was retained.'
           })
         } else if (artifact.bundle !== journal.active.bundle) {
           persist({ ...journal, phase: 'candidate-ready' })
@@ -844,23 +850,30 @@ export async function startSupervisor(config: PrototypeConfig) {
             'The local candidate changes the frozen MCP contract; restart MCP instead.'
           )
       }
-      persist({ ...journal, candidate: candidate.artifact, failure: undefined })
+      if (!updates) persist({ ...journal, candidate: candidate.artifact, failure: undefined })
       try {
         await activate(candidate.artifact, automatic)
       } catch (error) {
         journal = (await readJournalAsync(config.root)) ?? journal
         // A definite pre-shutdown refusal leaves the original writer intact.
         // Reopen it instead of draining newly arrived work for a rollback.
-        if (
+        const originalRetained =
           automatic &&
           journal.phase === 'preparing' &&
           isRuntimeUnavailable(error) &&
           journal.oldHub?.id === lease?.hubId &&
           hub?.transport
-        )
-          persist({ ...journal, phase: 'committed', oldHub: undefined })
-        if (journal.phase === 'committed' && journal.candidate) {
-          persist({ ...journal, failure: String(error) })
+        if (
+          (journal.phase === 'committed' && journal.active.bundle !== candidate.artifact.bundle) ||
+          originalRetained
+        ) {
+          persist({
+            ...journal,
+            phase: 'committed',
+            candidate: updates ? undefined : journal.candidate,
+            oldHub: undefined,
+            failure: String(error)
+          })
           await gate(false)
           return { status: 'staged', reason: String(error) }
         }
