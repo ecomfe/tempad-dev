@@ -456,6 +456,12 @@ deliberately excluded from the first delivery.
 - If the required HTTP port cannot be rebound, keep admission closed and attempt safe
   recovery. Do not claim a transparent update while silently invalidating returned URLs.
   Capability rotation or endpoint changes require an explicit nontransparent transition.
+- After every prior edge and owner has exited, a cold start may replace occupied
+  endpoint ports under the startup lock. It reserves available ports (using the release
+  discovery candidates for WebSocket) and durably changes only those allocations,
+  preserving both capability secrets and the existing metadata format. A later port
+  collision fails closed and can be retried at the next cold start; an incomplete hot
+  handoff never reallocates endpoints.
 - A reconnected extension must validate its new handshake and asset endpoint normally.
   Do not weaken Origin checks or send a changed endpoint on an already-open connection.
   A stopped task's snapshot must win over restored active state.

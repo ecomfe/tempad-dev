@@ -1,10 +1,28 @@
 import { randomUUID } from 'node:crypto'
+import { once } from 'node:events'
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { join } from 'node:path'
 import lockfile from 'proper-lockfile'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
-const fake = vi.hoisted(() => ({ retain: vi.fn(), verify: vi.fn(), connect: vi.fn() }))
+const fake = vi.hoisted(() => ({
+  retain: vi.fn(),
+  verify: vi.fn(),
+  connect: vi.fn(),
+  ports: [0]
+}))
+vi.mock('../src/config', async (original) => {
+  const config = await original<typeof import('../src/config')>()
+  return {
+    ...config,
+    getMcpServerConfig: (...args: Parameters<typeof config.getMcpServerConfig>) => ({
+      ...config.getMcpServerConfig(...args),
+      wsPortCandidates: fake.ports
+    })
+  }
+})
 vi.mock('../src/runtime-update/artifact', async (original) => ({
   ...(await original<typeof import('../src/runtime-update/artifact')>()),
   retainBundledPackage: fake.retain,
@@ -16,13 +34,17 @@ vi.mock('../src/runtime-prototype/processes', async (original) => ({
 }))
 
 import { writeDurableJson } from '../src/durable-json'
+import * as durable from '../src/durable-json'
 import { createPrivateTempDirectory } from '../src/runtime-platform'
 import { fingerprintBundle, withStartupLock } from '../src/runtime-prototype/processes'
+import * as state from '../src/runtime-prototype/state'
 import {
   ConfigSchema,
+  readEndpoints,
   readJournal,
   readPrivateJson,
   writeJournal,
+  writeEndpoints,
   type Artifact,
   type Journal,
   type PrototypeConfig
@@ -37,6 +59,29 @@ let config: PrototypeConfig
 let journal: Journal
 let candidate: ReturnType<typeof release>
 const cleanup: (() => unknown | Promise<unknown>)[] = []
+const endpoints = {
+  wsPort: 6220,
+  httpPort: 12345,
+  accessToken: 'a'.repeat(32),
+  legacyAccessToken: 'b'.repeat(32)
+}
+
+async function httpListener(port = 0) {
+  const server = createServer()
+  await once(server.listen(port, '127.0.0.1'), 'listening')
+  cleanup.push(async () => {
+    if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+  return server
+}
+
+async function saveHttpEndpoint(occupied = true) {
+  const server = await httpListener()
+  const saved = { ...endpoints, httpPort: (server.address() as { port: number }).port }
+  writeEndpoints(root, saved)
+  if (!occupied) await new Promise<void>((resolve) => server.close(() => resolve()))
+  return saved
+}
 
 function release(version: string, name: string, overrides: Partial<RuntimeManifest> = {}) {
   const directory = join(root, 'packages', name)
@@ -114,8 +159,12 @@ function intent() {
   return value
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
+  fake.ports = [0]
+  const ws = await httpListener()
+  endpoints.wsPort = (ws.address() as { port: number }).port
+  await new Promise<void>((resolve) => ws.close(() => resolve()))
   root = createPrivateTempDirectory('tp-cold-')
   const control = release('0.12.0', 'a')
   const active = release('0.12.1', 'b')
@@ -189,6 +238,7 @@ it('admits an installed newer contract only on cold startup and preserves prior 
 it.each(['edge', 'supervisor', 'hub', 'socket', 'unprotected-pipe', 'timed-out-socket'] as const)(
   'retains the running generation when a %s survives',
   async (owner) => {
+    writeEndpoints(root, endpoints)
     if (owner === 'edge') {
       privateDirectory(join(root, 'edges'))
       writeDurableJson(join(root, 'edges/prior.json'), { pid: process.pid })
@@ -216,10 +266,111 @@ it.each(['edge', 'supervisor', 'hub', 'socket', 'unprotected-pipe', 'timed-out-s
     expect((await prepare()).config).toEqual(config)
     expect(readJournal(root)).toEqual(journal)
     expect(fake.retain).not.toHaveBeenCalled()
+    expect(readEndpoints(root)).toEqual(endpoints)
   }
 )
 
+it.each([false, true])(
+  'refreshes only an occupied cold HTTP port (occupied=%s), preserving the old metadata format',
+  async (occupied) => {
+    const saved = await saveHttpEndpoint(occupied)
+    const installed = release('0.12.0', 'installed')
+    expect((await prepare(installed)).config).toEqual(config)
+    const next = readEndpoints(root)!
+    if (occupied) expect(next.httpPort).not.toBe(saved.httpPort)
+    else expect(next.httpPort).toBe(saved.httpPort)
+    expect({ ...next, httpPort: saved.httpPort }).toEqual(saved)
+    // Frozen pre-fix schema: rollback must remain readable by an older release.
+    expect(
+      z
+        .object({
+          wsPort: z.number().int().min(1).max(65535),
+          httpPort: z.number().int().min(1).max(65535),
+          accessToken: z.string().min(32),
+          legacyAccessToken: z.string().min(32)
+        })
+        .strict()
+        .parse(next)
+    ).toEqual(next)
+    expect(readJournal(root)).toEqual(journal)
+  }
+)
+
+it.each(['preparing', 'old-stopped', 'candidate-ready'] as const)(
+  'keeps endpoints fixed during an unfinished %s transaction',
+  async (phase) => {
+    writeEndpoints(root, endpoints)
+    writeJournal(root, { ...journal, phase })
+    await prepare()
+    expect(readEndpoints(root)).toEqual(endpoints)
+  }
+)
+
+it('reassigns an occupied cold WebSocket port only to another discovery candidate', async () => {
+  const occupied = await httpListener()
+  endpoints.wsPort = (occupied.address() as { port: number }).port
+  const available = await httpListener()
+  const replacement = (available.address() as { port: number }).port
+  fake.ports = [endpoints.wsPort, replacement]
+  const saved = await saveHttpEndpoint(false)
+  await new Promise<void>((resolve) => available.close(() => resolve()))
+  await prepare()
+  expect(readEndpoints(root)).toEqual({ ...saved, wsPort: replacement })
+})
+
+it('does not keep a cold WebSocket port outside the current discovery candidates', async () => {
+  const available = await httpListener()
+  const replacement = (available.address() as { port: number }).port
+  fake.ports = [replacement]
+  const saved = await saveHttpEndpoint(false)
+  await new Promise<void>((resolve) => available.close(() => resolve()))
+  await prepare()
+  expect(readEndpoints(root)).toEqual({ ...saved, wsPort: replacement })
+})
+
+it('does not use an arbitrary WebSocket port when every discovery candidate is occupied', async () => {
+  const occupied = await Promise.all([httpListener(), httpListener()])
+  fake.ports = occupied.map((server) => (server.address() as { port: number }).port)
+  endpoints.wsPort = fake.ports[0]!
+  const saved = await saveHttpEndpoint(false)
+  await expect(prepare()).rejects.toMatchObject({ code: 'EADDRINUSE' })
+  expect(readEndpoints(root)).toEqual(saved)
+  expect(readdirSync(join(root, 'edges'))).toEqual([])
+  expect(fake.retain).not.toHaveBeenCalled()
+})
+
+it('can reallocate HTTP after resuming an interrupted verified cold upgrade', async () => {
+  const saved = await saveHttpEndpoint()
+  const pending = intent()
+  expect((await prepare()).config.entry).toBe(candidate.artifact.entry)
+  expect(readEndpoints(root)?.httpPort).not.toBe(saved.httpPort)
+  expect(readJournal(root)).toEqual(pending.journal)
+  expect(fake.verify).toHaveBeenCalledOnce()
+  expect(fake.retain).not.toHaveBeenCalled()
+})
+
+it('does not admit an edge when its cold HTTP allocation cannot be saved', async () => {
+  const saved = await saveHttpEndpoint()
+  let reservedPort: number | undefined
+  const write = durable.writeDurableJson
+  vi.spyOn(durable, 'writeDurableJson').mockImplementation((path, value) => {
+    if (path === join(root, 'endpoints.json')) {
+      reservedPort = (value as { httpPort: number }).httpPort
+      throw new Error('Endpoint write failed')
+    }
+    return write(path, value)
+  })
+  await expect(prepare()).rejects.toThrow('Endpoint write failed')
+  expect(readEndpoints(root)).toEqual(saved)
+  expect(readdirSync(join(root, 'edges'))).toEqual([])
+  expect(fake.retain).not.toHaveBeenCalled()
+  expect(reservedPort).toBeTypeOf('number')
+  await httpListener(reservedPort)
+  await httpListener(saved.wsPort)
+})
+
 it('waits for the real state writer lease instead of treating its lock directory as a file', async () => {
+  const saved = await saveHttpEndpoint()
   const state = config.directories!.state
   const unlock = await lockfile.lock(state, {
     lockfilePath: join(state, '.tempad-hub-writer.lock')
@@ -231,9 +382,11 @@ it('waits for the real state writer lease instead of treating its lock directory
   const result = prepare()
   await vi.waitFor(() => expect(fake.connect).toHaveBeenCalledTimes(2))
   expect(fake.retain).not.toHaveBeenCalled()
+  expect(readEndpoints(root)).toEqual(saved)
   await unlock()
   locked = false
   expect((await result).config.entry).toBe(candidate.artifact.entry)
+  expect(readEndpoints(root)?.httpPort).not.toBe(saved.httpPort)
 })
 
 it('removes only dead edge records before admitting a cold upgrade', async () => {
@@ -247,6 +400,27 @@ it('removes only dead edge records before admitting a cold upgrade', async () =>
   })
   expect((await prepare()).config.entry).toBe(candidate.artifact.entry)
   expect(existsSync(stale)).toBe(false)
+})
+
+it('ignores a prior edge registration removed by its exiting CLI during the scan', async () => {
+  privateDirectory(join(root, 'edges'))
+  const path = join(root, 'edges/prior.json')
+  writeDurableJson(path, { pid: process.pid })
+  const read = state.readPrivateJson
+  vi.spyOn(state, 'readPrivateJson').mockImplementation((file, schema) => {
+    if (file === path) rmSync(path, { force: true })
+    return read(file, schema)
+  })
+  expect((await prepare()).config.entry).toBe(candidate.artifact.entry)
+  expect(readJournal(root)?.coldStart).toBe(true)
+})
+
+it('rejects an invalid prior edge registration instead of treating it as absent', async () => {
+  privateDirectory(join(root, 'edges'))
+  writeDurableJson(join(root, 'edges/prior.json'), { pid: 'invalid' })
+  await expect(prepare()).rejects.toThrow('expected number')
+  expect(fake.retain).not.toHaveBeenCalled()
+  expect(readJournal(root)).toEqual(journal)
 })
 
 it('serializes competing cold launches before either edge can initialize', async () => {

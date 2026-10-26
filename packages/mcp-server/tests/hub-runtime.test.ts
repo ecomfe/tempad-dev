@@ -16,10 +16,10 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { WebSocket, WebSocketServer } from 'ws'
 
 const fixture = await vi.hoisted(async () => {
-  const { mkdtempSync } = await import('node:fs')
+  const { mkdtempSync, realpathSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { basename, join } = await import('node:path')
-  const directory = mkdtempSync(join(tmpdir(), 'tempad-hub-test-'))
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'tempad-hub-test-')))
   return {
     directory,
     socketPath:
@@ -80,6 +80,7 @@ import { createAssetHttpServer } from '../src/asset-http-server'
 import { createAssetStore } from '../src/asset-store'
 import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
+import { writeDurableJson } from '../src/durable-json'
 import { removeHubRuntimeIdentityIfOwned, writeHubRuntimeIdentity } from '../src/runtime-identity'
 import { LeaseSchema } from '../src/runtime-prototype/hub-control'
 import {
@@ -87,6 +88,7 @@ import {
   RuntimeDataTransport,
   SocketTransport
 } from '../src/runtime-prototype/protocol'
+import { readEndpoints } from '../src/runtime-prototype/state'
 import { runRuntimeRecovery } from '../src/runtime-recovery'
 import { log, resolveStateDir } from '../src/shared'
 import { startExtensionWebSocketServer } from '../src/websocket-server'
@@ -225,6 +227,40 @@ async function loadRuntime() {
   previousBeforeExit = process.listeners('beforeExit')
   return runtime
 }
+
+it('keeps a hot handoff pinned when an unrelated listener occupies its HTTP port', async () => {
+  const other = createHttpServer()
+  other.listen(0, '127.0.0.1')
+  await once(other, 'listening')
+  const endpoints = {
+    wsPort: 6220,
+    httpPort: (other.address() as { port: number }).port,
+    accessToken: 'a'.repeat(32),
+    legacyAccessToken: 'b'.repeat(32)
+  }
+  const path = `${fixture.directory}/endpoints.json`
+  writeDurableJson(path, endpoints)
+  const actual = await vi.importActual<typeof import('../src/asset-http-server')>(
+    '../src/asset-http-server'
+  )
+  vi.mocked(createAssetHttpServer).mockImplementation(actual.createAssetHttpServer)
+  vi.spyOn(process, 'exit').mockImplementation(() => {
+    throw new Error('Startup stopped')
+  })
+  try {
+    const { startHub } = await loadRuntime()
+    await expect(
+      startHub({ prototype: { root: fixture.directory, secret: 'isolated', paused: true } })
+    ).rejects.toThrow('Startup stopped')
+    expect(createAssetHttpServer).toHaveBeenCalledOnce()
+    expect(readEndpoints(fixture.directory)).toEqual(endpoints)
+    expect(startExtensionWebSocketServer).not.toHaveBeenCalled()
+  } finally {
+    await stopRuntime()
+    await new Promise<void>((resolve) => other.close(() => resolve()))
+    rmSync(path, { force: true })
+  }
+})
 
 it('includes pending native actions and transfers in the runtime drain boundary', async () => {
   const native = vi.spyOn(AgentClients.prototype, 'hasPendingActions', 'get').mockReturnValue(false)

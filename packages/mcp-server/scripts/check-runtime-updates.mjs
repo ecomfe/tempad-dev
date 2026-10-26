@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
 import console from 'node:console'
+import { once } from 'node:events'
 import { chmod, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { createServer as createSocketServer } from 'node:net'
@@ -40,6 +41,8 @@ const packaged = join(root, 'source.tgz')
 const clients = []
 const transports = []
 let control
+let occupiedAssetPort
+let occupiedWebSocketPort
 let succeeded = false
 let runtimePids = []
 const automaticPids = new Set()
@@ -180,6 +183,11 @@ async function makeArtifact(version, base, epoch) {
               "const REGISTRY = 'https://registry.npmjs.org'",
               `const REGISTRY = ${JSON.stringify(registryUrl)}`
             )
+          }
+          if (resolve(id) === join(source, 'src/runtime-update/cold-start.ts')) {
+            const candidates = 'getMcpServerConfig(RUNTIME_PROFILE).wsPortCandidates'
+            assert.ok(code.includes(candidates), 'fixture cold endpoint boundary changed')
+            return code.replace(candidates, '[0]')
           }
           if (resolve(id) === join(source, 'src/hub-runtime.ts')) {
             const boundary = 'const runtimeDataSockets = new Map<string, Socket>()'
@@ -666,6 +674,8 @@ try {
   assert.equal(staged.updates.automaticActivation, false)
   runtimePids = [staged.supervisorPid, staged.hubPid]
   const oldPid = staged.hubPid
+  const endpointPath = join(root, 'state/runtime/endpoints.json')
+  const fixedEndpoints = JSON.parse(await readFile(endpointPath, 'utf8'))
   assert.equal((await status()).hubPid, oldPid, 'mixed policies must share the Hub')
   const count = requests.length
   await delay(200)
@@ -698,6 +708,11 @@ try {
   runtimePids = [changed.supervisorPid, changed.hubPid]
   assert.equal(changed.active.version, b.version)
   assert.notEqual(changed.hubPid, oldPid)
+  assert.deepEqual(
+    JSON.parse(await readFile(endpointPath, 'utf8')),
+    fixedEndpoints,
+    'a hot handoff must preserve asset ports and credentials'
+  )
   assert.deepEqual(await first.listTools(), catalog, 'the original session keeps its presentation')
   await first.ping()
   const unpinned = await client(a)
@@ -775,6 +790,8 @@ try {
   await control.close()
   await first.close()
   await until(() => runtimePids.every(exited), 'all old runtime owners exited', 15_000)
+  occupiedAssetPort = createServer()
+  await once(occupiedAssetPort.listen(fixedEndpoints.httpPort, '127.0.0.1'), 'listening')
   online = false
   const networkBeforeRestart = requests.length
   const [restarted, concurrent] = await Promise.all([client(c, 'pinned'), client(c, 'pinned')])
@@ -789,6 +806,14 @@ try {
   assert.equal(cold.controlComponents.restartRequired, false)
   assert.equal(cold.updates.automaticActivation, false)
   assert.equal(requests.length, networkBeforeRestart, 'cold adoption uses only installed bytes')
+  const coldEndpoints = JSON.parse(await readFile(endpointPath, 'utf8'))
+  assert.notEqual(coldEndpoints.httpPort, fixedEndpoints.httpPort)
+  assert.deepEqual(
+    { ...coldEndpoints, httpPort: fixedEndpoints.httpPort },
+    fixedEndpoints,
+    'cold HTTP reallocation preserves credentials and the rollback-compatible metadata format'
+  )
+  await new Promise((resolve) => occupiedAssetPort.close(resolve))
   assert.equal(await readFile(join(root, 'assets/preserved.txt'), 'utf8'), 'pre-enrollment asset')
   const savedControl = JSON.parse(
     await readFile(join(root, 'state/runtime/prototype.json'), 'utf8')
@@ -801,6 +826,23 @@ try {
   await restarted.ping()
   await assert.rejects(client(a, 'pinned'), /pinned client requests a different runtime/)
   assert.equal((await status()).hubPid, cold.hubPid, 'an old CLI cannot downgrade the owner')
+  await control.close()
+  await restarted.close()
+  await until(() => runtimePids.every(exited), 'cold HTTP fixture owners exited', 15_000)
+  occupiedWebSocketPort = createServer()
+  await once(occupiedWebSocketPort.listen(coldEndpoints.wsPort, '127.0.0.1'), 'listening')
+  const wsRestarted = await client(c, 'pinned')
+  control = new ControlPeer()
+  await control.connect(
+    new SocketTransport(await connectSocket(runtimeEndpoint(join(root, 'run'), 'supervisor.sock')))
+  )
+  const wsCold = await status()
+  runtimePids = [wsCold.supervisorPid, wsCold.hubPid]
+  const wsEndpoints = JSON.parse(await readFile(endpointPath, 'utf8'))
+  assert.notEqual(wsEndpoints.wsPort, coldEndpoints.wsPort)
+  assert.deepEqual({ ...wsEndpoints, wsPort: coldEndpoints.wsPort }, coldEndpoints)
+  await wsRestarted.ping()
+  await new Promise((resolve) => occupiedWebSocketPort.close(resolve))
   assert.equal(runtimeSourceHash(repo), sourceHash, 'Runtime sources changed during acceptance.')
   succeeded = true
   console.log(
@@ -828,6 +870,9 @@ try {
         'cold-guidance-upgrade',
         'concurrent-cold-upgrade',
         'cold-upgrade-offline',
+        'cold-occupied-http-port',
+        'cold-occupied-websocket-port',
+        'hot-endpoint-preservation',
         'old-cli-no-downgrade',
         'automatic-compatible-activation',
         'automatic-generic-host-activation',
@@ -847,6 +892,9 @@ try {
   await preserveFixtureEvidence(root, error.stack)
   throw error
 } finally {
+  if (occupiedAssetPort?.listening) await new Promise((resolve) => occupiedAssetPort.close(resolve))
+  if (occupiedWebSocketPort?.listening)
+    await new Promise((resolve) => occupiedWebSocketPort.close(resolve))
   await control?.close()
   await Promise.allSettled(clients.map((client) => client.close()))
   await Promise.allSettled(transports.map((transport) => transport.close()))

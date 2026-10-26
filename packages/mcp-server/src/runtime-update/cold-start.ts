@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto'
+import { once } from 'node:events'
 import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { createServer, type AddressInfo, type Server } from 'node:net'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import lockfile from 'proper-lockfile'
 import { z } from 'zod'
 
+import { getMcpServerConfig } from '../config'
 import { writeDurableJson } from '../durable-json'
 import { readHubRuntimeIdentity } from '../runtime-identity'
 import {
@@ -20,12 +23,14 @@ import {
 import {
   ConfigSchema,
   JournalSchema,
+  readEndpoints,
   readJournal,
   readPrivateJson,
   writeJournal,
+  writeEndpoints,
   type PrototypeConfig
 } from '../runtime-prototype/state'
-import { HUB_LOCK_STALE_MS } from '../shared'
+import { HUB_LOCK_STALE_MS, RUNTIME_PROFILE } from '../shared'
 import { releaseManifest, retainBundledPackage, verifyReleaseArtifact } from './artifact'
 import { privateDirectory } from './cache'
 import { coldCompatibilityReasons, compareVersions, type RuntimeManifest } from './manifest'
@@ -96,10 +101,11 @@ function hasLiveEdges(root: string) {
   let live = false
   for (const name of readdirSync(directory).filter((name) => name.endsWith('.json'))) {
     const path = join(directory, name)
-    const edge = readPrivateJson(path, EdgeSchema)!
+    const edge = readPrivateJson(path, EdgeSchema)
+    if (!edge) continue
     // PID reuse conservatively postpones migration, never expires a living edge.
     if (alive(edge.pid)) live = true
-    else rmSync(path)
+    else rmSync(path, { force: true })
   }
   return live
 }
@@ -151,6 +157,47 @@ async function hasOwner(config: PrototypeConfig) {
   return true
 }
 
+async function reservePort(candidates: number[]) {
+  const reservation = createServer((socket) => socket.destroy())
+  let failure: unknown
+  for (const port of new Set(candidates)) {
+    try {
+      await once(reservation.listen(port, '127.0.0.1'), 'listening')
+      return reservation
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error
+      failure = error
+    }
+  }
+  throw failure ?? new Error('No runtime endpoint port candidates.')
+}
+
+/** Only called under startup.lock after all prior edges and writers have stopped. */
+async function refreshEndpoints(root: string) {
+  const endpoints = readEndpoints(root)
+  if (!endpoints) return
+  const candidates = getMcpServerConfig(RUNTIME_PROFILE).wsPortCandidates
+  const wsCandidates =
+    candidates.includes(endpoints.wsPort) || candidates.includes(0)
+      ? [endpoints.wsPort, ...candidates]
+      : candidates
+  const reservations: Server[] = []
+  try {
+    const ws = await reservePort(wsCandidates)
+    reservations.push(ws)
+    const http = await reservePort([endpoints.httpPort, 0])
+    reservations.push(http)
+    const wsPort = (ws.address() as AddressInfo).port
+    const httpPort = (http.address() as AddressInfo).port
+    if (wsPort !== endpoints.wsPort || httpPort !== endpoints.httpPort)
+      writeEndpoints(root, { ...endpoints, wsPort, httpPort })
+  } finally {
+    await Promise.all(
+      reservations.map((server) => new Promise<void>((resolve) => server.close(() => resolve())))
+    )
+  }
+}
+
 /** An installed CLI may advance a fully stopped runtime, never an attached session. */
 export async function prepareManagedEdge(
   original: PrototypeConfig,
@@ -162,12 +209,17 @@ export async function prepareManagedEdge(
     async () => {
       let config = await resumeColdStart(original)
       const journal = readJournal(config.root)
-      if (
-        journal?.phase === 'committed' &&
-        compareVersions(installed.packageVersion, controlVersion(config)) > 0 &&
-        compareVersions(installed.packageVersion, journal.active.version) >= 0 &&
+      const cold =
+        journal &&
+        (journal.phase === 'committed' || journal.coldStart) &&
         !hasLiveEdges(config.root) &&
         !(await hasOwner(config))
+      if (cold) await refreshEndpoints(config.root)
+      if (
+        cold &&
+        journal.phase === 'committed' &&
+        compareVersions(installed.packageVersion, controlVersion(config)) > 0 &&
+        compareVersions(installed.packageVersion, journal.active.version) >= 0
       ) {
         const reasons = coldCompatibilityReasons(releaseManifest(journal.active), installed)
         if (reasons.length) throw new Error(`Cold runtime upgrade refused: ${reasons.join('; ')}.`)
