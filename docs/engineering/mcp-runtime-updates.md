@@ -882,6 +882,8 @@ Automatic activation requires enrolled, initialized, wait-capable MCP clients. U
 [native fixture](../../TESTING.md#native-runtime-switch-acceptance) to exercise local packaged
 candidates through installed hosts; changing the registry origin for this probe does not
 establish official-registry provenance or compatibility with every host version.
+The installed-host checks below ran on macOS; Windows CI validates the service processes,
+not Windows desktop-host interaction.
 
 Codex App acceptance covers Queue/Steer before and after an explicit Hub switch, resumed
 canvas reads/writes and screenshots, native Stop interruption, and cancelled-task read-back
