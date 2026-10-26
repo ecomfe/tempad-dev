@@ -86,7 +86,7 @@ Root:
   and MCP service alive without starting acquisition. After all owners exit, concurrent installed-release
   launches upgrade both control and Hub across an epoch boundary without registry access or
   allowing an older CLI to downgrade them. A separate simulated Codex namespace checks idle
-  automatic activation, generic MCP clients, Claude/off-policy deferral, continuous tool work, bounded request
+  automatic activation, generic MCP clients, verified Claude hooks, unverified Claude/off-policy deferral, continuous tool work, bounded request
   waiting and measured admission pause. This is process evidence, not new native acceptance. CI runs this on
   Node 22/24 on Linux and Windows; native host acceptance remains outside this fixture. No installed
   runtime or public registry is used by the acquisition test.
@@ -163,7 +163,8 @@ descriptor's environment to discover it immediately instead of waiting for the s
 An off-policy observer can hold the candidate staged for inspection; close it before testing
 activation. Enrolled, initialized, wait-capable MCP clients can activate after five idle seconds.
 Record stable host/edge identities, changed Hub identity, native feedback/lifecycle/Stop and
-subsequent canvas work. Claude bindings must remain staged. The explicit update command remains
+subsequent canvas work. Claude requires a verified session and receipt/retry-capable hooks;
+unverified sessions and legacy hooks must remain staged. The explicit update command remains
 available, but cannot override an attached off-policy observer or other compatibility blockers.
 The registry request log records only local acquisition. This establishes installed-host behavior
 for the local candidate; official-registry provenance and cross-version release compatibility

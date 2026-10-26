@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
 import console from 'node:console'
+import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { chmod, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -443,15 +444,53 @@ async function automaticAcceptance(a, b) {
     const claudeBlocked = await until(async () => {
       const state = await status()
       return state.autoBlockers.some((reason) => reason.includes('Claude')) && state
-    }, 'Claude automatic acceptance blocker')
+    }, 'unverified Claude hook blocker')
     assert.equal(claudeBlocked.hubPid, oldPid)
-    await remainsStaged('Claude native acceptance must remain deferred')
+    await remainsStaged('unverified Claude bindings must keep the candidate staged')
     const off = await client(a, 'off', codexEnv, 'codex-mcp-client')
-    await claude.close()
+    const hook = async (version) => {
+      const params = {
+        version,
+        kind: 'claude',
+        sessionId: 'automatic-claude-fixture',
+        event: 'PreToolUse',
+        invocationId: randomUUID(),
+        ...(version === 2 ? { issuedAt: Date.now(), profile: { kind: 'release' } } : {})
+      }
+      return until(async () => {
+        const peer = new ControlPeer()
+        try {
+          await peer.connect(
+            new SocketTransport(
+              await connectSocket(runtimeEndpoint(join(directory, 'run'), 'mcp.sock'))
+            )
+          )
+          const result = await peer.request({ method: 'tempad/client-hook', params }, ResultSchema)
+          if (version === 1) return result
+          assert.equal(result.receipt.invocationId, params.invocationId)
+          return result.receipt.state === 'applied' && result
+        } finally {
+          await peer.close()
+        }
+      }, 'Claude hook receipt applied')
+    }
+    await claude.notification({
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'claude', sessionId: 'automatic-claude-fixture' }
+    })
+    await hook(1)
+    await claude.callTool({ name: 'list_design_sessions', arguments: {} })
+    assert.ok(
+      (await status()).blockers.includes('Claude binding without receipt/retry hooks'),
+      'legacy hooks must still prevent handoff'
+    )
+    const receipt = await hook(2)
+    assert.equal(receipt.receipt.version, 2)
+    await claude.callTool({ name: 'list_design_sessions', arguments: {} })
     const policyBlocked = await until(async () => {
       const state = await status()
       return state.autoBlockers.length === 0 && state
-    }, 'only supported clients remain')
+    }, 'Claude binding has verified receipt/retry hooks')
     assert.ok(
       policyBlocked.updates.pendingReasons.some((reason) => reason.includes('not opted in'))
     )
@@ -507,6 +546,14 @@ async function automaticAcceptance(a, b) {
     assert.deepEqual(await generic.listTools(), genericCatalog, 'generic session keeps its catalog')
     await codex.ping()
     await generic.ping()
+    await hook(2)
+    assert.notEqual(
+      (await claude.callTool({ name: 'list_design_sessions', arguments: {} })).isError,
+      true,
+      'Claude keeps its MCP connection across automatic switching'
+    )
+    assert.deepEqual((await status()).autoBlockers, [])
+    await claude.close()
     await codex.close()
     await generic.close()
     await until(() => [...automaticPids].every(exited), 'automatic fixture shutdown', 15_000)

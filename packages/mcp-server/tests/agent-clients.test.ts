@@ -91,24 +91,69 @@ async function fixture(connected = true) {
 describe('client identity and capabilities', () => {
   it('keeps unbound and pending Claude connections visible to automatic-update admission', () => {
     const clients = new AgentClients(new DesignTasks({ createId: () => 'unused' }))
-    expect(clients.hasClaudeConnections).toBe(false)
+    expect(clients.needsClaudeHooks('codex')).toBe(false)
     clients.event('codex', {
       method: 'notifications/tempad/client-event',
       params: { event: 'connect', kind: 'codex-app' }
     })
-    expect(clients.hasClaudeConnections).toBe(false)
+    expect(clients.needsClaudeHooks('codex')).toBe(false)
+    expect(clients.needsClaudeHooks('native', { name: 'claude-code' })).toBe(true)
     clients.subscribeBinding('pending', () => {}, 'session-hint')
-    expect(clients.hasClaudeConnections).toBe(true)
+    expect(clients.needsClaudeHooks('pending')).toBe(true)
     clients.disconnect('pending')
-    expect(clients.hasClaudeConnections).toBe(false)
+    expect(clients.needsClaudeHooks('pending')).toBe(false)
     clients.event('claude', {
       method: 'notifications/tempad/client-event',
       params: { event: 'connect', kind: 'claude' }
     })
-    expect(clients.hasClaudeConnections).toBe(true)
+    expect(clients.needsClaudeHooks('claude')).toBe(true)
     clients.disconnect('claude')
-    expect(clients.hasClaudeConnections).toBe(false)
+    expect(clients.needsClaudeHooks('claude')).toBe(false)
     clients.close()
+  })
+
+  it('requires fresh receipt-capable hooks for the exact Claude connection binding', async () => {
+    const clients = new AgentClients(new DesignTasks({ createId: () => 'unused' }))
+    const info = { name: 'claude-code' }
+    const legacy = {
+      version: 1 as const,
+      kind: 'claude' as const,
+      sessionId: 'session',
+      event: 'UserPromptSubmit' as const,
+      invocationId: '00000000-0000-4000-8000-000000000001'
+    }
+    const current = {
+      ...legacy,
+      version: 2 as const,
+      issuedAt: Date.now(),
+      profile: { kind: 'release' as const }
+    }
+    try {
+      clients.event('edge', {
+        method: 'notifications/tempad/client-event',
+        params: { event: 'connect', kind: 'claude', sessionId: 'session' }
+      })
+      clients.clientHook({ ...current, sessionId: 'other-session' })
+      await clients.owner('edge', undefined, info)
+      expect(clients.needsClaudeHooks('edge', info)).toBe(true)
+
+      clients.clientHook(legacy)
+      await clients.owner('edge', undefined, info)
+      expect(clients.needsClaudeHooks('edge', info)).toBe(true)
+      clients.clientHook(current)
+      expect(clients.needsClaudeHooks('edge', info)).toBe(false)
+
+      clients.subscribeBinding('reconnected', () => {}, 'session')
+      expect(clients.needsClaudeHooks('reconnected', info)).toBe(true)
+      await clients.owner('reconnected', undefined, info)
+      expect(clients.needsClaudeHooks('reconnected', info)).toBe(false)
+
+      clients.clientHook({ ...current, event: 'SessionEnd' })
+      expect(clients.needsClaudeHooks('edge', info)).toBe(true)
+      expect(clients.needsClaudeHooks('reconnected', info)).toBe(true)
+    } finally {
+      clients.close()
+    }
   })
 
   it('records the end of native queue work even when it completes between inspections', async () => {

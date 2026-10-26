@@ -81,7 +81,8 @@ Verified MCP 0.12.0 releases default to stable runtime updates on macOS, Linux a
 0.5.10 and shared installation snippets also select `--runtime-updates=stable` explicitly.
 Publish the verified MCP release before shipping these plugin targets or setup instructions.
 Checkout and unverified builds never acquire release updates. Compatible Hub updates activate for initialized MCP sessions
-with negotiated waiting support at an idle boundary. Claude keeps candidates staged; `off` and
+with negotiated waiting support at an idle boundary. Claude additionally requires a verified
+session with receipt/retry-capable hooks; `off` and
 `pinned` policies remain available. See the [runtime design](engineering/mcp-runtime-updates.md).
 
 | Hub change                                          | Release requirement                                                                                           |
@@ -212,7 +213,7 @@ Explicit switches require interactive `--update-runtime <exact-version>` confirm
 artifact's version and integrity; approval never bypasses compatibility or attached-client policy.
 Enrolled, initialized MCP sessions may automatically activate a compatible stable candidate within the
 same breaking-release boundary after five idle seconds. All edges must acknowledge bounded
-pre-dispatch waiting; old edges and Claude keep candidates staged. Automatic
+pre-dispatch waiting; old edges and unverified or legacy Claude hooks keep candidates staged. Automatic
 shutdown rechecks readiness and defers immediately if work arrives, without waiting through a
 long drain or killing work. Verified releases default to this stable policy; generated plugin
 arguments and shared installation snippets make it explicit with `--runtime-updates=stable`.

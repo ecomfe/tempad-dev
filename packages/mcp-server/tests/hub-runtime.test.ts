@@ -415,6 +415,44 @@ it('requires initialized clients for automatic switches and records activity bet
     const claude = await attach('claude-code')
     expect(await inspect()).toMatchObject({ drained: true })
     expect((await inspect()).autoBlockers).not.toEqual([])
+    await claude.notification({
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'claude', sessionId: 'verified-session' }
+    })
+    const hook = {
+      version: 1,
+      kind: 'claude',
+      sessionId: 'verified-session',
+      event: 'PreToolUse',
+      invocationId: randomUUID()
+    }
+    await peer.request(
+      {
+        method: 'tempad/runtime-hook',
+        params: { input: hook, admittedHubId: grant.hubId }
+      },
+      ResultSchema
+    )
+    await claude.callTool({ name: 'list_design_sessions', arguments: {} })
+    expect((await inspect()).blockers).toContain('Claude binding without receipt/retry hooks')
+    expect((await inspect()).autoBlockers).not.toEqual([])
+    await peer.request(
+      {
+        method: 'tempad/runtime-hook',
+        params: {
+          input: {
+            ...hook,
+            version: 2,
+            invocationId: randomUUID(),
+            issuedAt: Date.now(),
+            profile: { kind: 'release' }
+          },
+          admittedHubId: grant.hubId
+        }
+      },
+      ResultSchema
+    )
+    expect(await inspect()).toMatchObject({ drained: true, autoBlockers: [] })
     await claude.close()
     await vi.waitFor(async () => expect((await inspect()).autoBlockers).toEqual([]))
     // An inherited Codex environment cannot overrule a pending Claude identity.
@@ -424,7 +462,7 @@ it('requires initialized clients for automatic switches and records activity bet
     })
     await codex.ping()
     expect((await inspect()).autoBlockers).toContain(
-      'Claude native automatic switching acceptance is pending'
+      'Claude connection requires verified receipt/retry hooks'
     )
   } finally {
     await Promise.all(clients.map((client) => client.close()))

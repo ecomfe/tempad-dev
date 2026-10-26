@@ -42,7 +42,8 @@ In a terminal using the same runtime configuration:
   legacy Claude hooks, and attached clients without opt-in prevent activation.
 
 Automatic activation requires initialized MCP clients, all using the stable update policy and
-capable of waiting through a switch. Claude keeps updates staged pending native lifecycle acceptance.
+capable of waiting through a switch. Claude also requires a verified session with receipt/retry-capable
+hooks; unknown sessions and older hooks keep updates staged.
 After five seconds without calls, transfers or native actions, the supervisor rechecks eligibility
 and switches locally. New, undispatched requests wait up to ten seconds; dispatched writes are
 never replayed. Busy work defers the update, and downloads or network failures leave the Hub serving.

@@ -285,7 +285,7 @@ export async function startHub(
   let shuttingDown = false
   let wss: WebSocketServer | null = null
   let hubRuntimeIdentity: HubRuntimeIdentity | null = null
-  const consumerSessions = new Set<McpServer>()
+  const consumerSessions = new Map<McpServer, string>()
   const incomingSockets = new Set<Socket>()
 
   function receiveHook(input: ClientHook, durable = false, fresh = true) {
@@ -338,16 +338,15 @@ export async function startHub(
     const autoBlockers: string[] = []
     if (
       !consumerSessions.size ||
-      [...consumerSessions].some((session) => !session.server.getClientVersion())
+      [...consumerSessions.keys()].some((session) => !session.server.getClientVersion())
     )
       autoBlockers.push('Waiting for MCP clients to finish initialization')
     if (
-      agentClients.hasClaudeConnections ||
-      [...consumerSessions].some(
-        (session) => session.server.getClientVersion()?.name === 'claude-code'
+      [...consumerSessions].some(([session, connectionId]) =>
+        agentClients.needsClaudeHooks(connectionId, session.server.getClientVersion())
       )
     )
-      autoBlockers.push('Claude native automatic switching acceptance is pending')
+      autoBlockers.push('Claude connection requires verified receipt/retry hooks')
     return {
       drained: blockers.length === 0,
       blockers,
@@ -395,7 +394,7 @@ export async function startHub(
     clearInterval(assetCleanupTimer)
     try {
       agentClients.close()
-      await Promise.all([...consumerSessions].map((session) => session.close()))
+      await Promise.all([...consumerSessions.keys()].map((session) => session.close()))
       // Socket close handlers persist the final paused owner state. Stop fences
       // and unknown executions are in the same store, never restored from backup.
       await new Promise<void>((resolve) => setImmediate(resolve))
@@ -1527,7 +1526,7 @@ export async function startHub(
     agentClients.close()
     void runtimeControl?.close()
     log.info('Hub is shutting down...')
-    consumerSessions.forEach((session) => {
+    consumerSessions.forEach((_, session) => {
       session.close().catch((err) => {
         log.warn({ err }, 'Failed to close MCP session during shutdown.')
       })
@@ -1561,7 +1560,7 @@ export async function startHub(
       agentClients.registerContext(ownerId, registration.context)
     }
     const mcp = createMcpServer(ownerId)
-    consumerSessions.add(mcp)
+    consumerSessions.set(mcp, ownerId)
     noteActivity()
     consumerCount++
     hadConsumer = true

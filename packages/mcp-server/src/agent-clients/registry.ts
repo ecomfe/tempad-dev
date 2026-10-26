@@ -33,11 +33,13 @@ function soleActiveTurn(state?: CodexLifecycleState): string | undefined {
 
 /** Conversation bindings and native delivery stay outside shared task lifecycle logic. */
 export class AgentClients {
-  get hasClaudeConnections(): boolean {
-    return (
-      this.pendingClaudeBindings.size > 0 ||
-      [...this.connections.values()].some((binding) => binding.client.kind === 'claude')
-    )
+  needsClaudeHooks(connectionId: string, clientInfo?: { name: string }): boolean {
+    const pending = this.pendingClaudeBindings.has(connectionId)
+    const client = this.connections.get(connectionId)?.client
+    if (!pending && client?.kind !== 'claude' && clientInfo?.name !== 'claude-code') return false
+    // An initialized host or cached session hint cannot prove that installed hooks
+    // reach this Hub. Require the exact binding established by fresh lifecycle evidence.
+    return pending || client?.kind !== 'claude' || !this.hooks.receiptCapable(client.sessionId)
   }
 
   get lastActivity(): number {

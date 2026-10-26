@@ -1,6 +1,6 @@
 # Updating a running MCP runtime
 
-Status: Phases 0–3 are implemented. Codex native switching is verified and compatible automatic activation is implemented for enrolled MCP sessions with waiting support; Claude native acceptance remains pending.
+Status: Phases 0–4 are implemented. Codex and Claude native switching are verified. Compatible automatic activation requires enrolled MCP sessions with waiting support; Claude also requires a verified session and receipt/retry-capable hooks.
 Verified releases default to stable updates; checkout and unverified local builds keep the bundled
 bridge without release acquisition. Incompatible or breaking-boundary updates require an explicit
 decision or restart. Design baseline: `74ed70c9`.
@@ -155,8 +155,7 @@ Automatic activation requires all of the following, checked again at commit time
 - Its extension protocol adapters support the promised released-extension range,
   including connected peers. An offline older extension must not lose a promised adapter.
 - Every host session is initialized and each edge acknowledges bounded pre-dispatch waiting.
-  Claude currently defers automatic activation until its native lifecycle acceptance is complete.
-  Future Claude enablement also requires native acceptance and the receipt/retry requirement in
+  Claude requires a verified native session and the receipt/retry requirement in
   [Appendix B](#appendix-b-installed-hooks-and-delivery-evidence); legacy or unknown
   capability defers automatic switching, without disabling ordinary MCP use.
 - It runs on the current Node executable and platform, and preserves the current
@@ -891,9 +890,12 @@ Native automatic activation also passed with the private 0.12.0 → 0.12.1 fixtu
 the candidate and requesting a check, without an activation command, replaced the Hub while
 preserving the App's CLI processes and the Figma session. Native reads succeeded before and
 after the switch.
-Claude installation, initialization and `/clear` hook delivery have been exercised, but its
-model-driven tool calls and Stop across a switch still need native acceptance; any Claude
-connection blocks automatic activation while ordinary tools and staging remain usable.
+Claude Code acceptance uses the installed plugin and Haiku: model-driven canvas writes/read-back,
+`/clear` rebinding, and a Figma Stop held across both explicit and automatic Hub switches.
+The same host and MCP edge survive each switch; the next native tool hook delivers the persisted
+Stop notice, and the cancelled task stays fenced. Automatic activation requires the exact
+connection's verified Claude session and receipt/retry-capable hooks. Unbound sessions, cached
+session hints and legacy hooks keep the candidate staged; ordinary MCP tools remain usable.
 The process fixture additionally checks idle automatic switching and requests arriving during
 handoff. It measures the actual pause without treating it as a zero-downtime guarantee: a lost
 reply at socket closure can still surface an error because uncertain writes cannot be retried.
