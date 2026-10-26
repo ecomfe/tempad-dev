@@ -11,7 +11,7 @@ import { hubEnvironment } from '../process-environment'
 import { createPrivateTempDirectory, runtimeEndpoint } from '../runtime-platform'
 import { contractHashes, readRuntimeContract } from '../stable-edge'
 import { connectSocket, fingerprintBundle } from './processes'
-import { ControlPeer, SocketTransport } from './protocol'
+import { ControlPeer, RECOVER_MS, SocketTransport } from './protocol'
 import { ArtifactSchema } from './state'
 
 /** Run only an explicitly offered local entry, with private stores and no user host identity. */
@@ -46,8 +46,11 @@ export async function probeArtifact(entry: string) {
     | undefined
   let failure: unknown
   let phase = 'initialize'
+  const started = performance.now()
   try {
-    await client.connect(transport, { timeout: 15_000 })
+    // Initial attachment can use the edge's full recovery budget. Allow the
+    // following SDK exchange without extending any business-request deadline.
+    await client.connect(transport, { timeout: RECOVER_MS + 5000 })
     phase = 'runtime-status'
     await control.connect(
       new SocketTransport(await connectSocket(runtimeEndpoint(root, 'supervisor.sock')))
@@ -103,27 +106,28 @@ export async function probeArtifact(entry: string) {
     await delay(100)
   }
   if (!exited) {
+    const diagnostic = {
+      phase,
+      elapsedMs: Math.round(performance.now() - started),
+      pids,
+      failure:
+        failure instanceof Error ? (failure.stack ?? failure.message).slice(-16_384) : undefined,
+      stderr: stderr.toString('utf8')
+    }
     try {
-      writeFileSync(
-        join(root, 'probe-failure.json'),
-        JSON.stringify({
-          phase,
-          pids,
-          failure:
-            failure instanceof Error
-              ? (failure.stack ?? failure.message).slice(-16_384)
-              : undefined,
-          stderr: stderr.toString('utf8')
-        }),
-        { mode: 0o600 }
-      )
+      writeFileSync(join(root, 'probe-failure.json'), JSON.stringify(diagnostic), { mode: 0o600 })
     } catch {
       // Evidence collection must not replace the original failure or permit cleanup.
     }
     const reason = pids ? 'did not stop' : `ownership is unknown after ${phase} failed`
-    throw new Error(`Local runtime probe ${reason}; preserve ${root} for diagnosis.`, {
-      cause: failure
-    })
+    // Release preparation runs this probe in a subprocess. Include its bounded
+    // private diagnostic so an uncaught failure retains the evidence in stderr.
+    throw Object.assign(
+      new Error(`Local runtime probe ${reason}; preserve ${root} for diagnosis.`, {
+        cause: failure
+      }),
+      { diagnostic }
+    )
   }
   rmSync(root, { recursive: true, force: true })
   if (failure) throw failure
