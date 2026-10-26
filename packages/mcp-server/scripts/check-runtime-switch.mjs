@@ -124,11 +124,10 @@ async function artifact(version, incompatible = false) {
       }
     }`
             )
-            const prepared =
-              'persist({ ...journal, candidate: candidate.artifact, failure: undefined })'
-            assert.ok(code.includes(prepared), 'fixture verification boundary changed')
+            const activation = 'await activate(candidate.artifact, automatic)'
+            assert.ok(code.includes(activation), 'fixture activation boundary changed')
             return code.replace(
-              prepared,
+              activation,
               `const holdPath = join(config.root, 'test-hold-before-drain')
     if (existsSync(holdPath)) {
       rmSync(holdPath)
@@ -139,7 +138,7 @@ async function artifact(version, incompatible = false) {
         await pause(25)
       }
     }
-    ${prepared}`
+    ${activation}`
             )
           }
           if (incompatible && resolve(id) === join(packageRoot, 'src/hub-runtime.ts'))

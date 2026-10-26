@@ -40,6 +40,7 @@ import {
 import {
   ControlPeer,
   GrantSchema,
+  RECOVER_MS,
   SocketTransport,
   unavailable
 } from '../src/runtime-prototype/protocol'
@@ -52,6 +53,12 @@ import { PACKAGE_VERSION } from '../src/shared'
 
 const platformModule = '../scripts/runtime-test-platform.mjs'
 const { fixtureRoot } = await import(platformModule)
+// Real Windows pipe/ACL helpers run throughout each handoff. Unlike the former
+// synchronous helpers, they let SDK timers fire, so observe the runtime's recovery
+// budget rather than the short Unix fixture budget. Product drain limits stay intact.
+const transitionTimeout = process.platform === 'win32' ? RECOVER_MS : 10_000
+const recoveryWait = process.platform === 'win32' ? RECOVER_MS : 5000
+if (process.platform === 'win32') vi.setConfig({ testTimeout: 2 * RECOVER_MS })
 
 it.each(['EPIPEUNPROTECTED', 'ETIMEDOUT', 'EBUSY', 'ENOENT'])(
   'waits for an existing Hub after %s instead of launching a replacement',
@@ -369,7 +376,7 @@ async function fixture(
       control.request(
         { method: 'tempad/runtime-update', params: { entry: b.entry } },
         ResultSchema,
-        { timeout: 10000 }
+        { timeout: transitionTimeout }
       ),
     status: () => control.request({ method: 'tempad/runtime-status' }, ResultSchema),
     defer: (reason = 'work') => {
@@ -490,7 +497,7 @@ it('automatically replaces a compatible idle runtime once', async () => {
   f.auto.allow()
   await vi.waitFor(
     async () => expect(await f.status()).toMatchObject({ active: f.b, gated: false }),
-    { timeout: 5000 }
+    { timeout: recoveryWait }
   )
   expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b])
   expect(readJournal(f.root)).toMatchObject({ phase: 'committed', previous: f.a })
@@ -513,7 +520,8 @@ it('keeps managed staging out of the switch journal until the old Hub drains', a
         method: 'tempad/runtime-activate',
         params: { version: f.b.version, integrity: f.b.release!.integrity }
       },
-      ResultSchema
+      ResultSchema,
+      { timeout: transitionTimeout }
     )
   ).toMatchObject({ status: 'staged' })
   expect(await f.status()).toMatchObject({
@@ -572,9 +580,11 @@ it('retains a living unverified candidate for explicit recovery instead of launc
     candidate: f.b,
     failedBundles: []
   })
-  await vi.waitFor(() => expect(f.hubs).toHaveLength(2))
+  await vi.waitFor(() => expect(f.hubs).toHaveLength(2), { timeout: recoveryWait })
   await expect(
-    f.control.request({ method: 'tempad/runtime-recover' }, ResultSchema)
+    f.control.request({ method: 'tempad/runtime-recover' }, ResultSchema, {
+      timeout: transitionTimeout
+    })
   ).resolves.toMatchObject({
     status: 'recovered',
     version: f.b.version
@@ -655,7 +665,7 @@ it.each(['raceGate', 'refuseStop'] as const)(
           phase: 'committed',
           failure: expect.any(String)
         }),
-      { timeout: 5000 }
+      { timeout: recoveryWait }
     )
     expect(f.hubs).toHaveLength(1)
     expect(readJournal(f.root)?.failedBundles).toEqual([])
@@ -814,7 +824,7 @@ it.each([false, true])(
           gated: false,
           controlComponents: currentControls
         }),
-      { timeout: 5000 }
+      { timeout: recoveryWait }
     )
     expect(readJournal(f.root)?.failedBundles).toContain(f.b.bundle)
     expect(f.hubs.map((hub) => hub.artifact)).toEqual([f.a, f.b, f.a])
@@ -852,7 +862,9 @@ it('allows repeated operator recovery without reacquiring its own live lease', a
   const before = await f.status()
   for (let attempt = 0; attempt < 2; attempt++)
     expect(
-      await f.control.request({ method: 'tempad/runtime-recover' }, ResultSchema)
+      await f.control.request({ method: 'tempad/runtime-recover' }, ResultSchema, {
+        timeout: transitionTimeout
+      })
     ).toMatchObject({ status: 'recovered', version: f.b.version })
   expect(await f.status()).toMatchObject({
     active: f.b,
@@ -905,7 +917,8 @@ it.each([false, true])(
             method: 'tempad/runtime-activate',
             params: { version: f.b.version, integrity: f.b.release!.integrity }
           },
-          ResultSchema
+          ResultSchema,
+          { timeout: transitionTimeout }
         )
       : await f.update()
     expect(result).toMatchObject({ status: 'rolled-back' })

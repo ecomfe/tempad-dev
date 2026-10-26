@@ -7,11 +7,15 @@ import { resolve } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-vi.mock('node:child_process', async (original) => ({
-  ...(await original<typeof import('node:child_process')>()),
-  execFile: vi.fn(),
-  execFileSync: vi.fn()
-}))
+vi.mock('node:child_process', async (original) => {
+  const childProcess = await original<typeof import('node:child_process')>()
+  return {
+    ...childProcess,
+    // Let shared.ts create real private directories before beforeEach installs serving-only fakes.
+    execFile: vi.fn(childProcess.execFile),
+    execFileSync: vi.fn(childProcess.execFileSync)
+  }
+})
 vi.mock('node:net', async (original) => ({
   ...(await original<typeof import('node:net')>()),
   connect: vi.fn()
