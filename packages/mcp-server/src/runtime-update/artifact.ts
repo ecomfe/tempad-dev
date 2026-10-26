@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { Artifact } from '../runtime-prototype/state'
 
 import { privateDirectory, publishDirectory, writePackageFiles } from './cache'
-import { MANIFEST_PATH, ManifestSchema } from './manifest'
+import { assertRunnable, MANIFEST_PATH, ManifestSchema } from './manifest'
 import { readInstalledPackage, sha256, verifyPackage } from './package'
 
 export function releaseManifest(artifact: Artifact) {
@@ -28,6 +28,7 @@ export function verifyReleaseArtifact(artifact: Artifact) {
   if (sha256(files.get(MANIFEST_PATH) ?? '') !== manifestHash)
     throw new Error('Runtime manifest changed.')
   const manifest = verifyPackage(files, artifact.version)
+  assertRunnable(manifest)
   if (artifact.entry !== join(directory, manifest.entry))
     throw new Error('Runtime entry differs from its manifest.')
   return manifest
@@ -49,6 +50,7 @@ export async function retainBundledPackage(source: string, cache: string) {
     files.set(path, readFileSync(fullPath))
   }
   verifyPackage(files, manifest.packageVersion)
+  assertRunnable(manifest)
   privateDirectory(cache)
   const directory = join(cache, `bundled-${manifestHash}`)
   let exists = false

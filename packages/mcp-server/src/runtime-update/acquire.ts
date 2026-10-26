@@ -9,6 +9,7 @@ import { readArchive, verifyIntegrity } from './archive'
 import { releaseManifest } from './artifact'
 import { installArchive, verifyCached } from './cache'
 import {
+  assertRunnable,
   automaticCompatibilityReasons,
   compareVersions,
   compatibilityReasons,
@@ -126,6 +127,7 @@ export async function stageRelease(
       if (excluded.has(fingerprintBundle(join(installed.directory, installed.manifest.entry))))
         return { reasons: ['Candidate was quarantined after a failed activation'] }
     }
+    assertRunnable(installed.manifest)
     const probe = await probeArtifact(join(installed.directory, installed.manifest.entry))
     if (
       probe.artifact.version !== installed.manifest.packageVersion ||

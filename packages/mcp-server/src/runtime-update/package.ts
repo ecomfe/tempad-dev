@@ -4,13 +4,7 @@ import { join, posix, relative, resolve } from 'node:path'
 import { z } from 'zod'
 
 import { readArchive, verifyIntegrity } from './archive'
-import {
-  MANIFEST_PATH,
-  ManifestSchema,
-  PACKAGE_NAME,
-  supportsNode,
-  VersionSchema
-} from './manifest'
+import { MANIFEST_PATH, ManifestSchema, PACKAGE_NAME, VersionSchema } from './manifest'
 
 const PackageSchema = z.object({
   name: z.literal(PACKAGE_NAME),
@@ -24,7 +18,7 @@ const PackageSchema = z.object({
 export const sha256 = (bytes: Uint8Array | string) =>
   createHash('sha256').update(bytes).digest('hex')
 
-/** This is checked before even a self-test may execute package code. */
+/** Validate identity and complete payload integrity independently of this launcher. */
 export function verifyPackage(files: ReadonlyMap<string, Buffer>, expectedVersion: string) {
   const json = (path: string) => {
     const bytes = files.get(path)
@@ -39,11 +33,6 @@ export function verifyPackage(files: ReadonlyMap<string, Buffer>, expectedVersio
     manifest.node !== pkg.engines.node
   )
     throw new Error('Runtime package identity disagrees with its manifest.')
-  if (
-    !supportsNode(manifest.node) ||
-    !manifest.platforms.includes(process.platform as 'darwin' | 'linux' | 'win32')
-  )
-    throw new Error('This runtime cannot run on the current Node version/platform.')
   if (Object.keys(manifest.files).length !== files.size - 1 || manifest.files[MANIFEST_PATH])
     throw new Error('The manifest must inventory every payload file exactly once.')
   for (const [path, bytes] of files) {

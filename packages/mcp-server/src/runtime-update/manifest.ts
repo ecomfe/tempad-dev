@@ -91,7 +91,7 @@ export function supportsNode(range: string, version = process.versions.node) {
   )
 }
 
-export function compatibilityReasons(active: RuntimeManifest, next: RuntimeManifest): string[] {
+function runtimeCompatibilityReasons(next: RuntimeManifest): string[] {
   const reasons: string[] = []
   try {
     if (!supportsNode(next.node)) reasons.push('Node restart/upgrade required')
@@ -100,11 +100,17 @@ export function compatibilityReasons(active: RuntimeManifest, next: RuntimeManif
   }
   if (!next.platforms.includes(process.platform as 'darwin' | 'linux' | 'win32'))
     reasons.push('Unsupported platform')
-  if (active.wireHash !== next.wireHash) reasons.push('MCP contract changed; restart MCP')
-  if (active.guidanceEpoch !== next.guidanceEpoch)
-    reasons.push('Guidance epoch changed; restart MCP')
-  if (!active.controlProtocols.every((value) => next.controlProtocols.includes(value)))
-    reasons.push('Control component restart required')
+  return reasons
+}
+
+/** Integrity alone never authorizes execution on an incompatible launcher. */
+export function assertRunnable(manifest: RuntimeManifest) {
+  const reasons = runtimeCompatibilityReasons(manifest)
+  if (reasons.length) throw new Error(`This runtime cannot run: ${reasons.join('; ')}.`)
+}
+
+function stateCompatibilityReasons(active: RuntimeManifest, next: RuntimeManifest) {
+  const reasons: string[] = []
   if (
     active.state.family !== next.state.family ||
     !next.state.reads.includes(active.state.writes) ||
@@ -117,6 +123,16 @@ export function compatibilityReasons(active: RuntimeManifest, next: RuntimeManif
   )
     reasons.push('Released extension compatibility is missing')
   return reasons
+}
+
+export function compatibilityReasons(active: RuntimeManifest, next: RuntimeManifest): string[] {
+  const reasons = runtimeCompatibilityReasons(next)
+  if (active.wireHash !== next.wireHash) reasons.push('MCP contract changed; restart MCP')
+  if (active.guidanceEpoch !== next.guidanceEpoch)
+    reasons.push('Guidance epoch changed; restart MCP')
+  if (!active.controlProtocols.every((value) => next.controlProtocols.includes(value)))
+    reasons.push('Control component restart required')
+  return [...reasons, ...stateCompatibilityReasons(active, next)]
 }
 
 /** Automatic consent never crosses a breaking-release boundary. */
@@ -135,12 +151,7 @@ export function automaticCompatibilityReasons(active: RuntimeManifest, next: Run
 
 /** Cold replacement has no frozen MCP sessions, but must retain safe state/rollback access. */
 export function coldCompatibilityReasons(active: RuntimeManifest, next: RuntimeManifest) {
-  const reasons = compatibilityReasons(active, next).filter(
-    (reason) =>
-      reason !== 'MCP contract changed; restart MCP' &&
-      reason !== 'Guidance epoch changed; restart MCP' &&
-      reason !== 'Control component restart required'
-  )
+  const reasons = [...runtimeCompatibilityReasons(next), ...stateCompatibilityReasons(active, next)]
   if (!active.controlProtocols.some((value) => next.controlProtocols.includes(value)))
     reasons.push('No common control protocol for binary rollback')
   return reasons
