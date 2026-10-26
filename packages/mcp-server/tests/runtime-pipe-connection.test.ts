@@ -21,6 +21,7 @@ vi.mock('../src/runtime-platform', async (original) => ({
 import { assertPrivateEndpointAsync as assertPrivateEndpoint } from '../src/runtime-platform'
 import {
   connectSocket,
+  isSocketPending,
   supervisorConnection,
   unavailableSocket,
   waitForLaunchedSocket,
@@ -199,6 +200,85 @@ it('preserves cancellation while waiting for pipe protection', async () => {
   expect(socket.destroy).toHaveBeenCalled()
   expect(socket.write).not.toHaveBeenCalled()
 })
+
+it.each(['close', 'ECONNRESET', 'EPIPE'])(
+  'settles a connection lost through %s during ACL inspection without waiting for its deadline',
+  async (event) => {
+    vi.useFakeTimers()
+    const inspection = Promise.withResolvers<void>()
+    let signal: AbortSignal | undefined
+    vi.mocked(assertPrivateEndpoint).mockImplementation((_path, value) => {
+      signal = value
+      return inspection.promise
+    })
+    const observed = vi.fn()
+    const pending = connectSocket('\\\\.\\pipe\\test').then(
+      (connected) => observed({ connected }),
+      (error: unknown) => {
+        observed(error)
+        return error
+      }
+    )
+    socket.emit('connect')
+    if (event === 'close') {
+      socket.destroy()
+      socket.emit('close')
+    } else socket.emit('error', Object.assign(new Error('Pipe was closed'), { code: event }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(observed).toHaveBeenCalledOnce()
+    const error = await pending
+    expect(isSocketPending(error)).toBe(true)
+    expect(unavailableSocket(error)).toBe(false)
+    expect(signal?.aborted).toBe(true)
+    expect(socket.destroyed).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+    inspection.resolve()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(observed).toHaveBeenCalledOnce()
+    expect(socket.write).not.toHaveBeenCalled()
+  }
+)
+
+it.each(['endpoint', 'supervisor'] as const)(
+  'retries an early protected-listener close promptly through %s without launching an owner',
+  async (kind) => {
+    const sockets: Socket[] = []
+    const inspection = Promise.withResolvers<void>()
+    vi.mocked(connect).mockImplementation(() => {
+      const next = createSocket()
+      sockets.push(next)
+      queueMicrotask(() => next.emit('connect'))
+      return next
+    })
+    vi.mocked(assertPrivateEndpoint).mockImplementation(() => {
+      if (sockets.length !== 1) return Promise.resolve()
+      queueMicrotask(() => {
+        sockets[0]!.destroy()
+        sockets[0]!.emit('close')
+      })
+      return inspection.promise
+    })
+    const ready = vi.fn()
+    const pending = (
+      kind === 'endpoint'
+        ? waitForSocket('\\\\.\\pipe\\test', undefined, RECOVER_MS)
+        : supervisorConnection(
+            { root: '/unused' } as PrototypeConfig,
+            AbortSignal.timeout(RECOVER_MS)
+          )
+    ).then((connected) => {
+      ready(connected)
+      return connected
+    })
+    await vi.waitFor(() => expect(ready).toHaveBeenCalledExactlyOnceWith(sockets[1]))
+    expect(await pending).toBe(sockets[1])
+    expect(sockets).toHaveLength(2)
+    expect(spawn).not.toHaveBeenCalled()
+    for (const value of sockets) expect(value.write).not.toHaveBeenCalled()
+    inspection.resolve()
+    sockets[1]!.destroy()
+  }
+)
 
 it.each([undefined, 'EPIPEUNTRUSTED'])(
   'does not retry foreign owners or unsupported security helpers (%s)',

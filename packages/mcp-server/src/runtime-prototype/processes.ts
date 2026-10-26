@@ -111,6 +111,7 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
   if (!isPipe(path)) assertTrustedSocket(path)
   return new Promise((resolve, reject) => {
     const socket = connect(path)
+    let settled = false
     let deadline = performance.now() + 1000
     const inspection = new AbortController()
     const inspectionSignal = signal
@@ -121,23 +122,32 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
       clearTimeout(timer)
       signal?.removeEventListener('abort', abort)
       socket.off('error', fail)
+      socket.off('close', closed)
+      socket.off('connect', connected)
     }
     const fail = (error: Error) => {
+      if (settled) return
+      settled = true
       cleanup()
       inspection.abort()
       socket.destroy()
       reject(error)
     }
     const abort = () => fail(new Error('Runtime connection cancelled.'))
+    const closed = () =>
+      fail(
+        Object.assign(new Error('Runtime connection closed before permission verification.'), {
+          code: 'ECONNRESET'
+        })
+      )
     const timedOut = () =>
       fail(
         pendingInspection ??
           Object.assign(new Error('Runtime connection timed out.'), { code: 'ETIMEDOUT' })
       )
     let timer = setTimeout(timedOut, 1000)
-    socket.once('error', fail)
     const verify = async () => {
-      while (!socket.destroyed) {
+      while (!settled && !socket.destroyed) {
         try {
           if (isPipe(path)) await assertPrivateEndpointAsync(path, inspectionSignal)
           return
@@ -152,7 +162,8 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
         }
       }
     }
-    socket.once('connect', () => {
+    const connected = () => {
+      if (settled) return
       if (isPipe(path)) {
         // Connection acquisition and ACL inspection have separate bounds. The
         // helper may take 15s, but must not block the Hub's 10s control lease.
@@ -164,13 +175,18 @@ export function connectSocket(path: string, signal?: AbortSignal): Promise<Socke
       // a different owner between this check and the caller's first authenticated frame.
       void verify().then(
         () => {
-          if (socket.destroyed) return
+          if (settled) return
+          if (socket.destroyed) return closed()
+          settled = true
           cleanup()
           resolve(socket)
         },
         (error) => fail(error instanceof Error ? error : new Error(String(error)))
       )
-    })
+    }
+    socket.once('error', fail)
+    socket.once('close', closed)
+    socket.once('connect', connected)
     signal?.addEventListener('abort', abort, { once: true })
     if (signal?.aborted) abort()
   })
@@ -246,8 +262,11 @@ export function unavailableSocket(error: unknown) {
 }
 
 export function isSocketPending(error: unknown) {
-  // Slow acquisition or pending protection cannot prove that the owner is absent.
-  return ['EPIPEUNPROTECTED', 'ETIMEDOUT'].includes((error as NodeJS.ErrnoException).code ?? '')
+  // A protecting listener rejects early connections. Closure or slow acquisition
+  // cannot prove that its owner is absent and authorize a competing launch.
+  return ['EPIPEUNPROTECTED', 'ETIMEDOUT', 'ECONNRESET', 'EPIPE'].includes(
+    (error as NodeJS.ErrnoException).code ?? ''
+  )
 }
 
 export async function supervisorConnection(config: PrototypeConfig, signal: AbortSignal) {
