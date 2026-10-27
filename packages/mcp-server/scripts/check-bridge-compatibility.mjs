@@ -13,7 +13,7 @@ import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { access, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { access, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
@@ -41,7 +41,7 @@ await Promise.all(['hub.mjs', 'cli.mjs'].map((file) => access(join(packageDir, '
 // Exercise the shipped Hub, without connecting to the user's Hub or Figma sessions.
 // A dedicated Origin allowlist prevents the browser from joining this test Hub.
 const origin = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-const directory = await mkdtemp(join(tmpdir(), 'tempad-bridge-'))
+const directory = await realpath(await mkdtemp(join(tmpdir(), 'tempad-bridge-')))
 const peers = []
 const failures = []
 const metricSamples = []
@@ -674,6 +674,10 @@ try {
   process.stdout.write(
     'Bridge compatibility passed: protocol 13 reads/writes/tasks/assets/reconnect, legacy reads/assets/reconnect, upgrade errors, current routing/task fences and negotiated terminal receipts.\n'
   )
+} catch (error) {
+  throw new Error(`Bridge compatibility failed. Child diagnostics:\n${stderr.slice(-16_384)}`, {
+    cause: error
+  })
 } finally {
   for (const peer of peers) peer.socket.terminate()
   await client.close()
