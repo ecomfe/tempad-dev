@@ -29,6 +29,10 @@ Then run:
 Use this sequence as the default pre-PR verification. Also run `pnpm test:coverage` when changing
 pure utilities or coverage configuration, as detailed below. CI enforces the coverage floor.
 
+Push a validation branch under `ci/` to run the full Linux build and Windows runtime matrices
+without publishing `main`. Validation branches compare plugin payload versions against
+`origin/main`; ordinary main pushes retain their previous-commit baseline.
+
 ## Command reference
 
 Root:

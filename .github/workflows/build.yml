@@ -2,7 +2,7 @@ name: build
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'ci/**']
   pull_request:
     branches: [main]
 
@@ -36,7 +36,7 @@ jobs:
       - name: Check agent plugin version
         if: matrix.node == '24.x'
         env:
-          PLUGIN_VERSION_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before }}
+          PLUGIN_VERSION_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || startsWith(github.ref, 'refs/heads/ci/') && 'origin/main' || github.event.before }}
         run: node scripts/check-agent-plugin-version.mjs
 
       - name: Install dependencies
