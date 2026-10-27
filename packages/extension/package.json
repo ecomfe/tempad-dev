@@ -40,7 +40,7 @@
     "@tempad-dev/shared": "workspace:^0.1.0",
     "@vueuse/core": "^15.0.0",
     "es-module-lexer": "3.0.4",
-    "overlayscrollbars": "^2.16.0",
+    "overlayscrollbars": "^2.17.0",
     "p-wait-for": "^6.0.0",
     "stringify-object": "^7.0.0",
     "svgson": "^5.3.1",
