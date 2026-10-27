@@ -5,8 +5,8 @@ Verified releases default to stable updates; checkout and unverified local build
 bridge without release acquisition. Incompatible or breaking-boundary updates require an explicit
 decision or restart. Design baseline: `74ed70c9`.
 
-This design is for maintainers implementing runtime updates and preparing compatible
-releases. It owns the proposed process boundary, update transaction, and acceptance
+This design is for maintainers changing runtime updates and preparing compatible
+releases. It records the process boundary, update transaction, and acceptance
 criteria. [Releasing](../releasing.md) owns the implemented artifact and publication policy.
 
 ## Problem and intended experience
@@ -34,8 +34,8 @@ lease migration.
 | [`terminal-receipts.ts`](../../packages/mcp-server/src/terminal-receipts.ts)                                             | Tracks execution completion in process-local state.                                                                              | A host timeout does not prove the Figma operation has stopped.                                               |
 | [`shared.ts`](../../packages/mcp-server/src/shared.ts) and [development packaging](../../scripts/build-agent-plugin.mjs) | Release and checkout launches share the default runtime paths and discovery ports.                                               | A development CLI can attach to the running release Hub instead of its own build.                            |
 
-Publishing npm `latest` only affects subsequent package resolution. There is no
-scheduled version check, compatible-version activation, or coordinated handoff today.
+At this baseline, publishing npm `latest` only affected subsequent package resolution.
+There was no scheduled version check, compatible-version activation, or coordinated handoff.
 
 ## Alternatives and feasibility
 
@@ -855,9 +855,9 @@ Windows runs the same acquisition and switch transaction with private named pipe
 storage and platform-specific child-process cleanup. The [Windows runtime CI](../../TESTING.md#windows-runtime-ci)
 matrix must pass for the candidate before release; adding a platform to the manifest alone is
 not acceptance. This does not establish Windows desktop-host behavior.
-The remaining rollout requirements are:
+Publication must still satisfy these gates; they are not additional implementation phases:
 
-- Before this phase, publish the backward-compatible hook receiver, then a versioned plugin
+- Publish the backward-compatible hook receiver, then a versioned plugin
   with profile-aware receipt/retry hooks. Allow an installed-plugin upgrade period and verify
   actual capable bindings; an elapsed period or plugin version alone does not establish adoption.
   Follow shared contract → MCP receiver → agent-plugin inputs/generated payloads, and the
