@@ -30,6 +30,7 @@ it.each([false, true])('keeps the production dependency graph frozen (offline: %
       '--ignore-scripts',
       '--frozen-lockfile',
       '--config.node-linker=hoisted',
+      '--config.package-import-method=copy',
       '/temporary/deploy'
     ],
     { cwd: '/workspace', stdio: 'inherit' }

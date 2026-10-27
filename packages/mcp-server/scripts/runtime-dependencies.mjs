@@ -27,6 +27,9 @@ export function deployRuntimeDependencies(repo, directory, { offline }) {
       '--ignore-scripts',
       '--frozen-lockfile',
       '--config.node-linker=hoisted',
+      // npm pack can stall on shared inodes from content-store hardlinks.
+      // Independent files also keep release artifacts free of tar hardlinks.
+      '--config.package-import-method=copy',
       directory
     ],
     { cwd: repo, stdio: 'inherit' }
