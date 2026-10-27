@@ -913,7 +913,15 @@ describe('design task status and canvas overlay', () => {
     f.anchor.value = f.node as unknown as SceneNode
     await expect.element(page.getByRole('button', { name: 'Review comments' })).toBeVisible()
     expect(f.panel.querySelector('.tp-feedback-toggle')).toBeNull()
+    // The trigger's box is stable while the toolbar's opening animation still clips it.
+    document
+      .querySelector('.tp-design-feedback')!
+      .getAnimations()
+      .forEach((animation) => animation.finish())
     await page.getByRole('button', { name: 'Review comments' }).click()
+    await expect
+      .element(page.getByRole('button', { name: 'Review comments' }))
+      .toHaveAttribute('aria-expanded', 'true')
     const comment = () => document.querySelector<HTMLTextAreaElement>('#tp-feedback-comment')
     await expect.poll(() => comment()?.value).toBe('Saved comment')
     await page.getByRole('textbox', { name: 'General comment' }).fill('Keep this revision')
