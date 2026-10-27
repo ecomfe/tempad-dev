@@ -104,14 +104,18 @@ jobs:
         run: pnpm mcp:prepare-release-dependencies
 
       - name: Check verified release downloads and explicit activation
+        env:
+          npm_config_logs_dir: ${{ runner.temp }}/tempad-npm-logs
         run: pnpm mcp:check-runtime-updates
 
-      - name: Preserve browser failure evidence
+      - name: Preserve failure evidence
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: browser-failures-node-${{ matrix.node }}
-          path: packages/*/.vitest/attachments/**
+          name: validation-failures-node-${{ matrix.node }}
+          path: |
+            packages/*/.vitest/attachments/**
+            ${{ runner.temp }}/tempad-npm-logs
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
