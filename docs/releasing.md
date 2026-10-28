@@ -154,6 +154,17 @@ change after verifying the supported old-extension setup and runtime paths.
 The Agent Plugin follows `main` and launches the npm `latest` tag. Make the required stable MCP
 version available before exposing the new plugin on `main`.
 
+For the initial MCP 0.12.0 rollout, the reviewed branch already contains the dependent plugin.
+Keep its release PR in draft while the candidate passes the build, rewrite, Windows runtime,
+and installed-archive checks. A release maintainer can then publish the exact verified MCP
+tarball from an authenticated environment with
+`npm publish <verified.tgz> --ignore-scripts --access public --tag latest`.
+Verify the registry version, dist-tag, and integrity against its `.tgz.json` receipt before merging
+the candidate to `main`. This one-time bootstrap preserves the reviewed commit history and avoids
+exposing the plugin early; it does not relax any artifact or compatibility check. Subsequent
+releases use the main-only publication workflow below, with dependent plugin changes held back
+until their runtime is available.
+
 1. Prepare the Chrome Web Store submission using the archive from the checked candidate. Retain
    its SHA-256 digest and the exact source revision.
 2. Resolve the bridge migration requirement above and the installed-host feedback acceptance
@@ -162,7 +173,7 @@ version available before exposing the new plugin on `main`.
    sufficient. The current Codex findings are tracked in the
    [IPC report](engineering/codex-desktop-ipc.md#original-installed-host-findings), including
    the later acceptance evidence preceding the original findings.
-3. Merge the checked MCP runtime change to `main` before dispatching `publish-mcp.yml`
+3. For later runtime releases, merge the checked MCP change to `main` before dispatching `publish-mcp.yml`
    with `tag=latest`; publication workflows reject other branches. Keep plugin changes that
    require that runtime in a separate follow-up until publication is verified. The workflow publishes
    only the verified tarball with scripts disabled; directory publication is rejected by
