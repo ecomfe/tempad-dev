@@ -109,7 +109,10 @@ it('preserves an explicit TLS CA through launcher and installer environments wit
       cert: readFileSync(certificate),
       key: readFileSync(new URL('./fixtures/runtime-ca-key.pem', import.meta.url))
     },
-    (_request, response) => response.end('verified TLS')
+    (_request, response) => {
+      response.setHeader('connection', 'close')
+      response.end('verified TLS')
+    }
   )
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')

@@ -380,7 +380,11 @@ it.skipIf(process.platform === 'win32')(
     const first = input('UserPromptSubmit')
     const second = input('Stop')
     const third = input('SessionEnd')
-    writeDurableJson(join(root, 'hooks.json'), [{ input: first }, { input: second }])
+    writeDurableJson(join(root, 'hooks.json'), {
+      version: 2,
+      cutoff: 0,
+      entries: [{ input: first }, { input: second }]
+    })
     const secondGate = Promise.withResolvers<void>()
     const thirdGate = Promise.withResolvers<void>()
     let failing = true
@@ -443,7 +447,7 @@ it.skipIf(process.platform === 'win32')(
       },
       ...(index < HOOK_RECEIPT_LIMIT - 1 ? { result: {} } : {})
     }))
-    writeDurableJson(join(root, 'hooks.json'), entries)
+    writeDurableJson(join(root, 'hooks.json'), { version: 2, cutoff: 0, entries })
     const fault = vi.fn()
     const deliver = vi.fn(async () => ({}))
     const retire = vi.fn(async () => {})

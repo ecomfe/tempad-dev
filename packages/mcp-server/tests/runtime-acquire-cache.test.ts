@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -127,6 +127,7 @@ beforeEach(async () => {
     fingerprint: sha256('catalog')
   })
   fake.resolve.mockResolvedValue(releases[2])
+  fake.download.mockImplementation(async (release) => release.bytes)
   fake.probe.mockImplementation(async (entry: string) => {
     const manifest: RuntimeManifest = JSON.parse(
       readFileSync(join(dirname(entry), 'runtime-manifest.json'), 'utf8')
@@ -166,14 +167,51 @@ it('still refuses to execute an incompatible cached runtime through an exact req
   expect(fake.probe).not.toHaveBeenCalled()
 })
 
-it('does not hide corrupt incompatible cache bytes by selecting another release', async () => {
+it('discards an unused corrupt cache and continues compatible selection without executing it', async () => {
   const current = artifact('0.12.0')
   const next = artifact('0.12.2')
   writeFileSync(next.entry, 'tampered')
   node('22.0.0')
-  await expect(stageRelease(root, 'latest', { active: current, control: current })).rejects.toThrow(
-    'hash mismatch'
-  )
+  const context = { active: current, control: current }
+  const first = await stageRelease(root, 'latest', context)
+  expect(first).toMatchObject({
+    cacheWarning: expect.stringContaining('hash mismatch'),
+    selection: { inspected: 1, remaining: 1 }
+  })
+  expect(existsSync(next.entry)).toBe(false)
   expect(fake.probe).not.toHaveBeenCalled()
-  expect(fake.download).not.toHaveBeenCalled()
+  expect(fake.download).toHaveBeenCalledOnce()
+  expect(await stageRelease(root, 'latest', context, first.selection?.cursor)).toMatchObject({
+    candidate: { version: '0.12.1' }
+  })
+  expect(fake.probe).toHaveBeenCalledExactlyOnceWith(artifact('0.12.1').entry)
 })
+
+it('repairs an unused compatible cache before probing its installed bytes', async () => {
+  const current = artifact('0.12.0')
+  const next = artifact('0.12.1')
+  writeFileSync(next.entry, 'tampered')
+  fake.resolve.mockResolvedValue(releases[1])
+  const result = await stageRelease(root, '0.12.1', { active: current, control: current })
+  expect(result).toMatchObject({
+    candidate: next,
+    cacheWarning: expect.stringContaining('hash mismatch')
+  })
+  expect(readFileSync(next.entry, 'utf8')).toBe('// 0.12.1')
+  expect(() => verifyReleaseArtifact(result.candidate!)).not.toThrow()
+})
+
+it.each(['control', 'previous'] as const)(
+  'retains a damaged %s cache for explicit recovery',
+  async (role) => {
+    const current = artifact('0.12.0')
+    const next = artifact('0.12.2')
+    writeFileSync(next.entry, 'tampered')
+    await expect(
+      stageRelease(root, 'latest', { active: current, control: current, [role]: next })
+    ).rejects.toThrow('retained runtime cache')
+    expect(readFileSync(next.entry, 'utf8')).toBe('tampered')
+    expect(fake.probe).not.toHaveBeenCalled()
+    expect(fake.download).not.toHaveBeenCalled()
+  }
+)
