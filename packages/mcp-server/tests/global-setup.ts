@@ -10,7 +10,11 @@ declare module 'vitest' {
   }
 }
 
-export default function setup(project: TestProject) {
+export default async function setup(project: TestProject) {
+  if (process.env.TEMPAD_RUNTIME_EVIDENCE_DIR) {
+    const diagnostics = '../scripts/runtime-startup-trace.mjs'
+    await import(diagnostics)
+  }
   const directory = createPrivateTempDirectory('tempad-mcp-tests-')
   project.provide('mcpTestDirectory', directory)
   return () => rmSync(directory, { recursive: true, force: true })

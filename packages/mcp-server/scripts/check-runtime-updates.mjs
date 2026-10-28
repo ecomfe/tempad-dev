@@ -25,6 +25,7 @@ import {
   FIXTURE_INITIALIZE_TIMEOUT_MS,
   commandArguments,
   fixtureEnvironment,
+  fixtureNodeArguments,
   fixtureRoot,
   preserveFixtureEvidence,
   processInventory
@@ -288,10 +289,10 @@ async function makeArtifact(version, base, epoch) {
 async function client(release, policy = 'off', env = isolationEnv, name = 'release-acceptance') {
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [
+    args: fixtureNodeArguments([
       join(release.directory, 'dist/cli.mjs'),
       ...(policy !== 'default' ? [`--runtime-updates=${policy}`] : [])
-    ],
+    ]),
     env,
     stderr: 'pipe'
   })
@@ -303,7 +304,9 @@ async function client(release, policy = 'off', env = isolationEnv, name = 'relea
   const client = new Client({ name, version: '1' })
   clients.push(client)
   try {
-    await client.connect(transport, { timeout: FIXTURE_INITIALIZE_TIMEOUT_MS })
+    // First enrollment can wait for another CLI to retain the verified package
+    // before the edge's separate attachment/recovery budget begins.
+    await client.connect(transport, { timeout: 2 * FIXTURE_INITIALIZE_TIMEOUT_MS })
   } catch (error) {
     throw new Error(`${String(error)}\n${diagnostic}`, { cause: error })
   }

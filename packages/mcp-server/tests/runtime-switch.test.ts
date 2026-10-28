@@ -357,10 +357,13 @@ async function fixture(
   )
   await ready(grant.hubId)
   if (automatic && !initial)
-    await vi.waitFor(async () => {
-      const state = await control.request({ method: 'tempad/runtime-status' }, ResultSchema)
-      expect(state.updates).toMatchObject({ lastAttempt: expect.any(Number), checking: false })
-    })
+    await vi.waitFor(
+      async () => {
+        const state = await control.request({ method: 'tempad/runtime-status' }, ResultSchema)
+        expect(state.updates).toMatchObject({ lastAttempt: expect.any(Number), checking: false })
+      },
+      { timeout: recoveryWait }
+    )
   return {
     root,
     config,
