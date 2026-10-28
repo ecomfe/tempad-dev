@@ -33,9 +33,16 @@ beforeAll(async () => {
   const config = join(bundle, 'config.mjs')
   const hub = join(bundle, 'hub-entry.mts')
   const assets = join(bundle, 'asset-listener.mjs')
+  // Normal shutdown tests must not race a cold logging worker against the real watchdog.
   writeFileSync(
     hub,
-    `import {startHub} from ${JSON.stringify(join(packageRoot, 'src/hub-runtime.ts'))}; await startHub(); process.stdout.write('ready\\n');`
+    `import {once} from 'node:events'; import {symbols} from 'pino';
+    import {startHub} from ${JSON.stringify(join(packageRoot, 'src/hub-runtime.ts'))};
+    import {log} from ${JSON.stringify(join(packageRoot, 'src/shared.ts'))};
+    await startHub();
+    const transport = log[symbols.streamSym];
+    if (!transport.ready) await once(transport, 'ready');
+    process.stdout.write('ready\\n');`
   )
   writeFileSync(
     config,
@@ -283,14 +290,6 @@ it.skipIf(process.platform === 'win32').each(['success', 'throw', 'error'] as co
     writeFileSync(
       preload,
       `import {Server} from 'node:net'; import {appendFileSync, lstatSync} from 'node:fs';
-      import {Worker} from 'node:worker_threads';
-      const emit = Worker.prototype.emit;
-      Worker.prototype.emit = function(event, ...args) {
-        const handled = emit.call(this, event, ...args);
-        if (event === 'message' && args[0]?.code === 'READY')
-          process.stderr.write('fixture-log-ready\\n');
-        return handled;
-      };
       process.umask(0o022);
       const record = value => appendFileSync(${JSON.stringify(probe)}, JSON.stringify(value) + '\\n');
       process.once('exit', () => record({restoredMask: process.umask()}));
@@ -311,11 +310,6 @@ it.skipIf(process.platform === 'win32').each(['success', 'throw', 'error'] as co
     const hub = launch('hub.mjs', runtime, preload, join(directory, `bind-stores-${outcome}`))
     if (outcome === 'success') {
       await vi.waitFor(() => expect(hub.stdout(), hub.stderr()).toContain('ready'), {
-        timeout: 5000
-      })
-      // This tests socket permissions, not the logging worker's cold-start latency.
-      // Pino keeps that worker referenced until READY, which can outlast the shutdown watchdog.
-      await vi.waitFor(() => expect(hub.stderr()).toContain('fixture-log-ready'), {
         timeout: 5000
       })
       await pingHub(socketPath)
@@ -569,7 +563,21 @@ it.skipIf(process.platform === 'win32')(
     expect(existsSync(join(directory, 'state/.tempad-hub-writer.lock'))).toBe(false)
     expect(existsSync(join(directory, 'assets/.tempad-hub-writer.lock'))).toBe(false)
     const nextRuntime = join(directory, 'run-three')
-    const next = launch('hub.mjs', nextRuntime)
+    const delayedLogger = join(bundle, 'delayed-log-ready.mjs')
+    // Reproduce a worker starting later than the shutdown watchdog allows.
+    writeFileSync(
+      delayedLogger,
+      `import {Worker} from 'node:worker_threads';
+      const emit = Worker.prototype.emit;
+      Worker.prototype.emit = function(event, ...args) {
+        if (event === 'message' && args[0]?.code === 'READY') {
+          setTimeout(() => emit.call(this, event, ...args), 2500);
+          return true;
+        }
+        return emit.call(this, event, ...args);
+      };`
+    )
+    const next = launch('hub.mjs', nextRuntime, delayedLogger)
     await vi.waitFor(() => expect(next.stdout(), next.stderr()).toContain('ready'), {
       timeout: 5000
     })
