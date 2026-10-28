@@ -162,8 +162,6 @@ async function fixture(
   let busyOnGate = false
   let refuseStop = false
   let refuseCandidateOpen = false
-  let waitForRuntime = true
-  let admissionBarrier = true
   let onPause: ((signal: AbortSignal) => Promise<void>) | undefined
   const admissions: boolean[] = []
   const retireLegacy = vi.fn(() => ({}))
@@ -283,7 +281,7 @@ async function fixture(
       revision: 1,
       phase: initial.phase,
       active: a,
-      candidate: b,
+      candidate: initial.phase === 'preparing' || !automatic ? b : undefined,
       failedBundles: []
     })
     if (automatic)
@@ -317,8 +315,6 @@ async function fixture(
         method: 'tempad/runtime-ready',
         params: {
           hubId,
-          ...(waitForRuntime ? { waitForRuntime: true } : {}),
-          ...(admissionBarrier ? { admissionBarrier: true } : {}),
           ...(peerFailure ? { error: 'Frozen contract mismatch' } : {})
         }
       },
@@ -374,10 +370,6 @@ async function fixture(
     pauseWith: (handler: (signal: AbortSignal) => Promise<void>) => {
       onPause = handler
     },
-    oldAdmission: async () => {
-      admissionBarrier = false
-      await ready(grant.hubId)
-    },
     update: () =>
       control.request(
         { method: 'tempad/runtime-update', params: { entry: b.entry } },
@@ -410,10 +402,6 @@ async function fixture(
       },
       refuseStop: () => {
         refuseStop = true
-      },
-      oldEdge: async () => {
-        waitForRuntime = false
-        await ready(grant.hubId)
       },
       unready: async () => {
         peerFailure = true
@@ -463,10 +451,10 @@ it('does not restart the drain budget after an admission barrier uses it up', as
   expect(await f.status()).toMatchObject({ active: f.a, gated: false })
 })
 
-it('requires explicit barrier support before switching an older edge', async () => {
+it('requires successful initialization before switching an attached edge', async () => {
   const f = await fixture()
-  await f.oldAdmission()
-  await expect(f.update()).rejects.toThrow('safe backend replacement support')
+  await f.auto.unready()
+  await expect(f.update()).rejects.toThrow('not finished initialization')
   expect(f.admissions).toEqual([])
   expect(f.hubs).toHaveLength(1)
   expect(fake.probe).not.toHaveBeenCalled()
@@ -562,18 +550,15 @@ it('keeps managed staging out of the switch journal until the old Hub drains', a
   expect(f.hubs).toHaveLength(1)
 })
 
-it.each(['committed', 'preparing'] as const)(
-  'removes obsolete managed %s staging without promoting an unrecorded release',
-  async (phase) => {
-    const f = await fixture(undefined, true, { phase })
-    expect(readJournal(f.root)).toMatchObject({ phase: 'committed', active: f.a })
-    expect(readJournal(f.root)?.candidate).toBeUndefined()
-    expect(await f.status()).toMatchObject({ active: f.a, gated: false })
-    expect((await f.status()).updates).not.toHaveProperty('candidate')
-    expect(f.hubs).toHaveLength(1)
-    expect(releaseAcquisition.acquireRelease).not.toHaveBeenCalled()
-  }
-)
+it('abandons a prepared managed switch if the original Hub is still running', async () => {
+  const f = await fixture(undefined, true, { phase: 'preparing' })
+  expect(readJournal(f.root)).toMatchObject({ phase: 'committed', active: f.a })
+  expect(readJournal(f.root)?.candidate).toBeUndefined()
+  expect(await f.status()).toMatchObject({ active: f.a, gated: false })
+  expect((await f.status()).updates).not.toHaveProperty('candidate')
+  expect(f.hubs).toHaveLength(1)
+  expect(releaseAcquisition.acquireRelease).not.toHaveBeenCalled()
+})
 
 it.each([
   { phase: 'committed' as const, managed: false },
@@ -667,7 +652,7 @@ it.each(['event', 'exitCode'] as const)(
   }
 )
 
-it.each(['oldEdge', 'unready', 'legacyHub', 'recentWork'] as const)(
+it.each(['unready', 'legacyHub', 'recentWork'] as const)(
   'keeps serving when automatic readiness is missing: %s',
   async (scenario) => {
     const f = await fixture(undefined, true)

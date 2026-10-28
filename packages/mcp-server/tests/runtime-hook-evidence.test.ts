@@ -125,7 +125,7 @@ async function request(root: string, params: ClientHook) {
   }
 }
 
-it.skipIf(process.platform === 'win32').each(['legacy', 'previous-hub'])(
+it.skipIf(process.platform === 'win32').each(['without-receiver', 'previous-hub'])(
   'does not reclaim a session from persisted %s hook evidence',
   async (format) => {
     const root = directory()
@@ -134,17 +134,12 @@ it.skipIf(process.platform === 'win32').each(['legacy', 'previous-hub'])(
     const entries = [
       { input: queued, ...(format === 'previous-hub' ? { admittedHubId: oldHubId } : {}) }
     ]
-    writeDurableJson(
-      join(root, 'hooks.json'),
-      format === 'legacy'
-        ? entries
-        : {
-            version: 2,
-            cutoff: 0,
-            receiver: { hubId: oldHubId },
-            entries
-          }
-    )
+    writeDurableJson(join(root, 'hooks.json'), {
+      version: 2,
+      cutoff: 0,
+      ...(format === 'previous-hub' ? { receiver: { hubId: oldHubId } } : {}),
+      entries
+    })
     const current = await hub(root)
     current.connect()
     const gateway = await startHookGateway(root, current.deliver)

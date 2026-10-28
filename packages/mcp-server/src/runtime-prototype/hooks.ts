@@ -49,20 +49,17 @@ export async function startHookGateway(
   const path = join(root, 'hooks.json')
   const stored = await readPrivateJsonAsync(
     path,
-    z.union([
-      InboxSchema,
-      z.object({
-        version: z.literal(2),
-        cutoff: z.number(),
-        entries: InboxSchema,
-        receiver: ReceiverSchema.optional()
-      })
-    ])
+    z.object({
+      version: z.literal(2),
+      cutoff: z.number(),
+      entries: InboxSchema,
+      receiver: ReceiverSchema.optional()
+    })
   )
   signal?.throwIfAborted()
-  let entries = Array.isArray(stored) ? stored : (stored?.entries ?? [])
-  let cutoff = Array.isArray(stored) ? 0 : (stored?.cutoff ?? 0)
-  let receiver = Array.isArray(stored) ? undefined : stored?.receiver
+  let entries = stored?.entries ?? []
+  let cutoff = stored?.cutoff ?? 0
+  let receiver = stored?.receiver
   let flushing: Promise<void> | undefined
   let legacyRetiredFor: string | undefined
   let closed = false

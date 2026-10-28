@@ -478,7 +478,7 @@ async function automaticAcceptance(a, b) {
         await peer.request(
           {
             method: 'tempad/runtime-ready',
-            params: { hubId: grant.hubId, waitForRuntime: true, admissionBarrier: true }
+            params: { hubId: grant.hubId }
           },
           ResultSchema
         )

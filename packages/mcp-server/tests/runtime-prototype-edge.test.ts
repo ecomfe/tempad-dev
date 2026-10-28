@@ -87,7 +87,7 @@ async function fixture(
     peer.setRequestHandler(
       z.object({
         method: z.literal('tempad/runtime-ready'),
-        params: z.object({ waitForRuntime: z.literal(true) })
+        params: z.object({ hubId: z.uuid() })
       }),
       () => {
         ready++

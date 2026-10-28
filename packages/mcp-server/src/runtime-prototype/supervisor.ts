@@ -72,9 +72,6 @@ type Lease = z.infer<typeof LeaseSchema>
 type Edge = {
   registration: Registration
   ready: boolean
-  supportsReplacement?: boolean
-  waitForRuntime?: boolean
-  admissionBarrier?: boolean
   error?: string
 }
 
@@ -201,10 +198,8 @@ export async function startSupervisor(config: PrototypeConfig) {
       reasons.push(
         'An attached MCP client has not opted in; restart it with --runtime-updates=stable or close it'
       )
-    if ([...edges.values()].some((edge) => !edge.supportsReplacement))
+    if ([...edges.values()].some((edge) => !edge.ready))
       reasons.push('An attached MCP client has not finished initialization')
-    if ([...edges.values()].some((edge) => !edge.admissionBarrier))
-      reasons.push('Restart an older MCP client to enable safe runtime handoff')
     return reasons
   }
 
@@ -214,11 +209,7 @@ export async function startSupervisor(config: PrototypeConfig) {
       !updates.status.disabled &&
       edges.size > 0 &&
       [...edges.values()].every(
-        (edge) =>
-          edge.registration.updates?.policy === 'stable' &&
-          edge.waitForRuntime &&
-          edge.admissionBarrier &&
-          edge.ready
+        (edge) => edge.registration.updates?.policy === 'stable' && edge.ready
       )
     )
   }
@@ -581,8 +572,6 @@ export async function startSupervisor(config: PrototypeConfig) {
   }
 
   async function pauseEdges(deadline: number) {
-    if ([...edges.values()].some((edge) => !edge.admissionBarrier))
-      throw new Error('Restart an older MCP client before switching its runtime safely.')
     const failed = new AbortController()
     const signal = AbortSignal.any([lifetime.signal, failed.signal])
     await Promise.allSettled(
@@ -781,10 +770,6 @@ export async function startSupervisor(config: PrototypeConfig) {
     transitioning = true
     let observedPid: number | undefined
     try {
-      // Managed staging belongs to updates.json. Older supervisors also copied
-      // it here before drain; that copy cannot authorize or preserve an offer.
-      if (updates && journal.phase === 'committed' && journal.candidate)
-        persist({ ...journal, candidate: undefined })
       const identityPath = join(paths.runtime, 'hub-runtime.json')
       const identity = existsSync(identityPath)
         ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
@@ -860,9 +845,9 @@ export async function startSupervisor(config: PrototypeConfig) {
         { method: 'tempad/runtime-retain', params: { retained: true } },
         ResultSchema
       )
-      if ([...edges.values()].some((edge) => !edge.supportsReplacement || !edge.admissionBarrier))
+      if ([...edges.values()].some((edge) => !edge.ready))
         throw new Error(
-          'An attached edge has not confirmed safe backend replacement support; wait for initialization or restart an older MCP client before switching.'
+          'An attached MCP client has not finished initialization; wait or reconnect it before switching.'
         )
       if (config.release && !released)
         throw new Error('Managed releases accept only a verified staged npm artifact.')
@@ -964,9 +949,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         method: z.literal('tempad/runtime-ready'),
         params: z.object({
           hubId: z.uuid(),
-          error: z.string().optional(),
-          waitForRuntime: z.literal(true).optional(),
-          admissionBarrier: z.literal(true).optional()
+          error: z.string().optional()
         })
       }),
       ({ params }) => {
@@ -975,9 +958,6 @@ export async function startSupervisor(config: PrototypeConfig) {
           throw unavailable('Stale runtime readiness acknowledgment.')
         edge.error = params.error
         edge.ready = !params.error
-        edge.supportsReplacement = true
-        edge.waitForRuntime = params.waitForRuntime === true
-        edge.admissionBarrier = params.admissionBarrier === true
         return {}
       }
     )

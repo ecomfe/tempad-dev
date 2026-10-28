@@ -168,8 +168,6 @@ export async function startPrototypeEdge(
         method: 'tempad/runtime-ready',
         params: {
           hubId: grant!.hubId,
-          waitForRuntime: true,
-          admissionBarrier: true,
           ...(error ? { error } : {})
         }
       },
