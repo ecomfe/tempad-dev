@@ -1,3 +1,9 @@
+import { execFile } from 'node:child_process'
+import { once } from 'node:events'
+import { readFileSync } from 'node:fs'
+import { createServer } from 'node:https'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { afterEach, expect, it } from 'vitest'
 
 import { hostEnvironment, hubEnvironment, platformEnvironment } from '../src/process-environment'
@@ -32,12 +38,17 @@ it.each(['canonical', 'uppercase'])('preserves Windows OS variables with %s name
     CLAUDE_CODE_SESSION_ID: 'parent-session',
     OPENAI_API_KEY: 'secret',
     NODE_OPTIONS: '--require injected.js',
+    NODE_EXTRA_CA_CERTS: 'C:\\Company\\ca.pem',
     PSModulePath: 'C:\\PowerShell7\\Modules',
     TEMPAD_MCP_UNKNOWN: 'not-config',
     tempad_mcp_tool_timeout: '1000'
   }
   expect(platformEnvironment(env)).toEqual(expected)
-  expect(hubEnvironment(env)).toEqual({ ...expected, TEMPAD_MCP_TOOL_TIMEOUT: '1000' })
+  expect(hubEnvironment(env)).toEqual({
+    ...expected,
+    TEMPAD_MCP_TOOL_TIMEOUT: '1000',
+    NODE_EXTRA_CA_CERTS: 'C:\\Company\\ca.pem'
+  })
 })
 
 it('replaces all Windows home and temporary aliases with the selected host context', () => {
@@ -88,4 +99,53 @@ it('retains exact-key filtering on Unix', () => {
       TEMPAD_MCP_TOOL_TIMEOUT: '1000'
     })
   ).toEqual({ PATH: '/bin', HOME: '/home', TEMPAD_MCP_TOOL_TIMEOUT: '1000' })
+})
+
+it('preserves an explicit TLS CA through launcher and installer environments without weakening verification', async () => {
+  // Public test-only key/certificate; no external trust store is modified.
+  const certificate = new URL('./fixtures/runtime-ca.pem', import.meta.url)
+  const server = createServer(
+    {
+      cert: readFileSync(certificate),
+      key: readFileSync(new URL('./fixtures/runtime-ca-key.pem', import.meta.url))
+    },
+    (_request, response) => response.end('verified TLS')
+  )
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const url = `https://127.0.0.1:${(server.address() as { port: number }).port}`
+  const worker = `
+    for (const key of ['NODE_OPTIONS', 'NODE_TLS_REJECT_UNAUTHORIZED', 'CODEX_THREAD_ID', 'NPM_TOKEN'])
+      if (process.env[key]) throw new Error('Inherited forbidden variable: ' + key);
+    process.stdout.write(await (await fetch(${JSON.stringify(url)})).text());
+  `
+  const launcher = `
+    import { execFile } from 'node:child_process';
+    import { promisify } from 'node:util';
+    import { hubEnvironment } from ${JSON.stringify(new URL('../src/process-environment.ts', import.meta.url).href)};
+    const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '--eval', ${JSON.stringify(worker)}], { env: hubEnvironment(process.env) });
+    process.stdout.write(stdout);
+  `
+  const env = hubEnvironment({
+    ...process.env,
+    NODE_EXTRA_CA_CERTS: undefined,
+    NODE_OPTIONS: '--require=must-not-run',
+    NODE_TLS_REJECT_UNAUTHORIZED: '0',
+    CODEX_THREAD_ID: 'unrelated',
+    NPM_TOKEN: 'must-not-inherit'
+  })
+  const run = (env: NodeJS.ProcessEnv) =>
+    promisify(execFile)(process.execPath, ['--input-type=module', '--eval', launcher], {
+      env,
+      timeout: 10000
+    })
+  try {
+    await expect(run(env)).rejects.toThrow('fetch failed')
+    await expect(
+      run({ ...env, NODE_EXTRA_CA_CERTS: fileURLToPath(certificate) })
+    ).resolves.toHaveProperty('stdout', 'verified TLS')
+  } finally {
+    server.closeAllConnections()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
 })
