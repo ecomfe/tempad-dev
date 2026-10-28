@@ -7,7 +7,7 @@ import { fingerprintBundle } from '../runtime-prototype/processes'
 import { ArtifactSchema } from '../runtime-prototype/state'
 import { readArchive, verifyIntegrity } from './archive'
 import { releaseManifest } from './artifact'
-import { installArchive, verifyCached } from './cache'
+import { discardUnusedCache, installArchive, verifyCached } from './cache'
 import {
   assertRunnable,
   automaticCompatibilityReasons,
@@ -29,6 +29,7 @@ export const AcquisitionContextSchema = z
   .object({
     active: ArtifactSchema,
     control: ArtifactSchema,
+    previous: ArtifactSchema.optional(),
     excludedBundles: z.array(HashSchema).optional()
   })
   .strict()
@@ -53,7 +54,8 @@ export const SelectionSchema = z
 export const AcquisitionResultSchema = z
   .object({
     candidate: ArtifactSchema.optional(),
-    selection: SelectionSchema.optional()
+    selection: SelectionSchema.optional(),
+    cacheWarning: z.string().max(2000).optional()
   })
   .strict()
 export type AcquisitionResult = z.infer<typeof AcquisitionResultSchema>
@@ -73,6 +75,7 @@ export async function stageRelease(
   const excluded = new Set(context.excludedBundles)
   let downloaded = false
   let inspected = 0
+  let cacheWarning: string | undefined
   const reasonsFor = (manifest: RuntimeManifest) => [
     ...new Set([
       ...automaticCompatibilityReasons(active, manifest),
@@ -85,8 +88,17 @@ export async function stageRelease(
     try {
       installed = verifyCached(cache, release.version, release.integrity)
     } catch (error) {
-      // Corrupt cache evidence is never replaced or hidden by selecting an older release.
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      if (
+        discardUnusedCache(cache, release.integrity, [
+          context.active,
+          context.control,
+          context.previous
+        ])
+      )
+        cacheWarning = `Discarded unused cache for ${release.version}: ${String(error)}`.slice(
+          0,
+          2000
+        )
     }
     if (!installed) {
       // Commit completed cached inspections before starting a network archive;
@@ -152,7 +164,7 @@ export async function stageRelease(
     const release = await resolveRelease(selector)
     if (compareVersions(release.version, active.packageVersion) <= 0) return {}
     const { candidate } = await inspectRelease(release, false)
-    return { candidate }
+    return { candidate, cacheWarning }
   }
 
   const catalog = await releaseCatalog(active.packageVersion)
@@ -190,6 +202,7 @@ export async function stageRelease(
     if (result.candidate)
       return {
         candidate: result.candidate,
+        cacheWarning,
         selection: { latest: catalog.latest, latestReasons, inspected, remaining: 0 }
       }
     // One network archive retains the existing 120-second download allowance
@@ -199,6 +212,7 @@ export async function stageRelease(
   }
   const remaining = releases.length - inspected
   return {
+    cacheWarning,
     selection: {
       latest: catalog.latest,
       latestReasons,

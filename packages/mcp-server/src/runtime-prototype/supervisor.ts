@@ -144,7 +144,12 @@ export async function startSupervisor(config: PrototypeConfig) {
               join(dirname(config.entry), 'runtime-installer.mjs'),
               join(config.root, 'cache'),
               version,
-              { active: journal.active, control, excludedBundles: journal.failedBundles },
+              {
+                active: journal.active,
+                control,
+                previous: journal.previous,
+                excludedBundles: journal.failedBundles
+              },
               signal,
               cursor
             )

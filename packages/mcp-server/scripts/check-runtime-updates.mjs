@@ -978,7 +978,9 @@ try {
   const cache = incompatible.candidate.release.directory
   await writeFile(join(cache, 'dist/managed-runtime.mjs'), 'corrupt cache')
   online = true
-  await assert.rejects(request('tempad/runtime-check', { version: c.version }), /hash mismatch/)
+  const repaired = await request('tempad/runtime-check', { version: c.version })
+  assert.equal(repaired.candidate.version, c.version)
+  assert.match((await status()).updates.cacheWarning, /hash mismatch/)
   await first.ping()
 
   // A local restart is the escape hatch for a guidance/contract boundary. It must

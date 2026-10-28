@@ -9,6 +9,7 @@ import { readArchive, verifyIntegrity } from '../src/runtime-update/archive'
 import { retainBundledPackage, verifyReleaseArtifact } from '../src/runtime-update/artifact'
 import {
   cacheDirectory,
+  discardUnusedCache,
   installArchive,
   pruneCache,
   verifyCached
@@ -280,6 +281,18 @@ describe('private release cache', () => {
       writeFileSync(join(installed.directory, 'dist/cli.mjs'), 'tampered')
       expect(() => verifyCached(root, '0.12.0', sri)).toThrow('hash mismatch')
       await expect(installArchive(root, '0.12.0', sri, archive)).rejects.toThrow('hash mismatch')
+      const retained = {
+        version: '0.12.0',
+        entry: join(installed.directory, 'dist/managed-runtime.mjs'),
+        bundle: 'a'.repeat(64),
+        release: { directory: installed.directory, manifestHash: 'b'.repeat(64) }
+      }
+      expect(() => discardUnusedCache(root, sri, [undefined, retained])).toThrow(
+        'retained runtime cache'
+      )
+      expect(readFileSync(join(installed.directory, 'dist/cli.mjs'), 'utf8')).toBe('tampered')
+      expect(discardUnusedCache(root, sri, [])).toBe(true)
+      expect(await installArchive(root, '0.12.0', sri, archive)).toEqual(installed)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -289,6 +302,7 @@ describe('private release cache', () => {
     try {
       symlinkSync(root, cacheDirectory(root, baselineIntegrity), 'junction')
       expect(() => verifyCached(root, '0.12.0', baselineIntegrity)).toThrow('untrusted runtime')
+      expect(() => discardUnusedCache(root, baselineIntegrity, [])).toThrow('untrusted runtime')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

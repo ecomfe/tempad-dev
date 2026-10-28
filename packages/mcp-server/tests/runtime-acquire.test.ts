@@ -11,6 +11,7 @@ const fake = vi.hoisted(() => ({
   catalog: vi.fn(),
   download: vi.fn(),
   cached: vi.fn(),
+  discard: vi.fn(),
   install: vi.fn(),
   probe: vi.fn(),
   manifest: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('../src/runtime-update/registry', () => ({
 }))
 vi.mock('../src/runtime-update/cache', () => ({
   verifyCached: fake.cached,
+  discardUnusedCache: fake.discard,
   installArchive: fake.install
 }))
 vi.mock('../src/runtime-update/archive', () => ({
@@ -314,11 +316,34 @@ it('skips an integrity-verified future manifest without executing it', async () 
   })
 })
 
-it('never replaces corrupted evidence or accepts a false contract declaration', async () => {
+it('refetches unused corrupt cache without probing damaged bytes', async () => {
   fake.cached.mockImplementationOnce(() => {
     throw new Error('hash mismatch')
   })
-  await expect(stageRelease(root, 'latest', context)).rejects.toThrow('hash mismatch')
+  fake.discard.mockReturnValue(true)
+  expect(await stageRelease(root, 'latest', context)).toMatchObject({
+    candidate: { version: '0.12.1' },
+    cacheWarning: expect.stringContaining('hash mismatch')
+  })
+  expect(fake.download).toHaveBeenCalledOnce()
+  expect(fake.install).toHaveBeenCalledOnce()
+  expect(fake.probe).toHaveBeenCalledOnce()
+})
+
+it('does not discard retained artifacts or accept a false contract declaration', async () => {
+  context.previous = artifact('0.12.1')
+  fake.cached.mockImplementationOnce(() => {
+    throw new Error('hash mismatch')
+  })
+  fake.discard.mockImplementationOnce(() => {
+    throw new Error('retained runtime cache')
+  })
+  await expect(stageRelease(root, 'latest', context)).rejects.toThrow('retained runtime cache')
+  expect(fake.discard).toHaveBeenCalledWith(root, 'sri', [
+    context.active,
+    context.control,
+    context.previous
+  ])
   expect(fake.download).not.toHaveBeenCalled()
   fake.probe.mockResolvedValue({
     artifact: artifact('0.12.1'),

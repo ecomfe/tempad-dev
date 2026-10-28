@@ -28,6 +28,35 @@ export function cacheDirectory(cache: string, integrity: string) {
   return join(cache, sha256(integrity))
 }
 
+function retainedDirectory(path: string, retained: (Artifact | undefined)[]) {
+  return retained.some(
+    (artifact) =>
+      artifact?.release &&
+      (artifact.release.directory === path || artifact.release.directory.startsWith(path + sep))
+  )
+}
+
+/** Download caches are replaceable; the running, control and rollback closures are not. */
+export function discardUnusedCache(
+  cache: string,
+  integrity: string,
+  retained: (Artifact | undefined)[]
+) {
+  privateDirectory(cache)
+  const directory = cacheDirectory(cache, integrity)
+  if (retainedDirectory(directory, retained))
+    throw new Error('A retained runtime cache is damaged; automatic replacement was refused.')
+  try {
+    lstatSync(directory)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+  privateDirectory(directory)
+  rmSync(directory, { recursive: true })
+  return true
+}
+
 /** Called by the sole owner after an acquisition worker has exited. */
 export async function pruneCache(
   cache: string,
@@ -40,15 +69,7 @@ export async function pruneCache(
     if (!entry.isDirectory()) continue
     const path = join(cache, entry.name)
     if (/^(?:bundled-)?[a-f0-9]{64}$/.test(entry.name)) {
-      if (
-        retained.some(
-          (artifact) =>
-            artifact?.release &&
-            (artifact.release.directory === path ||
-              artifact.release.directory.startsWith(path + sep))
-        )
-      )
-        continue
+      if (retainedDirectory(path, retained)) continue
       rmSync(path, { recursive: true, force: true })
     } else if (
       /^\.(?:install|bundled)-/.test(entry.name) &&

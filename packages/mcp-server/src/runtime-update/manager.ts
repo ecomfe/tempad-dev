@@ -26,6 +26,7 @@ const StateSchema = z
     lastAttempt: z.number().optional(),
     candidate: ArtifactSchema.optional(),
     manualCandidate: ArtifactSchema.optional(),
+    cacheWarning: z.string().max(2000).optional(),
     selection: SelectionSchema.optional(),
     error: z.string().optional()
   })
@@ -151,11 +152,12 @@ export class ReleaseUpdates {
       )
       .then((value) => {
         if (this.closed) return
-        const { candidate, selection } = AcquisitionResultSchema.parse(value)
+        const { candidate, selection, cacheWarning } = AcquisitionResultSchema.parse(value)
         this.save({
           ...this.state,
           // A successful scan also revokes old staging when the stable tag rewinds.
           ...(selector === 'latest' ? { candidate, selection } : { manualCandidate: candidate }),
+          cacheWarning,
           failures: 0,
           error: undefined,
           nextCheck:
@@ -213,12 +215,8 @@ export async function acquireRelease(
       cache,
       '--version',
       selector,
-      '--active',
-      JSON.stringify(context.active),
-      '--control',
-      JSON.stringify(context.control),
-      '--excluded',
-      JSON.stringify(context.excludedBundles ?? []),
+      '--context',
+      JSON.stringify(context),
       ...(cursor ? ['--cursor', JSON.stringify(cursor)] : [])
     ],
     {
