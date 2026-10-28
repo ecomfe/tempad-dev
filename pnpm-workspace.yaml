@@ -4,11 +4,11 @@ packages:
 overrides:
   '@rollup/plugin-terser>serialize-javascript': 7.1.2
   esbuild: 0.28.2
-  'node-notifier>uuid': 14.0.2
+  'node-notifier>uuid': 14.0.3
   # vue-tsc still needs the TS 6 API; the bridge runs the TS 7 checker behind it.
   typescript: npm:typescript-native-bridge@6.0.3-bridge.18.tsgo.7.0.2
   'web-ext-run>tmp': 0.2.7
-  vite: 8.3.2
+  vite: 8.3.4
 
 allowBuilds:
   esbuild: true
