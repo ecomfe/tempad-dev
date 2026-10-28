@@ -156,7 +156,8 @@ export async function startSupervisor(config: PrototypeConfig) {
                 journal.previous,
                 journal.candidate,
                 result.candidate,
-                updates?.status.candidate
+                updates?.status.candidate,
+                updates?.status.manualCandidate
               ],
               signal
             )
@@ -1048,12 +1049,11 @@ export async function startSupervisor(config: PrototypeConfig) {
         params: z.object({ version: z.string(), integrity: z.string() }).strict()
       }),
       async ({ params }) => {
-        const candidate = updates?.status.candidate
-        if (
-          !candidate ||
-          candidate.version !== params.version ||
-          candidate.release?.integrity !== params.integrity
+        const candidate = [updates?.status.manualCandidate, updates?.status.candidate].find(
+          (value) =>
+            value?.version === params.version && value.release?.integrity === params.integrity
         )
+        if (!candidate)
           throw new Error(
             'The staged artifact changed; check and confirm its version and integrity again.'
           )

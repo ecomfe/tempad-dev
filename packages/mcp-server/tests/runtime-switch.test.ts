@@ -288,7 +288,7 @@ async function fixture(
     })
     if (automatic)
       writeDurableJson(join(root, 'updates.json'), {
-        version: 1,
+        version: 2,
         nextCheck: Date.now() + 60_000,
         failures: 0,
         ...(initial.staged ? { candidate: b } : {})
@@ -356,6 +356,11 @@ async function fixture(
     GrantSchema
   )
   await ready(grant.hubId)
+  if (automatic && !initial)
+    await vi.waitFor(async () => {
+      const state = await control.request({ method: 'tempad/runtime-status' }, ResultSchema)
+      expect(state.updates).toMatchObject({ lastAttempt: expect.any(Number), checking: false })
+    })
   return {
     root,
     config,
@@ -507,6 +512,28 @@ it('automatically replaces a compatible idle runtime once', async () => {
   ).toBe(true)
 })
 
+it('keeps an exact download manual until that artifact is explicitly activated', async () => {
+  const f = await fixture(undefined, true, { phase: 'committed' })
+  await f.control.request(
+    { method: 'tempad/runtime-check', params: { version: f.b.version } },
+    ResultSchema
+  )
+  f.auto.allow()
+  await new Promise((resolve) => setTimeout(resolve, 2200))
+  expect(await f.status()).toMatchObject({ active: f.a, updates: { manualCandidate: f.b } })
+  expect((await f.status()).updates).not.toHaveProperty('candidate')
+  expect(
+    await f.control.request(
+      {
+        method: 'tempad/runtime-activate',
+        params: { version: f.b.version, integrity: f.b.release!.integrity }
+      },
+      ResultSchema,
+      { timeout: transitionTimeout }
+    )
+  ).toMatchObject({ status: 'activated', version: f.b.version })
+})
+
 it('keeps managed staging out of the switch journal until the old Hub drains', async () => {
   const f = await fixture(undefined, true)
   await f.control.request(
@@ -528,7 +555,7 @@ it('keeps managed staging out of the switch journal until the old Hub drains', a
   expect(await f.status()).toMatchObject({
     active: f.a,
     gated: false,
-    updates: { candidate: f.b }
+    updates: { manualCandidate: f.b }
   })
   expect(readJournal(f.root)?.candidate).toBeUndefined()
   expect(writes.mock.calls.every(([, journal]) => !journal.candidate)).toBe(true)

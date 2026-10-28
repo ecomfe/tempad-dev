@@ -118,7 +118,8 @@ it('does no background work without an enrolled edge and never activates', async
   expect(acquire).not.toHaveBeenCalled()
   await updates.check('0.12.1', true)
   expect(acquire).toHaveBeenCalledOnce()
-  expect(updates.status).toMatchObject({ disabled: false, candidate })
+  expect(updates.status).toMatchObject({ disabled: false, manualCandidate: candidate })
+  expect(updates.status.candidate).toBeUndefined()
   expect(existsSync(join(directory, 'switch.json'))).toBe(false)
 })
 
@@ -138,6 +139,50 @@ it('shares concurrent checks and preserves the schedule across an owner restart'
   expect(acquire).toHaveBeenCalledOnce()
   await vi.advanceTimersByTimeAsync(1)
   expect(acquire).toHaveBeenCalledTimes(2)
+})
+
+it('keeps exact staging separate from stable selection across restarts', async () => {
+  const manual = { ...candidate, version: '0.12.99', bundle: 'c'.repeat(64) }
+  const acquire = vi.fn(async (selector: string) => ({
+    candidate: selector === 'latest' ? candidate : manual
+  }))
+  const options = { root: root(), enrolled: () => true, acquire }
+  const updates = owner(options)
+  await updates.check('latest', true)
+  await updates.check(manual.version, true)
+  expect(updates.status).toMatchObject({ candidate, manualCandidate: manual })
+  updates.close()
+  expect(owner(options).status).toMatchObject({ candidate, manualCandidate: manual })
+})
+
+it.each(['latest', '0.12.1'])(
+  'only shares concurrent acquisitions for the same selector (%s)',
+  async (selector) => {
+    const completion = Promise.withResolvers<AcquisitionResult>()
+    const acquire = vi.fn(() => completion.promise)
+    const updates = owner({ root: root(), enrolled: () => true, acquire })
+    const first = updates.check(selector, true)
+    const same = updates.check(selector, true)
+    await expect(updates.check(selector === 'latest' ? '0.12.1' : 'latest', true)).rejects.toThrow(
+      'Another release selector'
+    )
+    completion.resolve({ candidate })
+    expect(await first).toEqual(await same)
+    expect(acquire).toHaveBeenCalledOnce()
+    expect(updates.status.candidate).toEqual(selector === 'latest' ? candidate : undefined)
+  }
+)
+
+it('does not automatically reuse old staging without provenance', () => {
+  const directory = root()
+  writeFileSync(
+    join(directory, 'updates.json'),
+    JSON.stringify({ version: 1, candidate, nextCheck: 0, failures: 0 }),
+    { mode: 0o600 }
+  )
+  const updates = owner({ root: directory, enrolled: () => true, acquire: vi.fn() })
+  expect(updates.status.candidate).toBeUndefined()
+  expect(updates.status.error).toContain('rebuilt')
 })
 
 it('backs off offline failures while retaining a verified candidate', async () => {

@@ -91,6 +91,10 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
     existsSync(manifestPath) ? 'stable' : 'off'
   )
   if (RUNTIME_PROFILE.kind === 'checkout') return false
+  if (intent.command === '--update-runtime' && (!process.stdin.isTTY || !process.stdout.isTTY))
+    throw new Error(
+      'Runtime activation requires interactive confirmation of the exact staged artifact.'
+    )
   if (args.includes('--recover-task-storage')) return false
   const root = join(resolveStateDir(), 'runtime')
   const path = join(root, 'prototype.json')
@@ -221,10 +225,6 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
         const checked = await request('tempad/runtime-check', { version })
         process.stdout.write(JSON.stringify(checked, null, 2) + '\n')
         if (command === '--update-runtime') {
-          if (!process.stdin.isTTY || !process.stdout.isTTY)
-            throw new Error(
-              'Runtime activation requires interactive confirmation of the exact staged artifact.'
-            )
           const candidate = (
             checked as { candidate?: { version?: string; release?: { integrity?: string } } }
           ).candidate

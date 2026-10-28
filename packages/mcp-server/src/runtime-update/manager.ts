@@ -20,11 +20,12 @@ import { VersionSchema } from './manifest'
 
 const StateSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     nextCheck: z.number(),
     failures: z.number().int().nonnegative(),
     lastAttempt: z.number().optional(),
     candidate: ArtifactSchema.optional(),
+    manualCandidate: ArtifactSchema.optional(),
     selection: SelectionSchema.optional(),
     error: z.string().optional()
   })
@@ -35,7 +36,7 @@ const INTERVAL = 6 * 60 * 60 * 1000
 export class ReleaseUpdates {
   private state: z.infer<typeof StateSchema>
   private timer?: ReturnType<typeof setTimeout>
-  private pending?: Promise<Artifact | undefined>
+  private pending?: { selector: string; result: Promise<Artifact | undefined> }
   private abort?: AbortController
   private closed = false
   private explicit = false
@@ -56,7 +57,7 @@ export class ReleaseUpdates {
   ) {
     if (process.env.TEMPAD_MCP_DEV_CHECKOUT)
       throw new Error('Checkout runtimes cannot acquire releases.')
-    this.state = { version: 1, nextCheck: 0, failures: 0 }
+    this.state = { version: 2, nextCheck: 0, failures: 0 }
     try {
       this.state = readPrivateJson(join(options.root, 'updates.json'), StateSchema) ?? this.state
     } catch (error) {
@@ -69,7 +70,7 @@ export class ReleaseUpdates {
         const backup = join(options.root, `updates.invalid-${randomUUID()}.json`)
         writeFileSync(backup, readFileSync(path), { flag: 'wx', mode: 0o600, flush: true })
         this.save({
-          version: 1,
+          version: 2,
           nextCheck: this.now() + 5 * 60 * 1000,
           failures: 1,
           error: `Update metadata was rebuilt; diagnostic copy: ${backup}. ${String(error)}`.slice(
@@ -127,12 +128,11 @@ export class ReleaseUpdates {
     if (this.disabled) throw new Error(this.state.error)
     if (selector !== 'latest') VersionSchema.parse(selector)
     if (this.closed || (!explicit && !this.options.enrolled())) return
-    if (this.pending)
-      return this.pending.then((artifact) => {
-        if (selector !== 'latest' && artifact?.version !== selector)
-          throw new Error('Another version was being checked; retry the explicit request.')
-        return artifact
-      })
+    if (this.pending) {
+      if (selector !== this.pending.selector)
+        throw new Error('Another release selector is being checked; retry after it finishes.')
+      return this.pending.result
+    }
     clearTimeout(this.timer)
     // Persist the attempt before the worker starts. Crash/reconnect storms cannot
     // create an unbounded series of startup checks.
@@ -141,7 +141,7 @@ export class ReleaseUpdates {
     this.abort = new AbortController()
     this.explicit = explicit
     const signal = this.abort.signal
-    this.pending = Promise.resolve()
+    const result = Promise.resolve()
       .then(() =>
         this.options.acquire(
           selector,
@@ -155,8 +155,7 @@ export class ReleaseUpdates {
         this.save({
           ...this.state,
           // A successful scan also revokes old staging when the stable tag rewinds.
-          candidate: selector === 'latest' ? candidate : (candidate ?? this.state.candidate),
-          selection,
+          ...(selector === 'latest' ? { candidate, selection } : { manualCandidate: candidate }),
           failures: 0,
           error: undefined,
           nextCheck:
@@ -185,7 +184,8 @@ export class ReleaseUpdates {
         this.explicit = false
         this.schedule()
       })
-    return this.pending
+    this.pending = { selector, result }
+    return result
   }
 
   close() {

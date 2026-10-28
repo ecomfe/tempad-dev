@@ -1,8 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import assert from 'node:assert/strict'
-import { Buffer } from 'node:buffer'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import console from 'node:console'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
@@ -13,7 +12,7 @@ import { dirname, join, resolve, sep } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
-import { fileURLToPath, URL } from 'node:url'
+import { fileURLToPath, pathToFileURL, URL } from 'node:url'
 import { promisify } from 'node:util'
 import { build } from 'tsdown'
 
@@ -693,15 +692,7 @@ try {
   const a = await makeArtifact(versions[0], base, policy.guidanceEpoch)
   const b = await makeArtifact(versions[1], base, policy.guidanceEpoch)
   const c = await makeArtifact(versions[2], base, policy.guidanceEpoch + 1)
-  // A published version above the stable tag is not a stable update candidate.
-  // Its intentionally unavailable bytes make accidental acquisition fail loudly.
-  const ahead = {
-    ...b,
-    version: versions[3],
-    bytes: Buffer.from('not a stable release'),
-    url: `${registryUrl}/@tempad-dev/mcp/-/mcp-${versions[3]}.tgz`
-  }
-  releases.set(ahead.version, ahead)
+  const ahead = await makeArtifact(versions[3], base, policy.guidanceEpoch)
   const defaultStatus = await exec(
     process.execPath,
     [join(a.directory, 'dist/cli.mjs'), '--runtime-update-status'],
@@ -800,6 +791,19 @@ try {
     const state = await status()
     return state.updates.lastAttempt && !state.updates.checking
   }, 'initial check before candidate publication')
+  const beforeNoninteractive = requests.length
+  await assert.rejects(
+    exec(process.execPath, [join(a.directory, 'dist/cli.mjs'), '--update-runtime', ahead.version], {
+      env: isolationEnv
+    }),
+    /interactive confirmation/
+  )
+  assert.equal(
+    requests.length,
+    beforeNoninteractive,
+    'noninteractive activation must not acquire a release'
+  )
+  assert.equal((await status()).updates.manualCandidate, undefined)
   latestVersion = c.version
   const stagingStarted = performance.now()
   await request('tempad/runtime-check', { version: 'latest' })
@@ -877,6 +881,51 @@ try {
   const rolledBackTag = await request('tempad/runtime-check', { version: 'latest' })
   assert.equal(rolledBackTag.candidate, undefined, 'moving latest backwards must not downgrade')
   assert.equal((await status()).active.version, b.version)
+  // Exercise the real CLI confirmation using controlled pipes. An exact version
+  // above latest can be downloaded, but cancelling must not enroll it for idle activation.
+  const confirmation = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+    process.stdin.isTTY = true;
+    process.stdout.isTTY = true;
+    process.argv = [process.execPath, ${JSON.stringify(join(a.directory, 'dist/cli.mjs'))}, '--update-runtime', ${JSON.stringify(ahead.version)}];
+    await import(${JSON.stringify(pathToFileURL(join(a.directory, 'dist/cli.mjs')).href)});
+  `
+    ],
+    { env: isolationEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
+  )
+  let prompt = ''
+  let confirmationError = ''
+  const confirmed = once(confirmation, 'exit', {
+    signal: globalThis.AbortSignal.timeout(acquisitionTimeout + 5000)
+  })
+  confirmation.stdout.on('data', (bytes) => {
+    prompt = (prompt + bytes).slice(-10000)
+    if (prompt.includes('Type "update') && !confirmation.stdin.writableEnded)
+      confirmation.stdin.end('cancel\n')
+  })
+  confirmation.stderr.on('data', (bytes) => {
+    confirmationError = (confirmationError + bytes).slice(-10000)
+  })
+  try {
+    assert.notEqual((await confirmed)[0], 0)
+  } finally {
+    if (confirmation.exitCode === null) confirmation.kill()
+  }
+  assert.match(confirmationError, /activation cancelled/)
+  assert.equal((await status()).updates.manualCandidate.version, ahead.version)
+  const manualWait = performance.now() + 8000
+  await until(async () => {
+    assert.equal(
+      (await status()).active.version,
+      b.version,
+      'cancelled exact release must never auto-activate'
+    )
+    return performance.now() >= manualWait
+  }, 'manual staging remains inactive')
   latestVersion = c.version
   const olderExact = await request('tempad/runtime-check', { version: a.version })
   assert.equal(
