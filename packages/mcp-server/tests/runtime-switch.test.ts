@@ -161,6 +161,8 @@ async function fixture(
   let idleForMs = 5000
   let busyOnGate = false
   let refuseStop = false
+  let beforeStop: (() => Promise<void>) | undefined
+  let attachedSessions: string[] = []
   let refuseCandidateOpen = false
   let onPause: ((signal: AbortSignal) => Promise<void>) | undefined
   const admissions: boolean[] = []
@@ -213,7 +215,7 @@ async function fixture(
         version: artifact.version,
         gated,
         handoffVersion: 1,
-        attachedSessions: [],
+        attachedSessions,
         ...(automatic ? { autoBlockers, idleForMs } : {})
       })
       peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-inspect') }), () => {
@@ -232,7 +234,8 @@ async function fixture(
           return status()
         }
       )
-      peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-stop') }), () => {
+      peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-stop') }), async () => {
+        await beforeStop?.()
         if (refuseStop) throw unavailable('Late activity; shutdown was not admitted.')
         setTimeout(() => void stop(), 5)
         return {}
@@ -338,11 +341,12 @@ async function fixture(
       return {}
     }
   )
+  const sessionId = randomUUID()
   const grant = await edge.request(
     {
       method: 'tempad/runtime-hello',
       params: {
-        sessionId: randomUUID(),
+        sessionId,
         token: randomUUID(),
         context: captureHostContext({ HOME: root, TMPDIR: root }),
         updates: { policy: 'stable', version: a.version, manifestHash: 'a'.repeat(64) },
@@ -367,6 +371,15 @@ async function fixture(
     control,
     admissions,
     retireLegacy,
+    disconnectBeforeStop: () => {
+      beforeStop = async () => {
+        // The data connection survived while the paused control peer left during drain.
+        attachedSessions = [sessionId]
+        await edge.close()
+        await control.request({ method: 'tempad/runtime-status' }, ResultSchema)
+        refuseStop = true
+      }
+    },
     pauseWith: (handler: (signal: AbortSignal) => Promise<void>) => {
       onPause = handler
     },
@@ -458,6 +471,19 @@ it('requires successful initialization before switching an attached edge', async
   expect(f.admissions).toEqual([])
   expect(f.hubs).toHaveLength(1)
   expect(fake.probe).not.toHaveBeenCalled()
+})
+
+it('reopens an explicitly drained Hub if its data session outlives the paused control peer', async () => {
+  const f = await fixture()
+  f.disconnectBeforeStop()
+  await expect(f.update()).resolves.toMatchObject({
+    status: 'staged',
+    reason: expect.stringContaining('shutdown was not admitted')
+  })
+  expect(await f.status()).toMatchObject({ active: f.a, phase: 'committed', gated: false })
+  expect(f.hubs).toHaveLength(1)
+  expect(fake.launch).not.toHaveBeenCalled()
+  expect(readJournal(f.root)).toMatchObject({ phase: 'committed', failedBundles: [] })
 })
 
 it('retires exhausted legacy lifecycle evidence before reopening admission and reports the upgrade boundary', async () => {

@@ -874,7 +874,6 @@ export async function startSupervisor(config: PrototypeConfig) {
         // A definite pre-shutdown refusal leaves the original writer intact.
         // Reopen it instead of draining newly arrived work for a rollback.
         const originalRetained =
-          automatic &&
           journal.phase === 'preparing' &&
           isRuntimeUnavailable(error) &&
           journal.oldHub?.id === lease?.hubId &&
