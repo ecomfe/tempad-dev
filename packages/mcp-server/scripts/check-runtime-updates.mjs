@@ -1,6 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import assert from 'node:assert/strict'
+import { Buffer } from 'node:buffer'
 import { execFile, spawn } from 'node:child_process'
 import console from 'node:console'
 import { randomUUID } from 'node:crypto'
@@ -387,7 +388,7 @@ async function automaticAcceptance(a, b) {
     const codex = await client(a, 'default', codexEnv, 'codex-mcp-client')
     const catalog = await codex.listTools()
     const genericCatalog = await generic.listTools()
-    const observer = await client(a, 'off', env)
+    let observer = await client(a, 'off', env)
     await owner.connect(
       new SocketTransport(
         await connectSocket(runtimeEndpoint(join(directory, 'run'), 'supervisor.sock'))
@@ -402,6 +403,53 @@ async function automaticAcceptance(a, b) {
       const state = await status()
       return state.updates.lastAttempt && !state.updates.checking
     }, 'initial default update check')
+    // Exercise the real CLI confirmation using controlled pipes. An exact version
+    // above latest can be downloaded, but cancelling must not enroll it for idle activation.
+    const confirmation = spawn(
+      process.execPath,
+      [
+        '--input-type=module',
+        '--eval',
+        `
+      process.stdin.isTTY = true;
+      process.stdout.isTTY = true;
+      process.argv = [process.execPath, ${JSON.stringify(join(a.directory, 'dist/cli.mjs'))}, '--update-runtime', ${JSON.stringify(b.version)}];
+      await import(${JSON.stringify(pathToFileURL(join(a.directory, 'dist/cli.mjs')).href)});
+    `
+      ],
+      { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
+    )
+    let prompt = ''
+    let confirmationError = ''
+    const confirmed = once(confirmation, 'exit', {
+      signal: globalThis.AbortSignal.timeout(acquisitionTimeout + 5000)
+    })
+    confirmation.stdout.on('data', (bytes) => {
+      prompt = (prompt + bytes).slice(-10000)
+      if (prompt.includes('Type "update') && !confirmation.stdin.writableEnded)
+        confirmation.stdin.end('cancel\n')
+    })
+    confirmation.stderr.on('data', (bytes) => {
+      confirmationError = (confirmationError + bytes).slice(-10000)
+    })
+    try {
+      assert.notEqual((await confirmed)[0], 0)
+    } finally {
+      if (confirmation.exitCode === null) confirmation.kill()
+    }
+    assert.match(confirmationError, /activation cancelled/)
+    assert.equal((await status()).updates.manualCandidate.version, b.version)
+    await observer.close()
+    const manualWait = performance.now() + 8000
+    await until(async () => {
+      assert.equal(
+        (await status()).active.version,
+        a.version,
+        'cancelled exact release must never auto-activate'
+      )
+      return performance.now() >= manualWait
+    }, 'manual staging remains inactive')
+    observer = await client(a, 'off', env)
     latestVersion = published
     const stagingStarted = performance.now()
     await owner.request(
@@ -692,7 +740,14 @@ try {
   const a = await makeArtifact(versions[0], base, policy.guidanceEpoch)
   const b = await makeArtifact(versions[1], base, policy.guidanceEpoch)
   const c = await makeArtifact(versions[2], base, policy.guidanceEpoch + 1)
-  const ahead = await makeArtifact(versions[3], base, policy.guidanceEpoch)
+  // Stable selection must not fetch this untagged version.
+  const ahead = {
+    ...b,
+    version: versions[3],
+    bytes: Buffer.from('not a stable release'),
+    url: `${registryUrl}/@tempad-dev/mcp/-/mcp-${versions[3]}.tgz`
+  }
+  releases.set(ahead.version, ahead)
   const defaultStatus = await exec(
     process.execPath,
     [join(a.directory, 'dist/cli.mjs'), '--runtime-update-status'],
@@ -881,51 +936,6 @@ try {
   const rolledBackTag = await request('tempad/runtime-check', { version: 'latest' })
   assert.equal(rolledBackTag.candidate, undefined, 'moving latest backwards must not downgrade')
   assert.equal((await status()).active.version, b.version)
-  // Exercise the real CLI confirmation using controlled pipes. An exact version
-  // above latest can be downloaded, but cancelling must not enroll it for idle activation.
-  const confirmation = spawn(
-    process.execPath,
-    [
-      '--input-type=module',
-      '--eval',
-      `
-    process.stdin.isTTY = true;
-    process.stdout.isTTY = true;
-    process.argv = [process.execPath, ${JSON.stringify(join(a.directory, 'dist/cli.mjs'))}, '--update-runtime', ${JSON.stringify(ahead.version)}];
-    await import(${JSON.stringify(pathToFileURL(join(a.directory, 'dist/cli.mjs')).href)});
-  `
-    ],
-    { env: isolationEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
-  )
-  let prompt = ''
-  let confirmationError = ''
-  const confirmed = once(confirmation, 'exit', {
-    signal: globalThis.AbortSignal.timeout(acquisitionTimeout + 5000)
-  })
-  confirmation.stdout.on('data', (bytes) => {
-    prompt = (prompt + bytes).slice(-10000)
-    if (prompt.includes('Type "update') && !confirmation.stdin.writableEnded)
-      confirmation.stdin.end('cancel\n')
-  })
-  confirmation.stderr.on('data', (bytes) => {
-    confirmationError = (confirmationError + bytes).slice(-10000)
-  })
-  try {
-    assert.notEqual((await confirmed)[0], 0)
-  } finally {
-    if (confirmation.exitCode === null) confirmation.kill()
-  }
-  assert.match(confirmationError, /activation cancelled/)
-  assert.equal((await status()).updates.manualCandidate.version, ahead.version)
-  const manualWait = performance.now() + 8000
-  await until(async () => {
-    assert.equal(
-      (await status()).active.version,
-      b.version,
-      'cancelled exact release must never auto-activate'
-    )
-    return performance.now() >= manualWait
-  }, 'manual staging remains inactive')
   latestVersion = c.version
   const olderExact = await request('tempad/runtime-check', { version: a.version })
   assert.equal(

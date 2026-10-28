@@ -138,7 +138,12 @@ export class ReleaseUpdates {
     // Persist the attempt before the worker starts. Crash/reconnect storms cannot
     // create an unbounded series of startup checks.
     const now = this.now()
-    this.save({ ...this.state, lastAttempt: now, nextCheck: now + 5 * 60 * 1000 })
+    const stable = selector === 'latest'
+    this.save({
+      ...this.state,
+      lastAttempt: now,
+      ...(stable ? { nextCheck: now + 5 * 60 * 1000 } : {})
+    })
     this.abort = new AbortController()
     this.explicit = explicit
     const signal = this.abort.signal
@@ -156,15 +161,21 @@ export class ReleaseUpdates {
         this.save({
           ...this.state,
           // A successful scan also revokes old staging when the stable tag rewinds.
-          ...(selector === 'latest' ? { candidate, selection } : { manualCandidate: candidate }),
+          ...(stable
+            ? {
+                candidate,
+                selection,
+                failures: 0,
+                nextCheck:
+                  this.now() +
+                  (selection?.cursor
+                    ? 30_000
+                    : INTERVAL +
+                      Math.floor(((this.options.jitter?.() ?? Math.random()) * INTERVAL) / 10))
+              }
+            : { manualCandidate: candidate }),
           cacheWarning,
-          failures: 0,
-          error: undefined,
-          nextCheck:
-            this.now() +
-            (selection?.cursor
-              ? 30_000
-              : INTERVAL + Math.floor(((this.options.jitter?.() ?? Math.random()) * INTERVAL) / 10))
+          error: undefined
         })
         return candidate
       })
@@ -173,8 +184,12 @@ export class ReleaseUpdates {
           const failures = Math.min(this.state.failures + 1, 10)
           this.save({
             ...this.state,
-            failures,
-            nextCheck: this.now() + Math.min(INTERVAL, 5 * 60 * 1000 * 2 ** (failures - 1)),
+            ...(stable
+              ? {
+                  failures,
+                  nextCheck: this.now() + Math.min(INTERVAL, 5 * 60 * 1000 * 2 ** (failures - 1))
+                }
+              : {}),
             error: String(error).slice(0, 2000)
           })
         }

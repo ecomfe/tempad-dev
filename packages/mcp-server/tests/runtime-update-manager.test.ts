@@ -353,6 +353,34 @@ it('persists search progress and resumes promptly after an owner restart', async
   expect(next.status.selection?.cursor).toBeUndefined()
 })
 
+it.each([true, false])(
+  'does not postpone stable search progress after an exact check (success: %s)',
+  async (success) => {
+    vi.useFakeTimers()
+    const cursor = { fingerprint: 'b'.repeat(64), before: '0.12.3', latestReasons: [] }
+    const selection = { latest: '0.12.4', latestReasons: [], inspected: 2, remaining: 2, cursor }
+    const acquire = vi
+      .fn<ConstructorParameters<typeof ReleaseUpdates>[0]['acquire']>()
+      .mockResolvedValueOnce({ selection })
+      .mockImplementationOnce(async () => {
+        if (!success) throw new Error('exact unavailable')
+        return { candidate }
+      })
+      .mockResolvedValue({ candidate })
+    const updates = owner({ root: root(), enrolled: () => true, acquire })
+    await updates.check()
+    const due = updates.status.nextCheck
+    await vi.advanceTimersByTimeAsync(10000)
+    if (success) await updates.check(candidate.version, true)
+    else await expect(updates.check(candidate.version, true)).rejects.toThrow('exact unavailable')
+    expect(updates.status).toMatchObject({ nextCheck: due, failures: 0, selection })
+    await vi.advanceTimersByTimeAsync(19999)
+    expect(acquire).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(acquire).toHaveBeenLastCalledWith('latest', expect.any(AbortSignal), cursor)
+  }
+)
+
 it('clears staging after a successful tag rollback but retains it when the registry is unavailable', async () => {
   const acquire = vi
     .fn<ConstructorParameters<typeof ReleaseUpdates>[0]['acquire']>()
