@@ -90,12 +90,15 @@ export function verifyCached(cache: string, version: string, integrity: string) 
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32 * 1024 * 1024)
     throw new Error('Invalid cached archive.')
   const expected = verifyArchive(readFileSync(archivePath), version, integrity)
-  const packageDir = join(directory, 'package')
-  const installed = readInstalledPackage(packageDir)
+  return verifyInstalled(join(directory, 'package'), version, expected.files.get(MANIFEST_PATH)!)
+}
+
+function verifyInstalled(directory: string, version: string, expectedManifest: Buffer) {
+  const installed = readInstalledPackage(directory)
   const manifest = verifyPackage(installed, version)
-  if (!installed.get(MANIFEST_PATH)!.equals(expected.files.get(MANIFEST_PATH)!))
+  if (!installed.get(MANIFEST_PATH)!.equals(expectedManifest))
     throw new Error('Cached manifest differs from the verified release.')
-  return { directory: packageDir, manifest }
+  return { directory, manifest }
 }
 
 /** Bound file-system concurrency while durably writing every verified payload file. */
@@ -151,7 +154,9 @@ export async function installArchive(
     // Publish only a complete closure. A crash before rename leaves an unused
     // staging directory; a crash afterward is caught by full revalidation.
     publishDirectory(staging, destination)
-    return verifyCached(cache, version, integrity)
+    // The archive was verified above; recheck the installed bytes before probing
+    // without decompressing that same immutable download a second time.
+    return verifyInstalled(join(destination, 'package'), version, files.get(MANIFEST_PATH)!)
   } finally {
     rmSync(staging, { recursive: true, force: true })
   }
