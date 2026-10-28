@@ -19,10 +19,10 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 
 如需针对不同 agent 配置，请打开 TemPad Dev 的 **Preferences → Agent integration → Set up agents**。界面提供 Codex、Cursor、Claude Code、Gemini、VS Code、OpenCode 和 TRAE 的引导路径；未列出的兼容客户端可选择 **Other**。
 
-### 运行时更新（0.12.0+）
+### 运行时更新（1.0.0+）
 
 经过校验的正式包在 macOS、Linux 和 Windows 上默认启用后台下载与兼容 Hub 自动更新，既有 `npx @latest` 配置
-重启到 0.12.0 或更高版本后也会启用。上述配置和 Agent Plugin 0.5.10 通过
+重启到 1.0.0 或更高版本后也会启用。上述配置和 Agent Plugin 1.0.0 通过
 `--runtime-updates=stable` 明确选择此策略。首次启用需关闭所有现有 TemPad MCP 连接，再重新启动；
 已有 release 任务和资源存储保持不变。
 在这次重启之前，新客户端继续使用仍在运行的旧 Hub，不会中断它。

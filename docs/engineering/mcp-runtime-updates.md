@@ -215,12 +215,12 @@ may still fetch its launch package. Checkout launches use the local Node entry p
 Build origin, real path, and launch policy are validated together rather than guessing
 from semver, the current directory, or whether `.git` happens to exist.
 
-MCP 0.12.0 defaults to stable updates only when a verified release manifest is present.
+MCP 1.0.0 defaults to stable updates only when a verified release manifest is present.
 Unverified local builds retain the bundled path with no registry requests; explicit release
 enrollment fails rather than falling back online. macOS, Linux and Windows share the managed
 update policy. `--runtime-updates=off` opts out, while
 `pinned` requires the launch artifact's exact version.
-Agent Plugin 0.5.10 and the shared manual setup snippets specify the same stable policy.
+Agent Plugin 1.0.0 and the shared manual setup snippets specify the same stable policy.
 Keep both root and MCP README languages aligned; publish the compatible runtime before these
 plugin targets and instructions. First enrollment still needs one coordinated MCP restart.
 Until the existing legacy Hub exits, ordinary launches defer enrollment and keep its byte bridge

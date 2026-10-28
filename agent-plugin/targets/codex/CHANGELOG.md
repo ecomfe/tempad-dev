@@ -1,42 +1,17 @@
 # Changelog
 
-## 0.5.10
+## 1.0.0 (unreleased)
 
-- Enable verified runtime downloads and compatible Hub updates between operations on macOS, Linux and Windows. Claude requires verified session and lifecycle-hook capabilities; development checkouts keep their bundled runtime.
-
-## 0.5.9
-
-- Retry interrupted Claude lifecycle messages without repeating their effects, including while the runtime is switching.
-
-## 0.5.8
-
-- Kept development Claude hooks connected to their own checkout when a release runtime is also running.
-
-## 0.5.7
-
-- Preserved Unicode text in Claude lifecycle messages and tolerated malformed Hub replies.
-- Corrected component sizing examples and guidance for asset storage and shadow inspection.
-
-## 0.5.6
-
-- Clarified safe recovery after failed edits and native text binding limits.
-
-## 0.5.5
-
-- Clarified recovery after uncertain canvas writes and browser compatibility for token-based CSS.
-
-## 0.5.4
-
-- Clarified that unsupported text entity warnings require extension 0.23.5 or later.
-
-## 0.5.3
-
-- Explained warnings for unsupported text entities and clarified Chinese setup guidance.
-
-## 0.5.2
-
-- Clarified supported text entities and recovery after a canvas write fails.
-- Aligned upgrade requirements and Chinese Stop guidance.
+- Enabled verified runtime downloads and compatible Hub updates between operations on macOS,
+  Linux and Windows with MCP 1.0.0. Claude requires a verified session and current lifecycle
+  hooks; development checkouts keep their bundled runtime.
+- Retried interrupted Claude lifecycle messages without repeating their effects, including
+  during runtime switches. Preserved Unicode text and tolerated malformed Hub replies.
+- Kept development Claude hooks connected to their own checkout while a release runtime is running.
+- Clarified recovery after failed or uncertain canvas writes, native text binding limits,
+  supported text entities, and browser compatibility for token-based CSS. Unsupported entity
+  warnings require extension 1.0.0 or later.
+- Corrected component sizing, asset storage, shadow inspection, and Chinese setup guidance.
 
 ## 0.5.1
 

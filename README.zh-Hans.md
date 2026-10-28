@@ -101,9 +101,9 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
 [Agent Plugin 指南](./agent-plugin/src/README.zh-Hans.md)。
 
 所有 plugin 和直接使用 `npx` 的配置路径都使用 `@tempad-dev/mcp@latest`。
-从 MCP 0.12.0 起，经过校验的正式包默认启用后台下载，并在 MCP 会话空闲时自动更新兼容的 Hub。
-Agent Plugin 0.5.10 和安装命令会明确选择此策略；既有客户端需重启到新版本后生效。
-适用范围和关闭方式见[运行时更新控制](./packages/mcp-server/README.zh-Hans.md#运行时更新0120)。
+从 MCP 1.0.0 起，经过校验的正式包默认启用后台下载，并在 MCP 会话空闲时自动更新兼容的 Hub。
+Agent Plugin 1.0.0 和安装命令会明确选择此策略；既有客户端需重启到新版本后生效。
+适用范围和关闭方式见[运行时更新控制](./packages/mcp-server/README.zh-Hans.md#运行时更新100)。
 
 最低版本要求和既有安装的更新步骤请参阅[升级指南](./agent-plugin/src/README.zh-Hans.md#升级)。
 

@@ -71,7 +71,7 @@ reveals issues one at a time.
   literal unless it forms a semicolon-terminated entity. Numeric decimal/hex
   entities and these named entities decode: `amp`, `apos`, `bull`, `copy`, `gt`,
   `hellip`, `ldquo`, `lsquo`, `lt`, `mdash`, `middot`, `nbsp`, `ndash`, `quot`,
-  `rdquo`, `reg`, `rsquo`, `trade`. Other names remain literal; extension 0.23.5+
+  `rdquo`, `reg`, `rsquo`, `trade`. Other names remain literal; extension 1.0.0+
   also reports an `unknown-html-entity` warning. Use the Unicode character or a
   numeric entity instead. Canvas typography does not inherit from
   a parent `div`: put font and other text utilities on each `span`/TEXT node.

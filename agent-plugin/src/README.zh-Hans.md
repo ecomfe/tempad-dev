@@ -113,23 +113,23 @@ Agent 会在对话中报告结果并附上 Figma 链接，用户可以继续提�
 安装新版后还应移除旧名称的 skill。
 独立 skill 包会保留旧名称的生成兼容入口一个扩展商店发布周期，让已安装旧扩展中的配置命令继续有效。
 
-请使用 TemPad Dev 扩展 **0.23.4 或更高版本**、MCP server **0.11.0 或更高版本**，
-以及 Agent Plugin **0.5.1 或更高版本**（或其独立 skill）。
+如需使用完整的 1.0 发布，请将 TemPad Dev 扩展、MCP server、Agent Plugin（或其独立 skill）
+均更新到 **1.0.0 或更高版本**。
 MCP server 要求 Node.js **22.x、24.x 或 26+**。
 多节点读取和按消费节点解析 token 要求 Hub 与扩展均使用匹配的 protocol 15 构建。
 MCP 0.11.0 同时通过 protocol 13 兼容扩展 0.22.0，在商店更新期间保留既有读取、会话、任务和画布写入。
 新版读取选项会提示升级扩展，响应会明确标注旧版选区和 token 语义。
 MCP 0.10.0 及之后版本使用 `manage_design_task` 代替旧的生命周期工具。
 
-1. 将浏览器扩展更新到 0.23.4 或更高版本并重新加载 Figma 标签页。0.23.4 包含内置 rewrite 规则和 SVG 定位修复；多节点读取从 0.23.0 开始提供。
+1. 将浏览器扩展更新到 1.0.0 或更高版本并重新加载 Figma 标签页。
 2. 通过原先使用的客户端或安装器更新 plugin。独立配置时，请同时更新
    `figma-design-to-code` 和 `design-in-figma`。
 3. 正式版 MCP 配置使用 `@tempad-dev/mcp@latest`；请替换旧的 `@alpha` 或固定 alpha 版本。
-   Plugin 0.5.10 配合 MCP 0.12.0 或更高版本，会在 macOS、Linux 和 Windows 上启用经过校验的后台下载，
-   在支持切换等待的 MCP 会话空闲时自动切换兼容的 Hub。Claude 在原生生命周期验收完成前保持暂存，
+   Plugin 1.0.0 配合 MCP 1.0.0 或更高版本，会在 macOS、Linux 和 Windows 上启用经过校验的后台下载，
+   在支持切换等待的 MCP 会话空闲时自动切换兼容的 Hub。Claude 还要求已验证的会话和支持回执与重试的 hook。
    从未启用更新的 Hub 升级时，需先断开所有 TemPad MCP client，
    再重启其 MCP server，一次即可。入口进程、已安装插件和不兼容的运行时改动仍需按原方式更新或重启。
-   详见[运行时更新控制](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/README.zh-Hans.md#运行时更新0120)。
+   详见[运行时更新控制](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/README.zh-Hans.md#运行时更新100)。
 4. 打开 TemPad Dev 并启用 **MCP access**；需要选择会话时，点击目标 Figma 标签页内的 MCP
    badge。该 badge 选择默认文件；agent 也可以发现已连接会话，并通过精确 session ID
    指定独立读取的目标。

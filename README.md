@@ -104,10 +104,10 @@ For native Codex and Claude marketplace commands and portable Cursor and VS Code
 see the [Agent Plugin guide](./agent-plugin/src/README.md).
 
 All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
-Verified MCP releases from 0.12.0 enable background downloads and compatible Hub updates during
-idle MCP sessions. Agent Plugin 0.5.10 and the setup commands select this policy explicitly.
+Verified MCP releases from 1.0.0 enable background downloads and compatible Hub updates during
+idle MCP sessions. Agent Plugin 1.0.0 and the setup commands select this policy explicitly.
 Existing clients take it up after restarting onto the new release. See
-[runtime update controls](./packages/mcp-server/README.md#runtime-updates-0120) for limits and opt-out.
+[runtime update controls](./packages/mcp-server/README.md#runtime-updates-100) for limits and opt-out.
 
 See the [upgrade guide](./agent-plugin/src/README.md#upgrading) for minimum versions
 and instructions for updating an existing installation.

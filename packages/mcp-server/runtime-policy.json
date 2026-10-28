@@ -2,8 +2,8 @@
   "version": 1,
   "guidanceEpoch": 1,
   "guidanceReview": {
-    "version": "0.12.0",
-    "sourceHash": "a3380dac4ee1085fc5b6e37ea52d945aaabba92fda41b11114907d8fc5d692c3",
+    "version": "1.0.0",
+    "sourceHash": "84eb3d25427d40d872a6919a7c7eca1a6b28df0966407aaa558bb7a77d6007d0",
     "decision": "initial",
     "baseline": {
       "version": "0.11.0",

@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/plugins",
-  "version": "0.6.3",
+  "version": "1.0.0",
   "description": "Plugin utils for TemPad Dev.",
   "license": "MIT",
   "repository": {

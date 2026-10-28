@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/extension",
-  "version": "0.23.5",
+  "version": "1.0.0",
   "private": true,
   "description": "Create, edit, and implement Figma designs with your coding agent.",
   "type": "module",
@@ -36,7 +36,7 @@
     "format:check": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore --check"
   },
   "dependencies": {
-    "@tempad-dev/plugins": "workspace:^0.6.2",
+    "@tempad-dev/plugins": "workspace:^1.0.0",
     "@tempad-dev/shared": "workspace:^0.1.0",
     "@vueuse/core": "^15.0.0",
     "es-module-lexer": "3.0.4",

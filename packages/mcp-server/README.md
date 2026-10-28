@@ -21,11 +21,11 @@ Requires the TemPad Dev extension, an open panel, and **MCP access** enabled. Ca
 
 For agent-specific setup, open TemPad Dev's **Preferences → Agent integration → Set up agents**. It provides guided paths for Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, and TRAE, plus **Other** for compatible clients not listed.
 
-### Runtime updates (0.12.0+)
+### Runtime updates (1.0.0+)
 
 Verified releases enable background downloads and compatible automatic Hub updates on
 macOS, Linux and Windows by default, including existing `npx @latest` configurations after they restart onto
-0.12.0 or later. The configuration above and Agent Plugin 0.5.10 select this policy explicitly
+1.0.0 or later. The configuration above and Agent Plugin 1.0.0 select this policy explicitly
 with `--runtime-updates=stable`. First enrollment requires closing all existing TemPad MCP
 connections once, then restarting them. It preserves the release task and asset stores.
 Until that restart, new clients keep using an existing legacy Hub without interrupting it.

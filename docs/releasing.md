@@ -69,7 +69,7 @@ were prepared before their source changes were committed.
 ## Bridge protocol and release order
 
 Release setup launches `npx -y @tempad-dev/mcp@latest`. Moving the npm `latest` tag affects
-subsequent launches. Before MCP 0.12.0, running CLI and Hub processes do not update themselves;
+subsequent launches. Before MCP 1.0.0, running CLI and Hub processes do not update themselves;
 a newly launched CLI reuses an existing Hub, and an older CLI can restart its own packaged Hub.
 Migrating that runtime requires disconnecting all TemPad MCP clients once before restarting
 their MCP servers. New clients defer enrollment while that legacy Hub remains alive and keep
@@ -77,8 +77,8 @@ using its byte bridge; ordinary MCP startup must not fail merely because older w
 The extension separately waits for Chrome Web Store review and staged rollout. Neither npm nor
 store publication establishes that users are running the update or have reloaded Figma.
 
-Verified MCP 0.12.0 releases default to stable runtime updates on macOS, Linux and Windows. Agent Plugin
-0.5.10 and shared installation snippets also select `--runtime-updates=stable` explicitly.
+Verified MCP 1.0.0 releases default to stable runtime updates on macOS, Linux and Windows. Agent Plugin
+1.0.0 and shared installation snippets also select `--runtime-updates=stable` explicitly.
 Publish the verified MCP release before shipping these plugin targets or setup instructions.
 Checkout and unverified builds never acquire release updates. Compatible Hub updates activate for initialized MCP sessions
 with negotiated waiting support at an idle boundary. Claude additionally requires a verified
@@ -154,7 +154,7 @@ change after verifying the supported old-extension setup and runtime paths.
 The Agent Plugin follows `main` and launches the npm `latest` tag. Make the required stable MCP
 version available before exposing the new plugin on `main`.
 
-For the initial MCP 0.12.0 rollout, the reviewed branch already contains the dependent plugin.
+For the initial MCP 1.0.0 rollout, the reviewed branch already contains the dependent plugin.
 Keep its release PR in draft while the candidate passes the build, rewrite, Windows runtime,
 and installed-archive checks. A release maintainer can then publish the exact verified MCP
 tarball from an authenticated environment with
@@ -230,10 +230,10 @@ long drain or killing work. Verified releases default to this stable policy; gen
 arguments and shared installation snippets make it explicit with `--runtime-updates=stable`.
 Use `--runtime-updates=off` to disable acquisition and automatic switching, or `pinned` to enforce
 the installed artifact. Checkout configurations must never carry release enrollment. Publish
-MCP 0.12.0 before Agent Plugin 0.5.10 and the updated installation guidance. An old cached CLI
+MCP 1.0.0 before Agent Plugin 1.0.0 and the updated installation guidance. An old cached CLI
 may ignore the flag; that does not prove enrollment, which requires the runtime's status evidence.
 
-Publish the compatible hook receiver before Agent Plugin 0.5.9's receipt/retry payload. Current
+Publish the compatible hook receiver before Agent Plugin 1.0.0's receipt/retry payload. Current
 bindings must demonstrate v2 capability; plugin version or elapsed rollout time is not evidence.
 Legacy/unknown Claude bindings defer switching. Retain the legacy 750 ms hook path and downgrade
 only on an explicit unsupported-version reply. The acquisition fixture and Phase 2 fault matrix

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.23.5 (unreleased)
+## 1.0.0 (unreleased)
 
 ### Code export
 
