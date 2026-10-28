@@ -283,6 +283,14 @@ it.skipIf(process.platform === 'win32').each(['success', 'throw', 'error'] as co
     writeFileSync(
       preload,
       `import {Server} from 'node:net'; import {appendFileSync, lstatSync} from 'node:fs';
+      import {Worker} from 'node:worker_threads';
+      const emit = Worker.prototype.emit;
+      Worker.prototype.emit = function(event, ...args) {
+        const handled = emit.call(this, event, ...args);
+        if (event === 'message' && args[0]?.code === 'READY')
+          process.stderr.write('fixture-log-ready\\n');
+        return handled;
+      };
       process.umask(0o022);
       const record = value => appendFileSync(${JSON.stringify(probe)}, JSON.stringify(value) + '\\n');
       process.once('exit', () => record({restoredMask: process.umask()}));
@@ -303,6 +311,11 @@ it.skipIf(process.platform === 'win32').each(['success', 'throw', 'error'] as co
     const hub = launch('hub.mjs', runtime, preload, join(directory, `bind-stores-${outcome}`))
     if (outcome === 'success') {
       await vi.waitFor(() => expect(hub.stdout(), hub.stderr()).toContain('ready'), {
+        timeout: 5000
+      })
+      // This tests socket permissions, not the logging worker's cold-start latency.
+      // Pino keeps that worker referenced until READY, which can outlast the shutdown watchdog.
+      await vi.waitFor(() => expect(hub.stderr()).toContain('fixture-log-ready'), {
         timeout: 5000
       })
       await pingHub(socketPath)
