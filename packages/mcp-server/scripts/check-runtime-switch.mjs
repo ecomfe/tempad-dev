@@ -35,6 +35,8 @@ import {
   preserveFixtureEvidence
 } from './runtime-test-platform.mjs'
 
+if (process.env.TEMPAD_RUNTIME_EVIDENCE_DIR) await import('./runtime-startup-trace.mjs')
+
 // Build fixtures from authored source and test-only manifest inputs. Never patch
 // a generated runtime or use the user's release/checkout stores and services.
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
