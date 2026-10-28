@@ -215,6 +215,7 @@ async function fixture(
         version: artifact.version,
         gated,
         handoffVersion: 1,
+        attachedSessions: [],
         ...(automatic ? { autoBlockers, idleForMs } : {})
       })
       peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-inspect') }), () => {

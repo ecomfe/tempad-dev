@@ -63,6 +63,7 @@ const InspectionSchema = ResultSchema.extend({
   version: z.string(),
   gated: z.boolean(),
   handoffVersion: z.literal(1),
+  attachedSessions: z.array(z.uuid()).max(128),
   autoBlockers: z.array(z.string()).optional(),
   idleForMs: z.number().nonnegative().optional()
 })
@@ -217,7 +218,7 @@ export async function startSupervisor(config: PrototypeConfig) {
   }
 
   function automaticBlockers(state: z.infer<typeof InspectionSchema>) {
-    const reasons = [...state.blockers]
+    const reasons = [...state.blockers, ...connectionBlockers(state)]
     if (!automaticEnabled())
       reasons.push('All connected clients must opt in and support waiting through runtime switches')
     if (hookFault || hooks?.pending) reasons.push('Lifecycle events are awaiting durable delivery')
@@ -226,6 +227,13 @@ export async function startSupervisor(config: PrototypeConfig) {
     if (state.idleForMs === undefined || state.idleForMs < AUTOMATIC_IDLE_MS)
       reasons.push('Waiting for five seconds without active work')
     return reasons
+  }
+
+  function connectionBlockers(state: z.infer<typeof InspectionSchema>) {
+    const controlled = new Set([...edges.values()].map((edge) => edge.registration.sessionId))
+    return state.attachedSessions.some((id) => !controlled.has(id))
+      ? ['An MCP data session is waiting for its control connection to reconnect']
+      : []
   }
 
   // Reuse the existing lease heartbeat; do no artifact or readiness work without
@@ -534,6 +542,8 @@ export async function startSupervisor(config: PrototypeConfig) {
   }
   async function drain(automatic = false) {
     const observed = await inspect()
+    const disconnected = connectionBlockers(observed)
+    if (disconnected.length) throw new Error(disconnected.join('; '))
     const deadline = Math.min(Date.now() + 330_000, observed.deadline)
     const remaining = () => {
       const value = deadline - Date.now()
@@ -543,6 +553,8 @@ export async function startSupervisor(config: PrototypeConfig) {
     await pauseEdges(deadline)
     const state = await gate(true, remaining())
     remaining()
+    const unpaused = connectionBlockers(state)
+    if (unpaused.length) throw new Error(unpaused.join('; '))
     if (automatic) {
       const reasons = automaticBlockers(state)
       if (!state.drained || reasons.length)
@@ -614,7 +626,13 @@ export async function startSupervisor(config: PrototypeConfig) {
     await requireHub().request(
       {
         method: 'tempad/runtime-stop',
-        ...(automatic ? { params: { automatic: true } } : {})
+        params: {
+          pausedSessions: [...pausedEdges].flatMap(([peer, hubId]) => {
+            const edge = edges.get(peer)
+            return edge && hubId === current.hubId ? [edge.registration.sessionId] : []
+          }),
+          ...(automatic ? { automatic: true } : {})
+        }
       },
       ResultSchema,
       { timeout: 5000 }

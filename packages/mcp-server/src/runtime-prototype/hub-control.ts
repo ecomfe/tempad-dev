@@ -84,6 +84,10 @@ export class HubControl {
     return pending
   }
 
+  private attachedSessions() {
+    return [...this.sessions].filter(([, session]) => session.attached).map(([id]) => id)
+  }
+
   async attach(socket: Socket) {
     const peer = new ControlPeer()
     let acquired = false
@@ -198,7 +202,12 @@ export class HubControl {
     peer.setRequestHandler(z.object({ method: z.literal('tempad/runtime-inspect') }), () => {
       requireLease()
       if (!this.handoff) throw unavailable('This Hub does not support durable handoff.')
-      return { ...this.handoff.inspect(), gated: this.gated, handoffVersion: 1 }
+      return {
+        ...this.handoff.inspect(),
+        attachedSessions: this.attachedSessions(),
+        gated: this.gated,
+        handoffVersion: 1
+      }
     })
     peer.setRequestHandler(
       z.object({
@@ -211,16 +220,23 @@ export class HubControl {
           throw unavailable('This Hub cannot change its admission gate.')
         if (!params.closed) this.handoff.flush()
         this.gated = params.closed
-        return { ...this.handoff.inspect(), gated: this.gated, handoffVersion: 1 }
+        return {
+          ...this.handoff.inspect(),
+          attachedSessions: this.attachedSessions(),
+          gated: this.gated,
+          handoffVersion: 1
+        }
       }
     )
     peer.setRequestHandler(
       z.object({
         method: z.literal('tempad/runtime-stop'),
         params: z
-          .object({ automatic: z.literal(true) })
+          .object({
+            pausedSessions: z.array(z.uuid()).max(128),
+            automatic: z.literal(true).optional()
+          })
           .strict()
-          .optional()
       }),
       ({ params }, extra) => {
         requireLease()
@@ -229,8 +245,10 @@ export class HubControl {
         if (this.stopping) throw unavailable('Runtime shutdown has already been admitted.')
         if (!this.gated || !handoff || !state?.drained)
           throw unavailable('Runtime has not drained; shutdown was not admitted.')
+        if (this.attachedSessions().some((id) => !params.pausedSessions.includes(id)))
+          throw unavailable('An MCP data session has no acknowledged admission barrier.')
         if (
-          params?.automatic &&
+          params.automatic &&
           (!state.autoBlockers ||
             state.autoBlockers.length ||
             (state.idleForMs ?? 0) < AUTOMATIC_IDLE_MS)
@@ -276,6 +294,7 @@ export class HubControl {
     const session = this.sessions.get(sessionId)
     if (
       !session ||
+      this.stopping ||
       session.token !== token ||
       !this.available(session.generation) ||
       (!session.attached && session.expires <= this.now())

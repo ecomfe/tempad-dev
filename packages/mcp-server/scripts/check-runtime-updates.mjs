@@ -137,7 +137,7 @@ for (const key of [
 ])
   process.env[key] = isolationEnv[key]
 const verify = await import('../dist/runtime-verification.mjs')
-const { ControlPeer, SocketTransport, ResultSchema, connectSocket } = verify
+const { ControlPeer, SocketTransport, RuntimeDataTransport, ResultSchema, connectSocket } = verify
 const pkg = JSON.parse(await readFile(join(source, 'package.json'), 'utf8'))
 const policy = JSON.parse(await readFile(join(source, 'runtime-policy.json'), 'utf8'))
 const [major, minor, patch] = pkg.version.split('.').map(Number)
@@ -381,6 +381,7 @@ async function automaticAcceptance(a, b) {
   const published = latestVersion
   latestVersion = a.version
   const owner = new ControlPeer()
+  const controlPeers = [owner]
   try {
     const generic = await client(a, 'default', env)
     const codexEnv = { ...env, CODEX_THREAD_ID: 'automatic-release-fixture' }
@@ -438,6 +439,83 @@ async function automaticAcceptance(a, b) {
         assert.equal(state.hubPid, oldPid, reason)
         return performance.now() >= deadline
       }, reason)
+    }
+    // Keep the data socket alive independently of the supervisor connection.
+    // A disconnected opt-out edge must not disappear from update admission.
+    const detachedEdge = async (policy) => {
+      const registration = {
+        sessionId: randomUUID(),
+        token: randomUUID(),
+        versions: [2],
+        updates: {
+          policy,
+          version: a.version,
+          manifestHash: verify.sha256(
+            await readFile(join(a.directory, 'dist/runtime-manifest.json'))
+          )
+        },
+        context: {
+          version: 1,
+          home: directory,
+          tempDir: directory,
+          codexHome: directory,
+          codexSqliteHome: directory
+        }
+      }
+      let peer
+      let grant
+      const reconnect = async () => {
+        peer = new ControlPeer()
+        controlPeers.push(peer)
+        await peer.connect(
+          new SocketTransport(
+            await connectSocket(runtimeEndpoint(join(directory, 'run'), 'supervisor.sock'))
+          )
+        )
+        grant = await peer.request(
+          { method: 'tempad/runtime-hello', params: registration },
+          ResultSchema
+        )
+        await peer.request(
+          {
+            method: 'tempad/runtime-ready',
+            params: { hubId: grant.hubId, waitForRuntime: true, admissionBarrier: true }
+          },
+          ResultSchema
+        )
+      }
+      await reconnect()
+      const wire = new SocketTransport(
+        await connectSocket(runtimeEndpoint(join(directory, 'run'), 'runtime-hub.sock'))
+      )
+      await new Promise((resolve, reject) => {
+        wire.onerror = reject
+        wire.onclose = () => reject(new Error('Data attachment closed'))
+        wire.onmessage = (message) =>
+          'result' in message ? resolve() : reject(new Error(JSON.stringify(message)))
+        void wire
+          .start()
+          .then(() =>
+            wire.send({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'tempad/runtime-attach',
+              params: { sessionId: registration.sessionId, token: registration.token }
+            })
+          )
+          .catch(reject)
+      })
+      const data = new Client({ name: 'detached-control-fixture', version: '1' })
+      clients.push(data)
+      await data.connect(
+        new RuntimeDataTransport(wire, {
+          role: 'edge',
+          generation: () => grant.generation,
+          admit: () => true,
+          started: true
+        })
+      )
+      return { data, reconnect, disconnect: () => peer.close() }
     }
     const claude = await client(a, 'stable', { ...env, CLAUDECODE: '1' }, 'claude-code')
     await observer.close()
@@ -498,6 +576,28 @@ async function automaticAcceptance(a, b) {
     assert.equal(policyBlocked.hubPid, oldPid)
     await remainsStaged('a non-opt-in peer must keep the candidate staged')
 
+    const detached = await detachedEdge('off')
+    const pinned = await detachedEdge('pinned')
+    await detached.disconnect()
+    await pinned.disconnect()
+    await off.close()
+    await remainsStaged('off/pinned data connections must survive control-only disconnects')
+    assert.ok(
+      (await status()).updates.automaticPendingReasons.some((reason) =>
+        reason.includes('control connection')
+      )
+    )
+    await detached.data.ping()
+    await pinned.data.ping()
+    await detached.reconnect()
+    await remainsStaged('reconnected off policy must still block activation')
+    await detached.disconnect()
+    await detached.data.close()
+    await remainsStaged('remaining pinned data connection must still block activation')
+    await pinned.reconnect()
+    await remainsStaged('reconnected pinned policy must still block activation')
+    await pinned.disconnect()
+
     // Every completed call resets the quiet window. Keep sending actual tool
     // calls longer than that window, including while the non-opt-in peer exits.
     const workUntil = performance.now() + 6500
@@ -516,7 +616,7 @@ async function automaticAcceptance(a, b) {
       const state = await status()
       return state.blockers.includes('admitted MCP calls')
     }, 'actual admitted tool work')
-    await off.close()
+    await pinned.data.close()
     while (performance.now() < workUntil) {
       assert.equal((await status()).hubPid, oldPid, 'busy work must not be interrupted to update')
       await delay(100)
@@ -570,7 +670,7 @@ async function automaticAcceptance(a, b) {
     throw error
   } finally {
     latestVersion = published
-    await owner.close()
+    await Promise.all(controlPeers.map((peer) => peer.close()))
     await Promise.allSettled(clients.slice(firstClient).map((client) => client.close()))
     await Promise.allSettled(transports.slice(firstTransport).map((transport) => transport.close()))
     // A failed initialize can leave an owner before status ever records its PID.

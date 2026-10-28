@@ -274,18 +274,21 @@ it.skipIf(process.platform === 'win32')(
       context: { version: 1, home: root, tempDir: root, codexHome: root, codexSqliteHome: root }
     }
     await peer.request({ method: 'tempad/runtime-register', params: registration }, ResultSchema)
-    await expect(peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)).rejects.toThrow(
-      'not drained'
-    )
+    await expect(
+      peer.request({ method: 'tempad/runtime-stop', params: { pausedSessions: [] } }, ResultSchema)
+    ).rejects.toThrow('not drained')
     await peer.request({ method: 'tempad/runtime-gate', params: { closed: true } }, ResultSchema)
     expect(control.admits(registration.sessionId, lease.generation, 'tools/call')).toBe(false)
     expect(control.admits(registration.sessionId, lease.generation, 'tools/list')).toBe(true)
-    await expect(peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)).rejects.toThrow(
-      'not drained'
-    )
+    await expect(
+      peer.request({ method: 'tempad/runtime-stop', params: { pausedSessions: [] } }, ResultSchema)
+    ).rejects.toThrow('not drained')
     drained = true
     const automaticStop = () =>
-      peer.request({ method: 'tempad/runtime-stop', params: { automatic: true } }, ResultSchema)
+      peer.request(
+        { method: 'tempad/runtime-stop', params: { pausedSessions: [], automatic: true } },
+        ResultSchema
+      )
     await expect(automaticStop()).rejects.toThrow('no longer idle or eligible')
     autoBlockers = ['Claude acceptance pending']
     idleForMs = 5000

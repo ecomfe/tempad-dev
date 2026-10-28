@@ -304,9 +304,9 @@ it('includes pending native actions and transfers in the runtime drain boundary'
     })
     expect(Number(pending.deadline)).toBeGreaterThan(Date.now() + 300000)
     await peer.request({ method: 'tempad/runtime-gate', params: { closed: true } }, ResultSchema)
-    await expect(peer.request({ method: 'tempad/runtime-stop' }, ResultSchema)).rejects.toThrow(
-      'not drained'
-    )
+    await expect(
+      peer.request({ method: 'tempad/runtime-stop', params: { pausedSessions: [] } }, ResultSchema)
+    ).rejects.toThrow('not drained')
     native.mockReturnValue(false)
     const assets = vi.mocked(createAssetHttpServer).mock.results.at(-1)!.value
     Object.assign(assets, { pendingTransfers: 1 })
