@@ -2,7 +2,7 @@
 
 ## 0.5.10
 
-- Enable verified runtime downloads and compatible Hub updates between operations. Claude keeps candidates staged pending lifecycle acceptance; Windows and development checkouts keep their bundled runtime.
+- Enable verified runtime downloads and compatible Hub updates between operations on macOS, Linux and Windows. Claude requires verified session and lifecycle-hook capabilities; development checkouts keep their bundled runtime.
 
 ## 0.5.9
 

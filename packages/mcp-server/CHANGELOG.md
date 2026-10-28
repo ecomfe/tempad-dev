@@ -2,8 +2,14 @@
 
 ## Unreleased
 
-- Added opt-in verified runtime downloads and explicit version switching on macOS/Linux, with
-  compatibility checks and recovery. Automatic activation stays off; checkout builds never fetch releases.
+- Added verified automatic Hub updates on macOS, Linux and Windows. Compatible updates wait until
+  connected clients are idle and support switching, keeping their MCP connections open.
+- Added `off` and `pinned` update policies, explicit version switching with confirmation, and
+  recovery if a replacement fails. Checkout builds never download releases.
+- Preserved asset URLs and task protections across updates. Failed downloads leave the current Hub
+  running; damaged unused downloads can be replaced.
+- When upgrading from 0.11.0 or earlier, disconnect all TemPad MCP clients once before restarting
+  their MCP servers to enable runtime updates.
 
 - Kept potentially running canvas operations blocked across Hub restarts, with verified completion
   and an interactive `--resolve-runtime-block` recovery path that preserves Stop and requires readback.
