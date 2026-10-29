@@ -33,15 +33,16 @@ beforeAll(async () => {
   const config = join(bundle, 'config.mjs')
   const hub = join(bundle, 'hub-entry.mts')
   const assets = join(bundle, 'asset-listener.mjs')
-  // Normal shutdown tests must not race a cold logging worker against the real watchdog.
+  // Initialize logging before Hub startup writes to it, so transport readiness
+  // cannot race queued startup logs or the shutdown tests' real watchdog.
   writeFileSync(
     hub,
     `import {once} from 'node:events'; import {symbols} from 'pino';
     import {startHub} from ${JSON.stringify(join(packageRoot, 'src/hub-runtime.ts'))};
     import {log} from ${JSON.stringify(join(packageRoot, 'src/shared.ts'))};
-    await startHub();
     const transport = log[symbols.streamSym];
     if (!transport.ready) await once(transport, 'ready');
+    await startHub();
     process.stdout.write('ready\\n');`
   )
   writeFileSync(
@@ -87,7 +88,9 @@ afterAll(async () => {
   for (const child of children) {
     if (child.exitCode !== null || child.signalCode !== null) continue
     const exited = once(child, 'exit')
-    child.kill()
+    // Each test asserts its own shutdown. Failed fixtures may deliberately hold
+    // SIGTERM behind a parent-controlled barrier, so teardown must bypass it.
+    child.kill('SIGKILL')
     await exited
   }
   rmSync(directory, { recursive: true, force: true })
