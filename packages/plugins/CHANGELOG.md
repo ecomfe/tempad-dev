@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 (unreleased)
+## 1.0.0
 
 - Fixed `findAll()` failing on large subtrees and avoided repeatedly copying accumulated results.
 - Fixed `h()` misreading props with a `name` field or discarding explicit children when props

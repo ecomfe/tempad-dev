@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 (unreleased)
+## 1.0.0
 
 - Enabled verified runtime downloads and compatible Hub updates between operations on macOS,
   Linux and Windows with MCP 1.0.0. Claude requires a verified session and current lifecycle
