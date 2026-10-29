@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
-import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { request } from 'node:http'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AssetStore } from '../src/asset-store'
 
 import { createAssetHttpServer } from '../src/asset-http-server'
+import { buildAssetFilename } from '../src/asset-utils'
 import { ASSET_DIR } from '../src/shared'
 
 type StoreMock = {
@@ -46,6 +48,108 @@ afterEach(() => {
 })
 
 describe('asset-http-server', () => {
+  it('reuses the exact port and both capabilities, and refuses a conflicting listener', async () => {
+    const store = createStoreMock()
+    const options = { accessToken: 'a'.repeat(64), legacyAccessToken: 'b'.repeat(64) }
+    const first = createAssetHttpServer(store, options)
+    await first.start()
+    const base = first.getBaseUrl()
+    const legacy = first.getBaseUrl(true)
+    const port = Number(new URL(base).port)
+    const conflict = createAssetHttpServer(store, { ...options, port })
+    await expect(conflict.start()).rejects.toMatchObject({ code: 'EADDRINUSE' })
+    first.stop()
+    const second = createAssetHttpServer(store, { ...options, port })
+    await second.start()
+    try {
+      expect(second.getBaseUrl()).toBe(base)
+      expect(second.getBaseUrl(true)).toBe(legacy)
+      expect((await fetch(assetUrl(base))).status).toBe(404)
+      expect(
+        (await fetch(assetUrl(base), { headers: { Origin: 'https://other.invalid' } })).status
+      ).toBe(403)
+    } finally {
+      second.stop()
+    }
+  })
+
+  it('fences new transfers during recovery without affecting authentication or admitted uploads', async () => {
+    const store = createStoreMock()
+    let admit = true
+    const body = Buffer.from('admitted asset')
+    const hash = createHash('sha256').update(body).digest('hex')
+    const filename = `${hash}.png`
+    const server = createAssetHttpServer(store, { admit: () => admit })
+    await server.start()
+    createdPaths.push(join(ASSET_DIR, filename))
+    const url = `${server.getBaseUrl()}/assets/${filename}`
+    const upload = request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png', 'Content-Length': body.length }
+    })
+    const uploaded = new Promise<number | undefined>((resolve, reject) => {
+      upload.once('error', reject)
+      upload.once('response', (response) => {
+        response.resume()
+        resolve(response.statusCode)
+      })
+    })
+    void uploaded.catch(() => {})
+    try {
+      expect(server.pendingTransfers).toBe(0)
+      upload.write(body.subarray(0, 1))
+      await vi.waitFor(() => expect(server.pendingTransfers).toBe(1))
+      store.get.mockClear()
+      admit = false
+      expect((await fetch(url)).status).toBe(503)
+      expect(
+        (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body }))
+          .status
+      ).toBe(503)
+      expect(store.get).not.toHaveBeenCalled()
+      upload.end(body.subarray(1))
+      expect(await uploaded).toBe(201)
+      await vi.waitFor(() => expect(server.pendingTransfers).toBe(0))
+      admit = true
+      expect((await fetch(url)).status).toBe(404)
+      expect(store.get).toHaveBeenCalledWith(hash)
+    } finally {
+      upload.destroy()
+      server.stop()
+    }
+  })
+
+  it('uploads and downloads an image subtype with a hyphen through its generated filename', async () => {
+    const store = createStoreMock()
+    const records = new Map<string, ReturnType<AssetStore['get']>>()
+    store.get.mockImplementation((hash) => records.get(hash))
+    store.upsert.mockImplementation((record) => records.set(record.hash, record))
+    const body = Buffer.from('icon bytes')
+    const hash = createHash('sha256').update(body).digest('hex')
+    const filename = buildAssetFilename(hash, 'image/x-icon')
+    const activity = vi.fn()
+    const server = createAssetHttpServer(store, { onActivity: activity })
+    await server.start()
+    const url = `${server.getBaseUrl()}/assets/${filename}`
+    createdPaths.push(join(ASSET_DIR, filename))
+    try {
+      const uploaded = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/x-icon' },
+        body
+      })
+      expect(uploaded.status).toBe(201)
+      await vi.waitFor(() => expect(activity).toHaveBeenCalledTimes(2))
+      const downloaded = await fetch(url)
+      expect(downloaded.status).toBe(200)
+      expect(downloaded.headers.get('content-type')).toBe('image/x-icon')
+      expect(Buffer.from(await downloaded.arrayBuffer())).toEqual(body)
+      await vi.waitFor(() => expect(activity).toHaveBeenCalledTimes(4))
+    } finally {
+      server.stop()
+    }
+  })
+
   it('accepts short hashes only on the legacy capability and refuses full-content collisions', async () => {
     const store = createStoreMock()
     const records = new Map<string, ReturnType<AssetStore['get']>>()
@@ -287,6 +391,55 @@ describe('asset-http-server', () => {
 
     createdPaths.push(expectedPath)
     server.stop()
+  })
+
+  it('preserves one asset path when concurrent uploads finish with different MIME types', async () => {
+    const store = createStoreMock()
+    const records = new Map<string, ReturnType<AssetStore['get']>>()
+    store.get.mockImplementation((hash) => records.get(hash))
+    store.upsert.mockImplementation((record) => records.set(record.hash, record))
+    const body = Buffer.from('concurrent image bytes')
+    const hash = createHash('sha256').update(body).digest('hex')
+    const firstPath = join(ASSET_DIR, `${hash}.png`)
+    createdPaths.push(firstPath, join(ASSET_DIR, `${hash}.jpg`))
+    const server = createAssetHttpServer(store)
+    await server.start()
+    const upload = (mimeType: string) => {
+      const uploading = request(`${server.getBaseUrl()}/assets/${hash}`, {
+        method: 'POST',
+        headers: { 'Content-Type': mimeType, 'Content-Length': body.length }
+      })
+      const completed = new Promise<number | undefined>((resolve, reject) => {
+        uploading.on('error', reject)
+        uploading.on('response', (response) => {
+          response.resume()
+          response.on('end', () => resolve(response.statusCode))
+        })
+      })
+      uploading.flushHeaders()
+      return { uploading, completed }
+    }
+    const first = upload('image/png')
+    const second = upload('image/jpeg')
+    try {
+      // Both bodies reserve a new upload before either asset exists.
+      await vi.waitFor(() => expect(store.get).toHaveBeenCalledTimes(2))
+      first.uploading.end(body)
+      expect(await first.completed).toBe(201)
+      second.uploading.end(body)
+      expect.soft(await second.completed).toBe(200)
+      expect.soft(records.get(hash)?.filePath).toBe(firstPath)
+      expect.soft(records.get(hash)?.mimeType).toBe('image/jpeg')
+      expect(readdirSync(ASSET_DIR).filter((name) => name.startsWith(hash))).toEqual([
+        `${hash}.png`
+      ])
+      expect(readFileSync(firstPath)).toEqual(body)
+    } finally {
+      first.uploading.destroy()
+      second.uploading.destroy()
+      await Promise.allSettled([first.completed, second.completed])
+      server.stop()
+    }
   })
 
   it('returns hash mismatch and handles successful uploads', async () => {

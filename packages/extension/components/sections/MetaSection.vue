@@ -7,9 +7,10 @@ import Refresh from '@/components/icons/Refresh.vue'
 import Select from '@/components/icons/Select.vue'
 import Section from '@/components/Section.vue'
 import { refreshDevResourceLinks, useDevResourceLinks, useToast } from '@/composables'
-import { selection, selectedNode, selectedTemPadComponent } from '@/ui/state'
+import { selection, selectionRevision, selectedNode, selectedTemPadComponent } from '@/ui/state'
 
 const title = computed(() => {
+  void selectionRevision.value
   const nodes = selection.value
   const [node] = nodes
 

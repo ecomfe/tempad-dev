@@ -3,8 +3,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { chromium } from 'playwright'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { chromium, type BrowserContext } from 'playwright'
 
 import type { PluginSandboxResponse } from '../plugin-sandbox/protocol'
 
@@ -54,18 +54,20 @@ type CapabilityProbeResult = {
 
 const extensionDir = fileURLToPath(new URL('../.output/chrome-mv3/', import.meta.url))
 
-async function main(): Promise<void> {
+export async function runCheck(): Promise<void> {
   verifyManifest(await readManifest())
 
-  const networkProbe = await startNetworkProbe()
   const profileDir = await mkdtemp(path.join(tmpdir(), 'tempad-plugin-sandbox-'))
-  const context = await chromium.launchPersistentContext(profileDir, {
-    channel: 'chromium',
-    headless: true,
-    args: [`--disable-extensions-except=${extensionDir}`, `--load-extension=${extensionDir}`]
-  })
+  let networkProbe: Awaited<ReturnType<typeof startNetworkProbe>> | undefined
+  let context: BrowserContext | undefined
 
   try {
+    networkProbe = await startNetworkProbe()
+    context = await chromium.launchPersistentContext(profileDir, {
+      channel: 'chromium',
+      headless: true,
+      args: [`--disable-extensions-except=${extensionDir}`, `--load-extension=${extensionDir}`]
+    })
     const extensionId = await resolveExtensionId(context)
     // Exercise the installed manifest's storage permission in the real background worker.
     const stored = await context.serviceWorkers()[0]!.evaluate(async () => {
@@ -110,8 +112,15 @@ async function main(): Promise<void> {
         const channel = new MessageChannel()
         const pending = new Map<number, (value: PluginSandboxResponse) => void>()
         let resolveConnected!: () => void
-        const connected = new Promise<void>((resolve) => {
-          resolveConnected = resolve
+        const connected = new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            channel.port1.close()
+            reject(new Error('Sandbox connection timed out.'))
+          }, 7000)
+          resolveConnected = () => {
+            clearTimeout(timer)
+            resolve()
+          }
         })
 
         channel.port1.onmessage = ({ data }: MessageEvent<Record<string, unknown>>) => {
@@ -229,6 +238,54 @@ async function main(): Promise<void> {
         }
         const statefulBatch = await request(12, statefulBatchPayload)
         const isolatedBatch = await request(13, statefulBatchPayload)
+        const oversizedArrayProperty = await request(
+          14,
+          {
+            options: validJob.options,
+            references: [{ name: 'color', code: 'var(--color)' }],
+            pluginCode: `
+              export default {
+                name: 'array-property-output',
+                code: {
+                  css: {
+                    transformVariable() {
+                      return Object.assign([], { extra: 'x'.repeat(${maxPayloadBytes + 1}) })
+                    }
+                  }
+                }
+              }
+            `
+          },
+          workers.transformVariable
+        )
+        const oversizedSharedTree = await request(15, {
+          ...validJob,
+          component: { name: 'Example', type: 'INSTANCE', properties: {}, children: [] },
+          returnDevComponent: true,
+          pluginCode: `
+            JSON.stringify = (value) => value
+            JSON.parse = (value) => value
+            let tree = { name: 'span', props: {}, children: [] }
+            for (let depth = 0; depth < 17; depth++)
+              tree = { name: 'span', props: {}, children: [tree, tree] }
+            export default {
+              name: 'shared-tree-output',
+              code: {
+                component: {
+                  transformComponent() {
+                    return {
+                      name: '__tempad_raw__',
+                      props: { content: '<span />' },
+                      children: [tree]
+                    }
+                  }
+                },
+                css: false,
+                js: false
+              }
+            }
+          `
+        })
 
         channel.port1.close()
         return {
@@ -237,7 +294,9 @@ async function main(): Promise<void> {
           isolatedBatch,
           invalidWorker,
           oversized,
+          oversizedArrayProperty,
           oversizedOutput,
+          oversizedSharedTree,
           polluted,
           pollutionProbe,
           recovered,
@@ -270,9 +329,15 @@ async function main(): Promise<void> {
 
     await verifyFigmaEmbedding(context, extensionId)
   } finally {
-    await context.close()
-    await networkProbe.close()
-    await rm(profileDir, { force: true, recursive: true })
+    try {
+      await context?.close()
+    } finally {
+      try {
+        await networkProbe?.close()
+      } finally {
+        await rm(profileDir, { force: true, recursive: true })
+      }
+    }
   }
 
   console.log('[plugin-sandbox-check] Opaque-origin capability and broker lifecycle probes passed.')
@@ -514,7 +579,9 @@ function verifyProtocolResult(result: {
   isolatedBatch: PluginSandboxResponse
   invalidWorker: PluginSandboxResponse
   oversized: PluginSandboxResponse
+  oversizedArrayProperty: PluginSandboxResponse
   oversizedOutput: PluginSandboxResponse
+  oversizedSharedTree: PluginSandboxResponse
   polluted: PluginSandboxResponse
   pollutionProbe: PluginSandboxResponse
   recovered: PluginSandboxResponse
@@ -529,6 +596,13 @@ function verifyProtocolResult(result: {
     'sandbox-protocol-probe'
   )
   assert.equal(result.oversized.error?.code, 'payload-too-large')
+  assert.deepEqual(
+    {
+      arrayProperty: result.oversizedArrayProperty.error?.code,
+      sharedTree: result.oversizedSharedTree.error?.code
+    },
+    { arrayProperty: 'payload-too-large', sharedTree: 'payload-too-large' }
+  )
   assert.equal(result.invalidWorker.error?.code, 'protocol-error')
   assert.equal(result.timedOut.error?.code, 'timeout')
   assert.equal(result.hiddenImport.error?.code, 'worker-error')
@@ -690,7 +764,9 @@ async function startNetworkProbe(): Promise<{
   }
 }
 
-main().catch((error) => {
-  console.error(error)
-  process.exitCode = 1
-})
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runCheck().catch((error) => {
+    console.error(error)
+    process.exitCode = 1
+  })
+}

@@ -34,44 +34,55 @@ export function createGetCodeCacheContext(
     TextNode,
     Map<string, ReturnType<TextNode['getRangeBoundVariable']>>
   >()
-  const ctx = {
+  const ctx: GetCodeCacheContext = {
     rawCss: new Map(),
+    pluginResponses: new Map(),
     imageBytes: new Map(),
+    imageSizes: new Map(),
     variables: variableCache,
     styles: new Map<string, BaseStyle | null>(),
     paintStyles: new Map<string, PaintStyleSummary | null>(),
+    childOverflow: new WeakMap(),
     nodeSemantics: new Map(),
     vectorAnalysis: new Map(),
-    metrics: options?.metrics ? createDefaultMetrics() : undefined
-  } as GetCodeCacheContext
-
-  ctx.readers = {
-    getStyleById: (id: string) => getStyleByIdFromContext(id, ctx),
-    getVariableById: (id: string) => getVariableByIdFromContext(id, ctx),
-    getRangeBoundVariable: (
-      node: TextNode,
-      start: number,
-      end: number,
-      field: VariableBindableTextField
-    ) => {
-      let bindings = textRangeBindings.get(node)
-      if (!bindings) {
-        bindings = new Map()
-        textRangeBindings.set(node, bindings)
+    metrics: options?.metrics ? createDefaultMetrics() : undefined,
+    readers: {
+      getStyleById: (id) => getStyleByIdFromContext(id, ctx),
+      getVariableById: (id) => getVariableByIdFromContext(id, ctx),
+      getRangeBoundVariable: (node, start, end, field) => {
+        let bindings = textRangeBindings.get(node)
+        if (!bindings) {
+          bindings = new Map()
+          textRangeBindings.set(node, bindings)
+        }
+        const key = `${start}:${end}:${field}`
+        if (bindings.has(key)) {
+          incrementMetric(ctx.metrics, 'textRangeHits')
+          return bindings.get(key)!
+        }
+        incrementMetric(ctx.metrics, 'textRangeMisses')
+        const binding = node.getRangeBoundVariable(start, end, field)
+        bindings.set(key, binding)
+        return binding
       }
-      const key = `${start}:${end}:${field}`
-      if (bindings.has(key)) {
-        incrementMetric(ctx.metrics, 'textRangeHits')
-        return bindings.get(key)!
-      }
-      incrementMetric(ctx.metrics, 'textRangeMisses')
-      const binding = node.getRangeBoundVariable(start, end, field)
-      bindings.set(key, binding)
-      return binding
     }
   }
 
   return ctx
+}
+
+export function getRawCssCached(
+  node: SceneNode,
+  ctx: GetCodeCacheContext
+): Promise<Record<string, string>> {
+  ctx.signal?.throwIfAborted()
+  ctx.checkpoint?.()
+  let css = ctx.rawCss.get(node.id)
+  if (!css) {
+    css = Promise.resolve().then(() => node.getCSSAsync())
+    ctx.rawCss.set(node.id, css)
+  }
+  return css
 }
 
 export function getVariableByIdFromContext(id: string, ctx: GetCodeCacheContext): Variable | null {

@@ -151,6 +151,105 @@ describe('design task status and canvas overlay', () => {
       .toBe(true)
     await expect.poll(() => f.done.mock.calls).toEqual([['task-a']])
   })
+
+  it.each([false, true])(
+    'requires an explicit retry after cancelled draft cleanup fails (anchor: %s)',
+    async (anchored) => {
+      await page.viewport(900, 700)
+      const pending: Array<{
+        resolve: (snapshot: { items: [] }) => void
+        reject: (error: Error) => void
+      }> = []
+      const requestDrafts = vi.fn<
+        NonNullable<InstanceType<typeof DesignTaskStatus>['$props']['requestDrafts']>
+      >(async (request) => {
+        if (request.operation !== 'clear') return { items: [] }
+        return new Promise((resolve, reject) => pending.push({ resolve, reject }))
+      })
+      const close = vi.fn()
+      const f = fixture(vi.fn(), requestDrafts, close)
+      f.task.value = {
+        ...f.initial,
+        client: { kind: 'codex', name: 'Codex', sessionId: 'thread-a' }
+      }
+      if (anchored) f.anchor.value = f.node as unknown as SceneNode
+      await nextTick()
+      document.querySelector<HTMLButtonElement>('.tp-design-stop')!.click()
+      expect(f.stop).toHaveBeenCalledOnce()
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+      f.task.value = { ...f.task.value, status: 'cancelled' }
+      await expect.poll(() => pending.length).toBe(1)
+      pending[0]!.reject(new Error('Comments are unavailable in this file.'))
+      await expect.poll(() => f.api.notify.mock.calls.length).toBe(1)
+      // Ordinary task refreshes must not turn the clear's busy transitions into retries.
+      f.task.value = { ...f.task.value, revision: 2 }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(pending).toHaveLength(1)
+      expect(f.done).not.toHaveBeenCalled()
+      await expect.element(page.getByRole('button', { name: 'Done', exact: true })).toBeEnabled()
+      const button = document.querySelector<HTMLButtonElement>('.tp-design-done')!
+      button.focus()
+      expect(document.activeElement).toBe(button)
+      await page.getByRole('button', { name: 'Done', exact: true }).click()
+      await expect.poll(() => pending.length).toBe(2)
+      expect(button.isConnected).toBe(true)
+      expect(document.activeElement).toBe(button)
+      expect(button.matches(':disabled, [aria-disabled="true"]')).toBe(true)
+      expect(
+        getComputedStyle(
+          button.closest<HTMLElement>('.tp-design-overlay, .tp-design-panel-controls')!
+        ).display
+      ).not.toBe('none')
+      button.click()
+      await nextTick()
+      expect(pending).toHaveLength(2)
+      pending[1]!.reject(new Error('Comments are unavailable in this file.'))
+      await expect.poll(() => f.api.notify.mock.calls.length).toBe(2)
+      expect(document.activeElement).toBe(button)
+      expect(button.matches(':disabled, [aria-disabled="true"]')).toBe(false)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(pending).toHaveLength(2)
+      await page.getByRole('button', { name: 'Done', exact: true }).click()
+      await expect.poll(() => pending.length).toBe(3)
+      pending[2]!.resolve({ items: [] })
+      await expect.poll(() => f.done.mock.calls).toEqual([['task-a']])
+      expect(f.api.notify).toHaveBeenCalledTimes(2)
+      expect(close).not.toHaveBeenCalled()
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+    }
+  )
+
+  it('keeps a replacement task independent of a cancelled cleanup failure', async () => {
+    let rejectClear!: (error: Error) => void
+    const requestDrafts = vi.fn<
+      NonNullable<InstanceType<typeof DesignTaskStatus>['$props']['requestDrafts']>
+    >(async (request) => {
+      if (request.operation === 'clear' && request.scope.taskId === 'task-a')
+        return new Promise((_resolve, reject) => {
+          rejectClear = reject
+        })
+      return { items: [] }
+    })
+    const f = fixture(vi.fn(), requestDrafts)
+    const client = { kind: 'codex' as const, name: 'Codex', sessionId: 'thread-a' }
+    f.task.value = { ...f.initial, client, status: 'cancelled' }
+    await expect.poll(() => rejectClear).toBeTypeOf('function')
+    f.task.value = { ...f.initial, client, taskId: 'task-b' }
+    await nextTick()
+    rejectClear(new Error('Old cleanup failed'))
+    await nextTick()
+    expect(f.api.notify).not.toHaveBeenCalled()
+    expect(document.querySelector('.tp-design-done')).toBeNull()
+    await expect.element(page.getByRole('button', { name: 'Stop design task' })).toBeEnabled()
+    f.task.value = { ...f.task.value, status: 'cancelled' }
+    await expect.poll(() => f.done.mock.calls).toEqual([['task-b']])
+    expect(
+      requestDrafts.mock.calls
+        .filter(([request]) => request.operation === 'clear')
+        .map(([request]) => request.scope.taskId)
+    ).toEqual(['task-a', 'task-b'])
+  })
+
   it('expands and collapses the panel entry in document flow with contextual text before an anchor exists', async () => {
     const f = fixture()
     const following = document.createElement('div')
@@ -292,8 +391,10 @@ describe('design task status and canvas overlay', () => {
       operation: 'writing'
     }
     await nextTick()
-    const label = () => document.querySelector('.tp-design-anchor-label')!.textContent
+    const label = () => document.querySelector('.tp-design-label-text')!.textContent
+    const liveLabel = () => document.querySelector('[role="status"]')!.textContent
     expect(label()).toBe('My Design Client is updating the design')
+    expect(liveLabel()).toBe('My Design Client is designing')
     const panelText = f.panel.querySelector<HTMLElement>('.tp-design-locate > span')!
     expect(panelText.textContent).toBe('My Design Client is designing')
     expect(getComputedStyle(panelText).animationIterationCount).toBe('infinite')
@@ -303,11 +404,17 @@ describe('design task status and canvas overlay', () => {
     f.task.value = { ...f.task.value, operation: 'reading' }
     await nextTick()
     expect(label()).toBe('My Design Client is reviewing the design')
+    expect(liveLabel()).toBe('My Design Client is designing')
     f.task.value = { ...f.task.value, operation: null }
     await nextTick()
     expect(label()).toBe('My Design Client is working on the design')
+    expect(liveLabel()).toBe('My Design Client is designing')
+    expect(document.querySelector('.tp-design-label-text')!.getAttribute('aria-hidden')).toBe(
+      'true'
+    )
     f.task.value = { ...f.task.value, status: 'paused' }
     await nextTick()
+    expect(liveLabel()).toBe("My Design Client's design task is paused")
     expect(getComputedStyle(panelText).animationName).toBe('none')
   })
 
@@ -806,7 +913,15 @@ describe('design task status and canvas overlay', () => {
     f.anchor.value = f.node as unknown as SceneNode
     await expect.element(page.getByRole('button', { name: 'Review comments' })).toBeVisible()
     expect(f.panel.querySelector('.tp-feedback-toggle')).toBeNull()
+    // The trigger's box is stable while the toolbar's opening animation still clips it.
+    document
+      .querySelector('.tp-design-feedback')!
+      .getAnimations()
+      .forEach((animation) => animation.finish())
     await page.getByRole('button', { name: 'Review comments' }).click()
+    await expect
+      .element(page.getByRole('button', { name: 'Review comments' }))
+      .toHaveAttribute('aria-expanded', 'true')
     const comment = () => document.querySelector<HTMLTextAreaElement>('#tp-feedback-comment')
     await expect.poll(() => comment()?.value).toBe('Saved comment')
     await page.getByRole('textbox', { name: 'General comment' }).fill('Keep this revision')
@@ -833,7 +948,9 @@ describe('design task status and canvas overlay', () => {
     await page.getByRole('button', { name: 'Keep reviewing' }).click()
     expect(f.done).not.toHaveBeenCalled()
     expect(requestDrafts.mock.calls.some(([request]) => request.operation === 'clear')).toBe(false)
-    expect(comment()?.value).toBe('Keep this revision')
+    await expect.poll(comment).toBeNull()
+    await page.getByRole('button', { name: 'Review comments' }).click()
+    await expect.poll(() => comment()?.value).toBe('Keep this revision')
     await page.getByRole('button', { name: 'Done' }).click()
     await page.getByRole('button', { name: 'Discard comments and finish' }).click()
     await expect.poll(() => f.done.mock.calls.length).toBe(1)

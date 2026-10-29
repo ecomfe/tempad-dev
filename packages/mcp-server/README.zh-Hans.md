@@ -11,7 +11,7 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
   "mcpServers": {
     "tempad-dev": {
       "command": "npx",
-      "args": ["-y", "@tempad-dev/mcp@latest"]
+      "args": ["-y", "@tempad-dev/mcp@latest", "--runtime-updates=stable"]
     }
   }
 }
@@ -19,7 +19,39 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 
 如需针对不同 agent 配置，请打开 TemPad Dev 的 **Preferences → Agent integration → Set up agents**。界面提供 Codex、Cursor、Claude Code、Gemini、VS Code、OpenCode 和 TRAE 的引导路径；未列出的兼容客户端可选择 **Other**。
 
-支持的工具和资源：
+### 运行时更新（1.0.0+）
+
+经过校验的正式包在 macOS、Linux 和 Windows 上默认启用后台下载与兼容 Hub 自动更新，既有 `npx @latest` 配置
+重启到 1.0.0 或更高版本后也会启用。上述配置和 Agent Plugin 1.0.0 通过
+`--runtime-updates=stable` 明确选择此策略。首次启用需关闭所有现有 TemPad MCP 连接，再重新启动；
+已有 release 任务和资源存储保持不变。
+在这次重启之前，新客户端继续使用仍在运行的旧 Hub，不会中断它。
+Checkout 开发构建使用独立的本地配置，始终不会获取线上运行时。
+
+在使用相同运行配置的终端中：
+
+- `npx -y @tempad-dev/mcp@latest --runtime-update-status`：查看运行版本、候选版本和阻止切换的原因。
+- `npx -y @tempad-dev/mcp@latest --check-runtime-update`：查找不超过 npm `latest` 标签的最新兼容稳定版。
+  版本较多时分批继续查找；状态中会显示剩余进度，以及跳过最新版本的原因。
+- `npx -y @tempad-dev/mcp@latest --update-runtime <version>`：确认具体版本及完整性摘要后切换。
+  工具契约或指导语不兼容、操作尚未结束、旧版 Claude hook，或仍有未启用更新的客户端连接时，均不会激活。
+
+自动激活要求所有 MCP 客户端均已初始化、启用稳定版更新并支持切换等待。
+Claude 还需要已验证的会话和支持回执与重试的 hook；身份未确认或 hook 过旧时保持暂存。
+工具调用、传输和原生操作结束并空闲五秒后，supervisor 再次检查条件并执行本地切换。
+尚未派发的新请求最多等待十秒，已派发的写入绝不重放。
+忙碌时延后更新，下载或网络故障不会停止当前 Hub；跨破坏性版本边界、契约或指导语不兼容时，仍需显式更新或重启。
+兼容切换时，已有 MCP
+会话保留原有工具说明；Figma 会重新连接，设计任务可能需要 resume 和读回。正在运行的入口进程、
+supervisor、Node、浏览器扩展和已安装插件仍需按原方式升级或重启。
+使用 `--runtime-updates=off`，最后一个启用更新的客户端断开后就会停止后台检查。
+若必须严格使用启动包的版本，请在固定 npm 版本的配置中加 `--runtime-updates=pinned`；
+与当前 Hub 冲突时会提示重启，不会另起一个 Hub。
+未经校验的本地构建继续运行随包版本，不下载线上版本，且会拒绝显式启用更新。
+Windows 的托管更新使用命名管道和经过 ACL 校验的私有存储；
+[进程级 CI](../../TESTING.md#windows-runtime-ci) 与已安装桌面宿主的交互验收分别进行。
+
+### 工具和资源
 
 - `get_code`：以 Tailwind 优先的 JSX/Vue 标记输出，并附带资源和变量引用。
 - `get_design_system`：创建不可变、确定性的紧凑目录，按资源类型平衡分页返回可访问页面的
@@ -59,12 +91,11 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 - 工具响应共用 `64 KiB` 的 inline budget，按 `CallToolResult` 整体响应体积计算。若选区过大而超出 `get_code` 的预算，TemPad Dev 可能返回 shell response 而不是直接失败。shell 会保留当前节点的包裹结构，并在内联代码注释中列出被省略的直接子节点 id，方便 agent 逐个继续拉取；配套 warning 只保留最小化的提示信息，用来指向这条注释。
 - 启用 MCP access 且当前 Figma Design 文件可编辑时，`apply_canvas` 即可使用；Dev Mode 和
   只读文件仍不可写。
-- MCP **0.11.0** 配套扩展 **0.23.0** 和 Agent Plugin **0.4.0**。
-  上述多节点读取与 token 定义语义要求 Hub 和扩展均使用匹配的 protocol 15 构建。
+- 上述多节点读取与 token 定义语义要求 Hub 和扩展均使用匹配的 protocol 15 构建。
   扩展 0.22.0 仍通过 protocol 13 支持既有读取、会话、任务和画布写入。新版读取选项会提示升级，响应会标注旧版选区和 token 语义。
   请更新扩展并重新加载 Figma 以启用新版能力，再更新 plugin 或已安装的 skill，
   将固定 alpha 版本的 MCP 配置改为 `@tempad-dev/mcp@latest`，然后重新连接 MCP client 并新建任务。
-  详见[升级指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#升级)。
+  最低版本要求和更新步骤详见[升级指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#升级)。
 - 资源是临时且与工具调用关联的。本地 stdio client 在 Hub 持有字节时会收到
   `asset.localPath`，可直接打开而不必经过 loopback 下载；其他 client 使用带 capability 的
   HTTP `asset.url`。完整 URL 应视作临时密钥，不要持久化到日志中。
@@ -81,7 +112,7 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 - `TEMPAD_MCP_GET_CODE_TIMEOUT`：`get_code` 超时时间（毫秒，默认 `30000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。
 - `TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT`：`get_design_system` 首次资源目录发现的超时时间（毫秒，默认 `45000`；续页、精确引用、字体和页面列表读取仍使用常规超时）。设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值。
 - `TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT`：指定页面 ID 或 key 的 `get_structure` 超时时间（毫秒，默认 `45000`；冷页面可能需要先加载，节点和当前选择的读取仍使用常规超时）。设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值。
-- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`：`apply_canvas` 慢调用告警阈值（毫秒，默认 `120000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。达到阈值的两倍时，Hub 会报告结果未知并禁止后续写入，直到明确结果或会话恢复解决该状态。重试前请先检查画布，变更可能已完成。
+- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`：`apply_canvas` 慢调用告警阈值（毫秒，默认 `120000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。达到阈值的两倍时，Hub 会报告结果未知。继续写入前，既需要明确操作已结束或完成会话恢复，也需要读取该文件并获得至少一个结构根节点或代码结果，或通过 `get_structure` 获得指定页面的快照（含空页面）；空选区和失败的节点读取不计入。`CANVAS_APPLY_FAILED` 也要求读回，因为回滚结果未获确认，旧版扩展的此类错误同样如此。`CANVAS_APPLY_ABORTED` 确认写入前准备失败，无需额外读回文件。Undo 边界内的失败仍保留读回要求，因为回滚验证仅覆盖部分原生状态。重启 Hub 不会清除读回要求。请先检查画布，不要重放写入。
 - `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`：仅一个扩展连接时自动激活前的延迟（默认 `1500`）。
 - `TEMPAD_MCP_MAX_ASSET_BYTES`：截图/资源捕获的最大上传体积（字节，默认 `8388608`）。
 - `TEMPAD_MCP_MAX_ASSET_STORE_BYTES`：本地资源存储总量上限（字节，默认 `268435456`）。
@@ -114,12 +145,24 @@ Linux 上，运行时会以 `0700` 权限创建 `<系统临时目录>/tempad-dev
 一旦已有私有 UID 目录，旧目录消失或后来出现空目录都不会切回；两个目录同时存在 socket 或 Hub
 锁，或当前用户目录中的这些文件权限不安全时，会拒绝自动迁移。请先关闭既有运行时并修正所有者和权限。
 其他平台仍使用 `<系统临时目录>/tempad-dev`；显式目录覆盖优先。Unix 客户端与生命周期 hooks
-连接前会检查 socket 类型、所有者和私有权限，不可信时直接拒绝，不另启 Hub。Windows 仍保留已发布的
-固定命名管道路径，尚未实现逐用户管道隔离。
+连接前会检查 socket 类型、所有者和私有权限，不可信时直接拒绝，不另启 Hub。Windows 保留已发布的
+兼容管道名，托管运行时的控制与数据管道按用户和运行目录隔离。Windows 使用实际 ACL 校验，将托管
+存储和端点的访问限制为当前用户、SYSTEM 与 Administrators，不依赖 Unix 权限位；路径或权限不可信时拒绝启动。
 
 Hub 仅接受来自 Chrome 扩展 Origin、且目标为根路径的 WebSocket 握手。如需收紧安装环境，请将浏览器中显示的 TemPad Dev 扩展 Origin 写入 `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS`。Origin 校验与每次进程启动生成的 asset capability 可以降低跨 Origin 的 loopback 滥用，但不能认证本机进程，包括先占用端口的其他操作系统用户进程；详见[本地 MCP 威胁模型](../../docs/security/local-mcp-threat-model.md)。
 
 ## 任务存储恢复
+
+可能仍在执行的操作会在 Hub 重启后继续阻止该文件的写入；读取或恢复任务不会解除它。
+重新连接原来的 Figma 浏览器后，经过验证的完成回执、标签页关闭或文档替换可以解除执行阻塞，随后仍须读回。
+如果原来的浏览器无法再连接，请运行 `npx -y @tempad-dev/mcp@latest --runtime-status`
+查看文件和执行环境，再在交互式终端运行 `npx -y @tempad-dev/mcp@latest --resolve-runtime-block <block-id>`。
+只有关闭原来的执行环境后才能确认。命令无法停止远端代码；它会注销该次执行，保留 Stop 保护，
+并要求显式恢复任务和读回，不会重放请求或重置任务存储。此操作仅提供终端入口，不向 MCP 工具或 Figma 页面开放。
+
+不兼容的任务记录可能由新版 Hub 写入。这种情况下，请升级 MCP 运行时并重新连接所有客户端。
+如果当前版本仍拒绝该记录，请保留快照用于诊断，或恢复经过验证、包含最新 Stop 保护的完整备份。
+恢复命令会主动拒绝可读取的存储；不要删除存储来绕过保护。
 
 任务存储无法安全读取时，错误会指出受影响的快照路径。读取仍然可用，但画布写入会在重启后
 继续被阻止，因为快照可能包含永久 Stop 保护。Hub 会尽可能将无法读取的状态保存在 `.corrupt` 文件中。
@@ -127,9 +170,18 @@ Hub 仅接受来自 Chrome 扩展 Origin、且目标为根路径的 WebSocket �
 恢复前，请断开所有 MCP 客户端，等待 Hub 退出，再修改状态。保留快照和任何 `.corrupt` 文件的副本，
 将经过验证、包含最新 Stop 保护的完整快照原子替换到原路径，然后重新连接客户端。
 恢复的有效快照可以正常使用，无需删除 `.corrupt` 中保留的证据。
+如果旧版本曾隔离它无法识别的新格式数据，升级后 `.corrupt` 本身可能有效。
+恢复前仍须确认它是最新的完整快照，不能仅凭文件名判断。
 
-旧备份或残留 `.tmp` 文件可能早于某次 Stop 操作。没有可信的完整快照时，无法安全地自动恢复写入。
-请勿删除隔离标记或用空状态替换快照来绕过保护。
+旧备份或残留 `.tmp` 文件可能早于某次 Stop 操作。没有可信的完整快照时，请断开所有 MCP 客户端，
+运行 `npx -y @tempad-dev/mcp@latest --recover-task-storage`。请使用与 MCP 客户端配置相同的
+`TEMPAD_MCP_STATE_DIR` 和 `TEMPAD_MCP_RUNTIME_DIR` 环境变量；命令不会读取客户端配置。
+即使拒绝恢复，命令也会输出实际快照路径，请确认它指向受影响的存储。
+命令会拒绝仍有写入者或可正常读取的存储，将原文件保存到输出的备份目录，并创建新一代任务状态。
+所有旧任务继续失效：旧评论不能恢复执行，无任务的写入仍被阻止。此后每次 begin 都必须提供
+`recoveryGeneration`，包括新会话和 Hub 重启之后。被拒绝的 begin 会在 `_meta.recoveryGeneration`
+中向客户端提供该值，并在错误文本中向 agent 提供。每个新任务写入前都必须读取目标，此要求不会过期。
+读取仍然可用。请保留备份；此操作不会恢复任务历史。不要删除隔离标记或用空状态绕过保护。
 
 ## 要求
 

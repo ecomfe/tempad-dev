@@ -72,7 +72,16 @@ describe('mcp/code collectNodeData operation counts', () => {
       if (stage === 'media') {
         vi.mocked(hasMediaFills).mockReturnValueOnce(true)
         vi.mocked(replaceMediaUrlsWithAssets).mockImplementationOnce(
-          async (style, _node, _config, _registry, _videoHashes, _imageBytes, assertActive) => {
+          async (
+            style,
+            _node,
+            _config,
+            _registry,
+            _videoHashes,
+            _imageBytes,
+            _imageSizes,
+            assertActive
+          ) => {
             elapsed = 21
             assertActive?.()
             completedMedia()

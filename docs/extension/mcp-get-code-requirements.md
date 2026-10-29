@@ -85,8 +85,10 @@ This document records the requirements and hard constraints for the MCP `get_cod
   preflight is deliberately a proof, not an output-size guess, so it must not discard work for trees
   that may still fit.
 - Only throw a user-facing budget error when a usable shell cannot be generated.
-- For splittable roots, a full read that takes 20 seconds falls back to the same shell contract.
+- For splittable roots, an in-progress full read that reaches 20 seconds falls back to the same shell contract.
   Allow up to 5 seconds for the shell so it can return before the Hub's default 30-second timeout.
+  Preserve a completed full or shell result if it finishes before an overdue timer runs; do not
+  discard it or schedule another attempt solely because the elapsed budget has passed.
   Reuse request-scoped CSS reads and stop scheduling descendant work after the deadline. Actual leaf and
   vector roots and unbounded debug reads retain full reads. Containers planned as a single vector
   asset must not fall back to a shell, which could break masks or compositing across children.
@@ -199,10 +201,17 @@ nearest non-GROUP/BOOLEAN ancestor. Rebase offsets by the boxed group's native o
 
 ## Token handling
 
-- Token detection starts from the emitted markup; names may be transformed/re-written, and final used names are derived from the rewrite map (no second scan).
+- Token detection starts from styling values in the rendered component tree, including classes,
+  inline styles, and SVG presentation attributes. Names may be transformed/re-written, and final
+  used names are derived from the rewrite map (no second scan).
 - Font-face variable bindings also contribute definitions for text actually rendered. Omitted
   descendants and text replaced by plugin output must not contribute these bindings.
-- Token detection always strips `var(..., fallback)` before matching to avoid false positives.
+- Token detection strips `var(..., fallback)` from these styling values before matching to avoid
+  false positives. Literal text, labels, and other non-style props must not be detected or rewritten
+  as tokens. Preserve quoted CSS strings and URLs, including Tailwind content literals. Native inline
+  SVG must preserve XML text, entities, and whitespace without interpreting text or CDATA as template
+  expressions. Explicit plugin `raw()` output is authored
+  code and retains code-level processing.
 - `get_code` code output intentionally does not use inline `var(..., fallback)` values as the token value source; values, aliases, and modes belong in the `tokens` payload.
 - `get_code` emits canonical CSS variable IR for supported variable-backed properties when `resolveTokens` is `false`.
 - Canonical token identity is derived from variable identity and must stay stable across property families such as paint-derived channels, typography/text output, and future supported layout/effect properties.
@@ -239,6 +248,9 @@ nearest non-GROUP/BOOLEAN ancestor. Rebase offsets by the boxed group's native o
   cross-axis bindings take precedence; equal numeric gaps alone do not establish synchronization.
 - If an opacity or font-weight token's modes or aliases have mixed or unknown dimensions, preserve
   the reference and emit a `token-resolution` warning identifying the incomplete normalization.
+- Length-valued opacity and font-weight tokens require CSS typed arithmetic when left unresolved.
+  Emit a bounded `token-resolution` compatibility warning and suggest `resolveTokens:true` for
+  portable literal output. Unitless division does not need this warning.
 - Failed consumer resolution preserves the reference and emits a bounded `token-resolution` warning. Never choose a collection default as a substitute for failed native resolution.
 - Missing definitions, ambiguous names, and unavailable mode labels emit bounded `token-definition` warnings. Do not fabricate empty values or pick one variable from a name collision.
 - Collection and mode IDs carry identity. Duplicate collection names make definition labels ambiguous and emit a warning; mode hints use collection IDs in that case.

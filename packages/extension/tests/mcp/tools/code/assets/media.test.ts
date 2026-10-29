@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ensureAssetUploaded } from '@/mcp/assets'
 import { hasMediaFills, replaceMediaUrlsWithAssets } from '@/mcp/tools/code/assets/media'
+import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
 import { logger } from '@/utils/log'
 
 vi.mock('@/mcp/assets', () => ({
@@ -25,6 +26,7 @@ function setFigmaImages(
     string,
     {
       getBytesAsync: () => Promise<Uint8Array>
+      getSizeAsync?: () => Promise<{ width: number; height: number }>
     } | null
   >
 ): void {
@@ -59,8 +61,8 @@ const unknown = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00])
 
 describe('assets/media', () => {
   it.each(
-    ['image bytes', 'video preview', 'image fallback', 'asset upload'].flatMap((stage) =>
-      ['resolve', 'reject'].map((outcome) => ({ stage, outcome }))
+    ['image bytes', 'image dimensions', 'video preview', 'image fallback', 'asset upload'].flatMap(
+      (stage) => ['resolve', 'reject'].map((outcome) => ({ stage, outcome }))
     )
   )('stops after an expired $stage request settles with $outcome', async ({ stage, outcome }) => {
     let started!: () => void
@@ -89,7 +91,10 @@ describe('assets/media', () => {
       first:
         stage === 'image fallback'
           ? null
-          : { getBytesAsync: () => (stage === 'image bytes' ? stall(png) : Promise.resolve(png)) }
+          : {
+              getBytesAsync: () => (stage === 'image bytes' ? stall(png) : Promise.resolve(png)),
+              getSizeAsync: () => stall({ width: 96, height: 96 })
+            }
     })
     const exportAsync = vi.fn(() =>
       stage === 'video preview' || stage === 'image fallback' ? stall(png) : Promise.resolve(png)
@@ -102,13 +107,19 @@ describe('assets/media', () => {
       {
         fills: [
           imagePaint('unread'),
-          stage === 'video preview' ? videoPaint('first') : imagePaint('first')
+          stage === 'video preview'
+            ? videoPaint('first')
+            : {
+                ...imagePaint('first'),
+                ...(stage === 'image dimensions' ? { scaleMode: 'TILE', scalingFactor: 0.5 } : {})
+              }
         ],
         exportAsync
       } as unknown as SceneNode,
       config,
       registry,
       previewHashes,
+      new Map(),
       new Map(),
       () => controller.signal.throwIfAborted()
     )
@@ -119,7 +130,9 @@ describe('assets/media', () => {
     finish()
     await rejected
 
-    expect(ensureAssetUploaded).toHaveBeenCalledTimes(stage === 'asset upload' ? 1 : 0)
+    expect(ensureAssetUploaded).toHaveBeenCalledTimes(
+      stage === 'asset upload' || stage === 'image dimensions' ? 1 : 0
+    )
     expect(exportAsync).toHaveBeenCalledTimes(
       stage === 'video preview' || stage === 'image fallback' ? 1 : 0
     )
@@ -149,6 +162,7 @@ describe('assets/media', () => {
 
   afterEach(() => {
     delete (globalThis as { figma?: PluginAPI }).figma
+    vi.useRealTimers()
   })
 
   it('detects only visible image and video fills', () => {
@@ -304,9 +318,9 @@ describe('assets/media', () => {
     const result = await replaceMediaUrlsWithAssets(style, node, config, registry)
 
     expect(result.background).toBe(
-      "url('https://assets.local/application-octet-stream'), url('https://assets.local/image-webp'), url('https://assets.local/image-gif'), url('https://assets.local/image-jpeg'), url('https://assets.local/image-png'), url('https://assets.local/image-png'), linear-gradient(red, blue)"
+      "url('https://assets.local/application-octet-stream'), url('https://assets.local/image-webp'), url('https://assets.local/image-gif'), url('https://assets.local/image-jpeg'), url('https://assets.local/image-png'), url('https://placehold.co/100x100'), linear-gradient(red, blue)"
     )
-    expect(result['background-image']).toBe("url('https://assets.local/application-octet-stream')")
+    expect(result['background-image']).toBe("url('https://placehold.co/100x100')")
     expect(vi.mocked(ensureAssetUploaded).mock.calls.map((call) => call[1])).toEqual([
       'application/octet-stream',
       'image/webp',
@@ -344,7 +358,7 @@ describe('assets/media', () => {
 
     const result = await replaceMediaUrlsWithAssets(
       {
-        background: "url('x')"
+        background: "url('x'), url('x')"
       },
       {
         fills: [imagePaint('hash-cache-reuse'), imagePaint('hash-cache-reuse')]
@@ -353,9 +367,527 @@ describe('assets/media', () => {
       new Map()
     )
 
-    expect(result.background).toBe("url('https://assets.local/cache')")
+    expect(result.background).toBe(
+      "url('https://assets.local/cache'), url('https://assets.local/cache')"
+    )
     expect(getBytesAsync).toHaveBeenCalledTimes(1)
   })
+
+  it.each(['video', 'failed video', 'failed image', 'missing image hash'])(
+    'retains the Tile slot after a foreground %s',
+    async (kind) => {
+      setFigmaImages({
+        tile: {
+          getBytesAsync: async () => png,
+          getSizeAsync: async () => ({ width: 96, height: 64 })
+        },
+        missing: null
+      })
+      vi.mocked(ensureAssetUploaded).mockImplementation(async (bytes) => ({
+        hash: bytes === png ? 'tile' : 'preview',
+        url: `https://assets.test/${bytes === png ? 'tile' : 'preview'}`,
+        mimeType: 'image/png',
+        size: bytes.length
+      }))
+      const result = await replaceMediaUrlsWithAssets(
+        { background: 'url(front) center / cover no-repeat, url(tile) 0% 0% / 50px 50px repeat' },
+        {
+          fills: [
+            { ...imagePaint('tile'), scaleMode: 'TILE', scalingFactor: 0.5 },
+            kind.includes('video')
+              ? videoPaint('front')
+              : imagePaint(kind === 'failed image' ? 'missing' : '')
+          ],
+          exportAsync: async () => {
+            if (kind === 'video') return jpeg
+            throw Error('Preview unavailable')
+          }
+        } as unknown as SceneNode,
+        config,
+        new Map()
+      )
+      expect(result.background).toBe(
+        `url('${kind === 'video' ? 'https://assets.test/preview' : 'https://placehold.co/100x100'}') center / cover no-repeat, url('https://assets.test/tile') 0% 0% / 48px 32px repeat`
+      )
+    }
+  )
+
+  it('corrects image-only native CSS when a mixed stack omits video URLs', async () => {
+    setFigmaImages({
+      tile: {
+        getBytesAsync: async () => png,
+        getSizeAsync: async () => ({ width: 96, height: 64 })
+      }
+    })
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'tile',
+      url: 'https://assets.test/tile',
+      mimeType: 'image/png',
+      size: png.length
+    })
+    const result = await replaceMediaUrlsWithAssets(
+      { background: 'url(tile) center / 50px 50px repeat' },
+      {
+        fills: [
+          { ...imagePaint('tile'), scaleMode: 'TILE', scalingFactor: 0.5 },
+          videoPaint('front')
+        ],
+        exportAsync: async () => jpeg
+      } as unknown as SceneNode,
+      config,
+      new Map()
+    )
+    expect(result.background).toBe("url('https://assets.test/tile') center / 48px 32px repeat")
+  })
+
+  it('reuses the only known media paint for repeated CSS URLs', async () => {
+    setFigmaImages({ image: { getBytesAsync: async () => png } })
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'image',
+      url: 'https://assets.test/image',
+      mimeType: 'image/png',
+      size: png.length
+    })
+    const result = await replaceMediaUrlsWithAssets(
+      { background: 'url(image), url(image)' },
+      { fills: [imagePaint('image')] } as unknown as SceneNode,
+      config,
+      new Map()
+    )
+    expect(result.background).toBe(
+      "url('https://assets.test/image'), url('https://assets.test/image')"
+    )
+  })
+
+  it('retains native dimensions when CSS does not identify the matching media paints', async () => {
+    setFigmaImages({
+      tile: {
+        getBytesAsync: async () => png,
+        getSizeAsync: async () => ({ width: 96, height: 64 })
+      },
+      other: { getBytesAsync: async () => jpeg }
+    })
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'tile',
+      url: 'https://assets.test/tile',
+      mimeType: 'image/png',
+      size: png.length
+    })
+    const result = await replaceMediaUrlsWithAssets(
+      {
+        background: 'url(tile) center / 50px 50px repeat, url(other) center / cover no-repeat',
+        'background-image': 'url(unknown)',
+        'background-size': '50px 50px'
+      },
+      {
+        fills: [
+          imagePaint('other'),
+          { ...imagePaint('tile'), scaleMode: 'TILE', scalingFactor: 0.5 }
+        ]
+      } as unknown as SceneNode,
+      config,
+      new Map()
+    )
+    expect(result.background).toContain('48px 32px repeat')
+    expect(result['background-image']).toBe("url('https://placehold.co/100x100')")
+    expect(result['background-size']).toBe('50px 50px')
+  })
+
+  it('reuses shared image bytes without guessing the Tile scale of a partial paint stack', async () => {
+    setFigmaImages({
+      tile: {
+        getBytesAsync: async () => png,
+        getSizeAsync: async () => ({ width: 96, height: 64 })
+      }
+    })
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'tile',
+      url: 'https://assets.test/tile',
+      mimeType: 'image/png',
+      size: png.length
+    })
+    const result = await replaceMediaUrlsWithAssets(
+      {
+        background: 'url(tile) center / 50px 50px repeat',
+        'background-image': 'url(tile)',
+        'background-size': '50px 50px'
+      },
+      {
+        fills: [0.5, 2].map((scalingFactor) => ({
+          ...imagePaint('tile'),
+          scaleMode: 'TILE',
+          scalingFactor
+        }))
+      } as unknown as SceneNode,
+      config,
+      new Map()
+    )
+    expect(result).toEqual({
+      background: "url('https://assets.test/tile') center / 50px 50px repeat",
+      'background-image': "url('https://assets.test/tile')",
+      'background-size': '50px 50px'
+    })
+  })
+
+  it.each(['image bytes', 'asset upload'])(
+    'does not charge required %s against the optional dimensions budget',
+    async (stage) => {
+      vi.useFakeTimers()
+      const getSizeAsync = vi.fn(async () => ({ width: 96, height: 64 }))
+      const delay = () => new Promise<void>((resolve) => setTimeout(resolve, 1050))
+      setFigmaImages({
+        first: { getBytesAsync: async () => png, getSizeAsync },
+        second: {
+          getBytesAsync: async () => {
+            if (stage === 'image bytes') await delay()
+            return jpeg
+          },
+          getSizeAsync
+        }
+      })
+      vi.mocked(ensureAssetUploaded).mockImplementation(async (bytes) => {
+        if (stage === 'asset upload' && bytes === jpeg) await delay()
+        return {
+          hash: bytes === png ? 'first' : 'second',
+          url: `https://assets.test/${bytes === png ? 'first' : 'second'}`,
+          mimeType: 'image/png',
+          size: bytes.length
+        }
+      })
+      const pending = replaceMediaUrlsWithAssets(
+        {
+          background: 'url(first) center / 50px 50px repeat, url(second) center / 50px 50px repeat'
+        },
+        {
+          fills: ['second', 'first'].map((hash) => ({
+            ...imagePaint(hash),
+            scaleMode: 'TILE',
+            scalingFactor: 0.5
+          }))
+        } as unknown as SceneNode,
+        config,
+        new Map()
+      )
+      await vi.advanceTimersByTimeAsync(1050)
+      expect((await pending).background).toBe(
+        "url('https://assets.test/first') center / 48px 32px repeat, url('https://assets.test/second') center / 48px 32px repeat"
+      )
+      expect(getSizeAsync).toHaveBeenCalledTimes(2)
+      expect(vi.getTimerCount()).toBe(0)
+    }
+  )
+
+  it('reuses dimensions that finish after an earlier node exhausted its remaining budget', async () => {
+    vi.useFakeTimers()
+    const dimensions = { width: 96, height: 64 }
+    const slowSize = vi.fn(
+      () => new Promise<typeof dimensions>((resolve) => setTimeout(() => resolve(dimensions), 900))
+    )
+    const laterSize = vi.fn(
+      () => new Promise<typeof dimensions>((resolve) => setTimeout(() => resolve(dimensions), 300))
+    )
+    setFigmaImages({
+      slow: { getBytesAsync: async () => png, getSizeAsync: slowSize },
+      later: { getBytesAsync: async () => png, getSizeAsync: laterSize }
+    })
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'tile',
+      url: 'https://assets.test/tile',
+      mimeType: 'image/png',
+      size: png.length
+    })
+    const tile = (hash: string) => ({ ...imagePaint(hash), scaleMode: 'TILE', scalingFactor: 0.5 })
+    const cache = createGetCodeCacheContext()
+    const pending = replaceMediaUrlsWithAssets(
+      { background: 'url(slow) center / 50px 50px repeat, url(later) center / 50px 50px repeat' },
+      { fills: [tile('later'), tile('slow')] } as unknown as SceneNode,
+      config,
+      new Map(),
+      undefined,
+      cache.imageBytes,
+      cache.imageSizes
+    )
+    await vi.advanceTimersByTimeAsync(1000)
+    expect((await pending).background).toBe(
+      "url('https://assets.test/tile') center / 48px 32px repeat, url('https://assets.test/tile') center / 50px 50px repeat"
+    )
+    await vi.advanceTimersByTimeAsync(200)
+    const result = await replaceMediaUrlsWithAssets(
+      { background: 'url(later) center / 50px 50px repeat' },
+      { fills: [tile('later')] } as unknown as SceneNode,
+      config,
+      new Map(),
+      undefined,
+      cache.imageBytes,
+      cache.imageSizes
+    )
+    expect(result.background).toBe("url('https://assets.test/tile') center / 48px 32px repeat")
+    expect(laterSize).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('uses settled cached dimensions after the node wait budget is exhausted', async () => {
+    vi.useFakeTimers()
+    const getSizeAsync = vi.fn(() => new Promise<{ width: number; height: number }>(() => {}))
+    const hashes = ['stalled', 'cached', 'pending', 'unread']
+    setFigmaImages(
+      Object.fromEntries(
+        hashes.map((hash) => [hash, { getBytesAsync: async () => png, getSizeAsync }])
+      )
+    )
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'tile',
+      url: 'https://assets.test/tile',
+      mimeType: 'image/png',
+      size: png.length
+    })
+    const cache = createGetCodeCacheContext()
+    cache.imageSizes.set('cached', Promise.resolve({ width: 96, height: 64 }))
+    cache.imageSizes.set('pending', new Promise(() => {}))
+    const pending = replaceMediaUrlsWithAssets(
+      { background: hashes.map((hash) => `url(${hash}) center / 50px 50px repeat`).join(', ') },
+      {
+        fills: [...hashes].reverse().map((hash) => ({
+          ...imagePaint(hash),
+          scaleMode: 'TILE',
+          scalingFactor: 0.5
+        }))
+      } as unknown as SceneNode,
+      config,
+      new Map(),
+      undefined,
+      cache.imageBytes,
+      cache.imageSizes
+    )
+    await vi.advanceTimersByTimeAsync(1000)
+    expect((await pending).background).toBe(
+      ['50px 50px', '48px 32px', '50px 50px', '50px 50px']
+        .map((size) => `url('https://assets.test/tile') center / ${size} repeat`)
+        .join(', ')
+    )
+    expect(getSizeAsync).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each(['resolve', 'reject'])(
+    'bounds optional dimensions and ignores a late %s',
+    async (outcome) => {
+      vi.useFakeTimers()
+      const dimensions = Promise.withResolvers<{ width: number; height: number }>()
+      const getSizeAsync = vi.fn(() => dimensions.promise)
+      setFigmaImages({ tile: { getBytesAsync: async () => png, getSizeAsync } })
+      vi.mocked(ensureAssetUploaded).mockResolvedValue({
+        hash: 'tile',
+        url: 'https://assets.test/tile',
+        mimeType: 'image/png',
+        size: png.length
+      })
+      const sizes = new Map()
+      const node = {
+        fills: [{ ...imagePaint('tile'), scaleMode: 'TILE', scalingFactor: 0.5 }]
+      } as unknown as SceneNode
+      const style = { 'background-image': 'url(tile)', 'background-size': '50px 50px' }
+      const pending = replaceMediaUrlsWithAssets(
+        style,
+        node,
+        config,
+        new Map(),
+        undefined,
+        new Map(),
+        sizes
+      )
+      await vi.advanceTimersByTimeAsync(1000)
+      expect((await pending)['background-size']).toBe('50px 50px')
+      if (outcome === 'resolve') dimensions.resolve({ width: 96, height: 64 })
+      else dimensions.reject(Error('Late read failed'))
+      const repeated = await replaceMediaUrlsWithAssets(
+        style,
+        node,
+        config,
+        new Map(),
+        undefined,
+        new Map(),
+        sizes
+      )
+      expect(repeated['background-size']).toBe('50px 50px')
+      expect(getSizeAsync).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBe(0)
+    }
+  )
+
+  it('uses native Tile dimensions while preserving mixed background geometry and order', async () => {
+    const getSizeAsync = vi.fn(async () => ({ width: 96, height: 64 }))
+    const cropSize = vi.fn(async () => ({ width: 96, height: 64 }))
+    setFigmaImages({
+      tile: { getBytesAsync: async () => png, getSizeAsync },
+      crop: { getBytesAsync: async () => jpeg, getSizeAsync: cropSize }
+    })
+    vi.mocked(ensureAssetUploaded).mockImplementation(async (bytes) => ({
+      hash: bytes === png ? 'tile' : 'crop',
+      url: `https://assets.local/${bytes === png ? 'tile' : 'crop'}.png`,
+      mimeType: 'image/png',
+      size: bytes.length
+    }))
+    const node = {
+      fills: [
+        { ...imagePaint('crop'), scaleMode: 'CROP' },
+        { ...imagePaint('tile'), scaleMode: 'TILE', scalingFactor: 0.5 }
+      ]
+    } as unknown as SceneNode
+    const result = await replaceMediaUrlsWithAssets(
+      {
+        background:
+          'linear-gradient(red, blue), url("https://figma.test/50px 50px/tile.png") 0% 0% / 50px 50px repeat, url(crop) -2.08px -14.75px / 104.167% 145.833% no-repeat',
+        'background-size': 'auto, 50px 50px, 104.167% 145.833%'
+      },
+      node,
+      config,
+      new Map()
+    )
+    expect(result).toEqual({
+      background:
+        "linear-gradient(red, blue), url('https://assets.local/tile.png') 0% 0% / 48px 32px repeat, url('https://assets.local/crop.png') -2.08px -14.75px / 104.167% 145.833% no-repeat",
+      'background-size': 'auto, 48px 32px, 104.167% 145.833%'
+    })
+    expect(getSizeAsync).toHaveBeenCalledTimes(1)
+    expect(cropSize).not.toHaveBeenCalled()
+  })
+
+  it.each(['missing', 'rejected', 'invalid', 'fallback'])(
+    'retains native CSS geometry when Tile dimensions are %s',
+    async (mode) => {
+      const getSizeAsync = vi.fn(async () => {
+        if (mode === 'rejected') throw new Error('Size unavailable')
+        return { width: mode === 'invalid' ? 0 : 96, height: 96 }
+      })
+      setFigmaImages({
+        tile: {
+          getBytesAsync: async () => {
+            if (mode === 'fallback') throw new Error('Bytes unavailable')
+            return png
+          },
+          ...(mode === 'missing' ? {} : { getSizeAsync })
+        }
+      })
+      vi.mocked(ensureAssetUploaded).mockResolvedValue({
+        hash: 'tile',
+        url: 'https://assets.local/tile.png',
+        mimeType: 'image/png',
+        size: png.length
+      })
+      const registry = new Map()
+      const result = await replaceMediaUrlsWithAssets(
+        { 'background-image': 'url(tile)', 'background-size': '50px 50px' },
+        {
+          fills: [{ ...imagePaint('tile'), scaleMode: 'TILE', scalingFactor: 0.5 }],
+          exportAsync: async () => png
+        } as unknown as SceneNode,
+        config,
+        registry
+      )
+      expect(result).toEqual({
+        'background-image': "url('https://assets.local/tile.png')",
+        'background-size': '50px 50px'
+      })
+      if (mode === 'fallback') {
+        expect(getSizeAsync).not.toHaveBeenCalled()
+        expect(registry.get('tile')).toHaveProperty('figmaImageHashes', ['tile'])
+      }
+    }
+  )
+
+  it('preserves unfamiliar shorthand syntax instead of rewriting a color function slash', async () => {
+    setFigmaImages({
+      tile: {
+        getBytesAsync: async () => png,
+        getSizeAsync: async () => ({ width: 96, height: 96 })
+      }
+    })
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'tile',
+      url: 'https://assets.local/tile.png',
+      mimeType: 'image/png',
+      size: png.length
+    })
+    const result = await replaceMediaUrlsWithAssets(
+      { background: 'rgb(0 0 0 / 0.5) url(tile) 0% 0% / 50px 50px repeat' },
+      {
+        fills: [{ ...imagePaint('tile'), scaleMode: 'TILE', scalingFactor: 0.5 }]
+      } as unknown as SceneNode,
+      config,
+      new Map()
+    )
+    expect(result.background).toBe(
+      "rgb(0 0 0 / 0.5) url('https://assets.local/tile.png') 0% 0% / 50px 50px repeat"
+    )
+  })
+
+  it('caches native dimensions per request and applies each Tile scale to the correct layer', async () => {
+    const getBytesAsync = vi.fn(async () => png)
+    const getSizeAsync = vi.fn(async () => ({ width: 97, height: 63 }))
+    setFigmaImages({ tile: { getBytesAsync, getSizeAsync } })
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'tile',
+      url: 'https://assets.local/tile.png',
+      mimeType: 'image/png',
+      size: png.length
+    })
+    const style = {
+      'background-image': 'linear-gradient(red, blue), url(first), url(second)',
+      'background-size': '50px 50px'
+    }
+    const node = {
+      fills: [0.5, 0.25].map((scalingFactor) => ({
+        ...imagePaint('tile'),
+        scaleMode: 'TILE',
+        scalingFactor
+      }))
+    } as unknown as SceneNode
+    const cache = createGetCodeCacheContext()
+    for (let i = 0; i < 2; i++) {
+      const result = await replaceMediaUrlsWithAssets(
+        style,
+        node,
+        config,
+        new Map(),
+        undefined,
+        cache.imageBytes,
+        cache.imageSizes
+      )
+      expect(result['background-size']).toBe('50px 50px, 24.25px 15.75px, 48.5px 31.5px')
+    }
+    expect(getBytesAsync).toHaveBeenCalledTimes(1)
+    expect(getSizeAsync).toHaveBeenCalledTimes(1)
+    await replaceMediaUrlsWithAssets(style, node, config, new Map())
+    expect(getBytesAsync).toHaveBeenCalledTimes(2)
+    expect(getSizeAsync).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([undefined, 0, NaN])(
+    'handles a Tile scale of %s conservatively',
+    async (scalingFactor) => {
+      const getSizeAsync = vi.fn(async () => ({ width: 96, height: 96 }))
+      setFigmaImages({ tile: { getBytesAsync: async () => png, getSizeAsync } })
+      vi.mocked(ensureAssetUploaded).mockResolvedValue({
+        hash: 'tile',
+        url: 'https://assets.local/tile.png',
+        mimeType: 'image/png',
+        size: png.length
+      })
+      const result = await replaceMediaUrlsWithAssets(
+        { 'background-image': 'url(tile)', 'background-size': '100px 100px' },
+        {
+          fills: [{ ...imagePaint('tile'), scaleMode: 'TILE', scalingFactor }]
+        } as unknown as SceneNode,
+        config,
+        new Map()
+      )
+      expect(result['background-size']).toBe(
+        scalingFactor === undefined ? '96px 96px' : '100px 100px'
+      )
+      expect(getSizeAsync).toHaveBeenCalledTimes(scalingFactor === undefined ? 1 : 0)
+    }
+  )
 
   it('uses one composited preview and preserves ordered unique video hashes', async () => {
     vi.mocked(ensureAssetUploaded).mockResolvedValue({
@@ -395,6 +927,41 @@ describe('assets/media', () => {
       })
     ])
   })
+
+  it.each(['image', 'video'] as const)(
+    'retains every native %s identity when different nodes share preview bytes',
+    async (kind) => {
+      setFigmaImages({})
+      vi.mocked(ensureAssetUploaded).mockResolvedValue({
+        hash: 'shared-preview',
+        url: 'https://assets.test/shared-preview.png',
+        mimeType: 'image/png',
+        size: png.length
+      })
+      const registry = new Map()
+      const paint = kind === 'image' ? imagePaint : videoPaint
+      for (const hashes of [
+        ['a', 'b'],
+        ['b', 'c']
+      ]) {
+        await replaceMediaUrlsWithAssets(
+          { background: 'url(front), url(back)' },
+          {
+            fills: hashes.map((hash) => paint(hash)),
+            exportAsync: async () => png
+          } as unknown as SceneNode,
+          config,
+          registry
+        )
+      }
+      expect([...registry.values()]).toEqual([
+        expect.objectContaining({
+          [kind === 'image' ? 'figmaImageHashes' : 'figmaVideoHashes']: ['a', 'b', 'c']
+        })
+      ])
+      expect(registry.get('shared-preview')).not.toHaveProperty('figmaImageHash')
+    }
+  )
 
   it('keeps video previews out of positional image URL replacement', async () => {
     setFigmaImages({
@@ -472,6 +1039,37 @@ describe('assets/media', () => {
     expect(exportAsync).toHaveBeenCalledTimes(1)
   })
 
+  it.each(['image', 'video'] as const)(
+    'keeps upload capabilities out of %s fallback diagnostics',
+    async (kind) => {
+      const capability = 'http://127.0.0.1:1234/assets/private-upload-token/asset.png'
+      vi.mocked(ensureAssetUploaded).mockRejectedValue(new Error(`Upload failed: ${capability}`))
+      setFigmaImages({ image: { getBytesAsync: async () => png } })
+      const exportAsync = vi.fn(async () => png)
+      const registry = new Map()
+      const result = await replaceMediaUrlsWithAssets(
+        { background: 'url(media)' },
+        {
+          fills: [kind === 'image' ? imagePaint('image') : videoPaint('video')],
+          width: 9,
+          height: 9,
+          exportAsync
+        } as unknown as SceneNode,
+        config,
+        registry
+      )
+
+      expect(result.background).toBe("url('https://placehold.co/9x9')")
+      expect(registry.size).toBe(0)
+      expect(exportAsync).toHaveBeenCalledOnce()
+      expect(ensureAssetUploaded).toHaveBeenCalledTimes(kind === 'image' ? 2 : 1)
+      expect(logger.warn).toHaveBeenCalledTimes(kind === 'image' ? 2 : 1)
+      expect(vi.mocked(logger.warn).mock.calls.flat().map(String).join('\n')).not.toContain(
+        capability
+      )
+    }
+  )
+
   it('falls back to placeholder when both image bytes and node export fail', async () => {
     const getBytesAsync = vi.fn(async () => {
       throw new Error('read failed')
@@ -496,9 +1094,6 @@ describe('assets/media', () => {
     expect(first.background).toBe("url('https://placehold.co/9x9')")
     expect(second.background).toBe("url('https://placehold.co/9x9')")
     expect(getBytesAsync).toHaveBeenCalledTimes(2)
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Failed to export node for image fill fallback:',
-      expect.any(Error)
-    )
+    expect(logger.warn).toHaveBeenCalledWith('Failed to export node for image fill fallback.')
   })
 })

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   needsFixtureRuntime,
+  parseScreenshotOptions,
+  selectionOptions,
   selectScenarios,
   selectThemes,
   type ScreenshotScenario
@@ -17,6 +19,31 @@ const scenarios: ScreenshotScenario[] = [
 ]
 
 describe('marketing screenshot selection', () => {
+  it('rejects missing option values instead of selecting every scenario', () => {
+    const options = {
+      ...selectionOptions,
+      'candidate-dir': { type: 'string' as const },
+      'output-dir': { type: 'string' as const },
+      yes: { type: 'boolean' as const }
+    }
+    for (const option of ['--only', '--group', '--themes', '--candidate-dir', '--output-dir']) {
+      expect(() => parseScreenshotOptions(options, ['--yes', option])).toThrow(option)
+      expect(() => parseScreenshotOptions(options, [option, '--yes'])).toThrow(option)
+      expect(() => parseScreenshotOptions(options, [option, ''])).toThrow(
+        `${option} requires a value`
+      )
+    }
+    expect(parseScreenshotOptions(options, ['--yes']).only).toBeUndefined()
+    expect(() => parseScreenshotOptions(options, ['--onnly=code'])).toThrow('Unknown option')
+    expect(() => parseScreenshotOptions(options, ['code'])).toThrow('Unexpected argument')
+    expect(selectScenarios(scenarios, parseScreenshotOptions(options, ['--only=code']))).toEqual([
+      scenarios[0]
+    ])
+    expect(parseScreenshotOptions({ 'clip-x': { type: 'string' } }, ['--clip-x=-1'])).toEqual({
+      'clip-x': '-1'
+    })
+  })
+
   it('can refresh agent setup without initializing or modifying canvas fixtures', () => {
     const setup = selectScenarios(scenarios, { group: 'setup', capture: true })
     expect(setup.map(({ id }) => id)).toEqual(['mcp-config', 'mcp-config-gemini'])

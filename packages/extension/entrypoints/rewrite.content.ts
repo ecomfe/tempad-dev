@@ -22,36 +22,11 @@ function preserveWindowFigma(): void {
 }
 
 function createBlobCache(): (src: string) => Promise<BlobHandle> {
-  const cache = new Map<string, CacheEntry>()
+  const cache = new Map<string, Promise<CacheEntry>>()
 
-  function releaseBlobUrl(src: string, usedUrl: string): void {
-    const entry = cache.get(src)
-    if (!entry || entry.url !== usedUrl) {
-      return
-    }
-
-    entry.ref -= 1
-    if (entry.ref > 0) {
-      return
-    }
-
-    try {
-      URL.revokeObjectURL(entry.url)
-    } catch {
-      // noop
-    }
-
-    cache.delete(src)
-  }
-
-  async function acquireBlobUrl(src: string): Promise<BlobHandle> {
-    const existing = cache.get(src)
-    if (existing) {
-      existing.ref += 1
-      return { url: existing.url, release: () => releaseBlobUrl(src, existing.url) }
-    }
-
+  async function createEntry(src: string): Promise<CacheEntry> {
     const response = await fetch(src, { credentials: 'include', cache: 'force-cache' })
+    if (!response.ok) throw new Error(`Script request failed with HTTP ${response.status}: ${src}`)
     const originalText = await response.text()
     const { content, changed } = applyGroups(originalText, GROUPS)
 
@@ -60,9 +35,39 @@ function createBlobCache(): (src: string) => Promise<BlobHandle> {
     }
 
     const blob = new Blob([content], { type: 'application/javascript; charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    cache.set(src, { url, ref: 1 })
-    return { url, release: () => releaseBlobUrl(src, url) }
+    return { url: URL.createObjectURL(blob), ref: 0 }
+  }
+
+  async function acquireBlobUrl(src: string): Promise<BlobHandle> {
+    let pending = cache.get(src)
+    if (!pending) {
+      pending = createEntry(src)
+      cache.set(src, pending)
+    }
+    let entry: CacheEntry
+    try {
+      entry = await pending
+    } catch (error) {
+      if (cache.get(src) === pending) cache.delete(src)
+      throw error
+    }
+    entry.ref += 1
+    let released = false
+    return {
+      url: entry.url,
+      release: () => {
+        if (released) return
+        released = true
+        entry.ref -= 1
+        if (entry.ref > 0) return
+        try {
+          URL.revokeObjectURL(entry.url)
+        } catch {
+          // noop
+        }
+        if (cache.get(src) === pending) cache.delete(src)
+      }
+    }
   }
 
   return acquireBlobUrl

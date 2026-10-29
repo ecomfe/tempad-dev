@@ -22,6 +22,7 @@ import {
   type DesignTask,
   type FigmaSession
 } from './design-task'
+import { stringRecord } from './string-record'
 
 const NodeIdParameterSchema = z
   .string()
@@ -370,7 +371,7 @@ const DesignSystemCatalogComponentSchema = z
       })
       .strict()
       .optional(),
-    props: z.record(z.string(), DesignSystemCatalogPropertySchema),
+    props: stringRecord(z.string(), DesignSystemCatalogPropertySchema),
     omittedProps: z.number().int().nonnegative().optional()
   })
   .strict()
@@ -447,7 +448,7 @@ export const DesignSystemResourcesResultSchema = z
       .strict()
       .optional(),
     nextCursor: z.number().int().nonnegative().optional(),
-    omitted: z.record(z.string(), z.number().int().nonnegative()).optional(),
+    omitted: stringRecord(z.string(), z.number().int().nonnegative()).optional(),
     warnings: z.array(z.string()).optional()
   })
   .strict()

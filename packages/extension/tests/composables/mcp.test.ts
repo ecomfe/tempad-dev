@@ -1,4 +1,9 @@
-import type { BridgeToPageMessage, DesignTask, PageToBridgeMessage } from '@tempad-dev/shared'
+import type {
+  BridgeToPageMessage,
+  DesignTask,
+  FeedbackDraftRequest,
+  PageToBridgeMessage
+} from '@tempad-dev/shared'
 
 import {
   TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
@@ -80,14 +85,6 @@ vi.mock('@/mcp/assets', () => ({
   setAssetUploader: mocks.setAssetUploader
 }))
 
-vi.mock('@/mcp/errors', () => ({
-  createCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
-  coerceToolErrorPayload: (error: Error & { code?: string }) => ({
-    message: error.message,
-    code: error.code
-  })
-}))
-
 vi.mock('@/mcp/runtime', () => ({
   runMcpTool: mocks.runMcpTool
 }))
@@ -165,6 +162,40 @@ describe('composables/mcp', () => {
     vi.stubGlobal('location', { origin: ORIGIN })
   })
 
+  it('reports a lost result when a completed write cannot be transferred', async () => {
+    Object.assign(mocks.window, {
+      figma: { fileKey: 'file-a', root: { name: 'Design' }, currentPage: { id: 'page-a' } },
+      INITIAL_OPTIONS: { editor_type: 'design' }
+    })
+    const mcp = useMcp()
+    const state = bridgeState(mcp.sessionId, 'connected', null)
+    if (state.type === 'mcp.state') state.payload.gatewayId = 'gateway-a'
+    receive(state)
+    mocks.runMcpTool.mockResolvedValueOnce({ rootNodeId: 'written', mutationCount: 1 })
+    mocks.window.postMessage.mockImplementation((message: PageToBridgeMessage) => {
+      if (message.type === 'mcp.toolResult' && 'payload' in message)
+        throw new DOMException('Cannot clone result', 'DataCloneError')
+    })
+    receive({
+      type: 'mcp.toolCall',
+      source: TEMPAD_MCP_BROWSER_SOURCE,
+      version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
+      callId: 'write',
+      route: { gatewayId: 'gateway-a', sessionId: mcp.sessionId, fileKey: 'file-a' },
+      payload: { name: 'apply_canvas', args: { mode: 'create' } }
+    })
+    await vi.waitFor(() =>
+      expect(mocks.window.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          callId: 'write',
+          error: expect.objectContaining({ code: TEMPAD_MCP_ERROR_CODES.EXTENSION_RESULT_LOST })
+        }),
+        ORIGIN
+      )
+    )
+    expect(mocks.runMcpTool).toHaveBeenCalledOnce()
+  })
+
   it.each([false, true])(
     'synchronizes a dismissed offline Stop after re-enable (storage unavailable=%s)',
     async (unavailable) => {
@@ -226,10 +257,10 @@ describe('composables/mcp', () => {
   )
 
   it.each([
-    ['stop', 'Stop confirmation timed out.'],
+    ['stop', 'Stop acknowledgement timed out.'],
     ['done', 'Finishing the review timed out.'],
     ['feedback', 'Sending comments timed out.']
-  ] as const)('identifies the %s action when confirmation times out', async (action, message) => {
+  ] as const)('identifies the %s action when its reply times out', async (action, message) => {
     vi.useFakeTimers()
     try {
       Object.assign(mocks.window, {
@@ -285,6 +316,58 @@ describe('composables/mcp', () => {
       vi.useRealTimers()
     }
   })
+
+  it.each([
+    ['load', 'Loading comments', {}],
+    ['clear', 'Clearing comments', {}],
+    ['comment', 'Saving comments', { comment: 'Keep this' }],
+    [
+      'save',
+      'Saving comments',
+      {
+        item: {
+          nodeId: 'node-a',
+          nodeName: 'Node',
+          pageId: 'page-a',
+          text: 'Keep this',
+          createdAt: 1
+        }
+      }
+    ],
+    ['remove', 'Removing comments', { nodeId: 'node-a' }]
+  ] as const)(
+    'identifies draft operation %s when its request times out or disconnects',
+    async (operation, action, payload) => {
+      vi.useFakeTimers()
+      try {
+        Object.assign(mocks.window, {
+          figma: { fileKey: 'file-a', root: { name: 'Design' }, currentPage: { id: 'page-a' } },
+          INITIAL_OPTIONS: { editor_type: 'design' }
+        })
+        const mcp = useMcp()
+        const request = {
+          operation,
+          scope: {
+            taskId: 'task-a',
+            fileKey: 'file-a',
+            clientKind: 'codex-app',
+            conversationId: 'thread-a'
+          },
+          ...payload
+        } as FeedbackDraftRequest
+        const timeout = mcp.requestFeedbackDrafts(request).catch((error: unknown) => error)
+        await vi.advanceTimersByTimeAsync(8000)
+        expect(await timeout).toEqual(new Error(`${action} timed out.`))
+        const disconnected = mcp.requestFeedbackDrafts(request).catch((error: unknown) => error)
+        mocks.options.value.mcpOn = false
+        mocks.watchCallbacks.forEach((callback) => callback())
+        expect(await disconnected).toEqual(new Error(`Disconnected while ${action.toLowerCase()}.`))
+        expect(vi.getTimerCount()).toBe(0)
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+  )
 
   it.each([
     { kind: 'feedback', failure: 'post' },
@@ -472,7 +555,10 @@ describe('composables/mcp', () => {
     expect(mocks.runMcpTool).not.toHaveBeenCalled()
     expect(getPostedMessage('mcp.toolResult')).toMatchObject({
       callId: 'stale-write',
-      error: { code: TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_INACTIVE }
+      error: {
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+        message: expect.stringContaining('DESIGN_TASK_INACTIVE')
+      }
     })
     update({ ...task, taskId: 'task-b', revision: 4 })
     mcp.dismissDesignTask('task-a')
@@ -612,7 +698,10 @@ describe('composables/mcp', () => {
       })
       expect(mocks.runMcpTool).not.toHaveBeenCalled()
       expect(getPostedMessage('mcp.toolResult')).toMatchObject({
-        error: { code: TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_INACTIVE }
+        error: {
+          code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+          message: expect.stringContaining('DESIGN_TASK_INACTIVE')
+        }
       })
     }
   )

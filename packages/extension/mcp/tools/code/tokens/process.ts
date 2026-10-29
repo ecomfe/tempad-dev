@@ -1,5 +1,6 @@
 import type { GetTokenDefsResult } from '@tempad-dev/shared'
 
+import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { normalizeFigmaVarName, stripFallback } from '@/utils/css'
@@ -12,14 +13,15 @@ import { getVariableByIdCached } from '../../token/cache'
 import { createTokenReadContext } from '../../token/context'
 import { resolveTokenDefsByIds } from '../../token/defs'
 import { createTokenMatcher, extractTokenNames } from './extract'
-import { rewriteTokenNamesInCode } from './rewrite'
+import { mapTokenValues } from './markup'
+import { createTokenNameRewriter } from './rewrite'
 import { buildSourceNameIndex } from './source-index'
 import { applyPluginTransformToNames } from './transform'
 
 type ProcessTokensInput = {
-  code: string
+  component: DevComponent
+  serialize: (component: DevComponent) => string
   variableIds: Set<string>
-  usedCandidateIds: Set<string>
   fontStyleVariableIds?: Set<string>
   variableCache: Map<string, Variable | null>
   styles: Map<string, Record<string, string>>
@@ -45,9 +47,9 @@ type ProcessTokensResult = {
 }
 
 export async function processTokens({
-  code: inputCode,
+  component,
+  serialize,
   variableIds,
-  usedCandidateIds,
   fontStyleVariableIds = new Set(),
   variableCache,
   styles,
@@ -64,12 +66,18 @@ export async function processTokens({
 }: ProcessTokensInput): Promise<ProcessTokensResult> {
   checkpoint?.()
   const clock = now ?? (() => Date.now())
-  let code = stripFallback(inputCode)
+  const values: string[] = []
+  let markup = mapTokenValues(component, (value, syntax) => {
+    const normalized = stripFallback(value, syntax)
+    // Class encoding escapes literal underscores; token identity is the CSS name.
+    values.push(syntax === 'tailwind' ? normalized.replaceAll('\\_', '_') : normalized)
+    return normalized
+  })
+  const tokenSource = values.join('\n')
 
-  const candidateIds =
-    usedCandidateIds.size || fontStyleVariableIds.size
-      ? new Set<string>([...variableIds, ...usedCandidateIds, ...fontStyleVariableIds])
-      : variableIds
+  const candidateIds = fontStyleVariableIds.size
+    ? new Set([...variableIds, ...fontStyleVariableIds])
+    : variableIds
   const fontStyleNames = new Set<string>()
   for (const id of fontStyleVariableIds) {
     checkpoint?.()
@@ -80,7 +88,7 @@ export async function processTokens({
     candidateIds,
     variableCache,
     (name) => {
-      if (fontStyleNames.has(name) || extractTokenNames(code, new Set([name])).size) {
+      if (fontStyleNames.has(name) || extractTokenNames(tokenSource, new Set([name])).size) {
         report?.('token-definition', `Token name "${name}" matches multiple variables.`)
       }
     },
@@ -89,7 +97,7 @@ export async function processTokens({
   checkpoint?.()
   const sourceNames = new Set(sourceIndex.keys())
   const emptyResult = () => ({
-    code,
+    code: serialize(markup),
     tokensByCanonical: {},
     sourceIndex
   })
@@ -98,7 +106,7 @@ export async function processTokens({
   }
 
   let t = clock()
-  const usedNamesRaw = extractTokenNames(code, sourceNames)
+  const usedNamesRaw = extractTokenNames(tokenSource, sourceNames)
   for (const name of fontStyleNames) {
     checkpoint?.()
     if (sourceIndex.has(name)) usedNamesRaw.add(name)
@@ -121,7 +129,7 @@ export async function processTokens({
   checkpoint?.()
 
   if (rewriteMap.size) {
-    code = rewriteTokenNamesInCode(code, rewriteMap)
+    markup = mapTokenValues(markup, createTokenNameRewriter(rewriteMap))
   }
   if (stamp) stamp('tokens:rewrite', t)
   checkpoint?.()
@@ -147,7 +155,7 @@ export async function processTokens({
       : undefined
 
   return {
-    code,
+    code: serialize(markup),
     tokensByCanonical,
     sourceIndex,
     tokenMatcher,

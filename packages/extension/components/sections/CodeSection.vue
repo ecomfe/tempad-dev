@@ -9,7 +9,14 @@ import Code from '@/components/Code.vue'
 import IconButton from '@/components/IconButton.vue'
 import Preview from '@/components/icons/Preview.vue'
 import Section from '@/components/Section.vue'
-import { selection, selectedNode, options, selectedTemPadComponent, activePlugin } from '@/ui/state'
+import {
+  selection,
+  selectionRevision,
+  selectedNode,
+  options,
+  selectedTemPadComponent,
+  activePlugin
+} from '@/ui/state'
 import { generateCodeBlocksForNode } from '@/utils/codegen'
 
 const componentCode = shallowRef('')
@@ -17,9 +24,23 @@ const componentLink = shallowRef('')
 const codeBlocks = shallowRef<CodeBlock[]>([])
 const codeError = shallowRef('')
 const loading = shallowRef(false)
+const showLoading = shallowRef(false)
 const content = shallowRef<HTMLElement | null>(null)
 const loadingHeight = shallowRef(0)
 let generation = 0
+let loadingTimer: ReturnType<typeof setTimeout> | undefined
+const pluginCode = computed(() => activePlugin.value?.code || undefined)
+const generationInput = computed(() => ({
+  node: selectedNode.value,
+  config: {
+    cssUnit: options.value.cssUnit,
+    rootFontSize: options.value.rootFontSize,
+    scale: options.value.scale
+  },
+  pluginCode: pluginCode.value,
+  variableDisplay: options.value.variableDisplay
+}))
+let contentInput: typeof generationInput.value | null = null
 
 const playButtonTitle = computed(() =>
   componentLink.value
@@ -29,54 +50,72 @@ const playButtonTitle = computed(() =>
 
 async function updateCode() {
   const current = ++generation
-  const node = selectedNode.value
+  const input = generationInput.value
+  const node = input.node
+  const retainCode = node !== null && input === contentInput && selection.value.length === 1
+  clearTimeout(loadingTimer)
+  showLoading.value = false
   loadingHeight.value = content.value?.getBoundingClientRect().height ?? 0
   loading.value = false
-  codeBlocks.value = []
-  componentCode.value = ''
-  componentLink.value = ''
+  if (!retainCode) {
+    contentInput = null
+    codeBlocks.value = []
+    componentCode.value = ''
+    componentLink.value = ''
+  }
   codeError.value = ''
 
   if (node == null || selection.value.length > 1) return
-  loading.value = true
+  if (!retainCode) {
+    loading.value = true
+    loadingTimer = setTimeout(() => (showLoading.value = true), 150)
+  }
 
   const tempadComponent = selectedTemPadComponent.value
   componentCode.value = tempadComponent?.code || ''
   componentLink.value = tempadComponent?.link || ''
 
   try {
-    const result = await generateCodeBlocksForNode(
-      node,
-      {
-        cssUnit: options.value.cssUnit,
-        rootFontSize: options.value.rootFontSize,
-        scale: options.value.scale
-      },
-      activePlugin.value?.code || undefined,
-      { variableDisplay: options.value.variableDisplay }
-    )
-    if (current === generation) codeBlocks.value = result.codeBlocks
+    const result = await generateCodeBlocksForNode(node, input.config, input.pluginCode, {
+      variableDisplay: input.variableDisplay
+    })
+    if (current === generation) {
+      if (
+        codeBlocks.value.length !== result.codeBlocks.length ||
+        result.codeBlocks.some((block, index) => {
+          const previous = codeBlocks.value[index]!
+          return (
+            block.name !== previous.name ||
+            block.title !== previous.title ||
+            block.lang !== previous.lang ||
+            block.code !== previous.code
+          )
+        })
+      )
+        codeBlocks.value = result.codeBlocks
+      contentInput = input
+    }
   } catch {
-    if (current === generation) codeError.value = 'Code generation failed.'
+    if (current === generation) {
+      contentInput = null
+      codeBlocks.value = []
+      componentCode.value = ''
+      componentLink.value = ''
+      codeError.value = 'Code generation failed.'
+    }
   } finally {
-    if (current === generation) loading.value = false
+    if (current === generation) {
+      clearTimeout(loadingTimer)
+      showLoading.value = false
+      loading.value = false
+    }
   }
 }
 
-watch(
-  [
-    selection,
-    activePlugin,
-    () => options.value.cssUnit,
-    () => options.value.rootFontSize,
-    () => options.value.scale,
-    () => options.value.variableDisplay
-  ],
-  updateCode,
-  { immediate: true }
-)
+watch([selection, selectionRevision, generationInput], updateCode, { immediate: true })
 onBeforeUnmount(() => {
   generation++
+  clearTimeout(loadingTimer)
 })
 
 function open() {
@@ -98,45 +137,50 @@ function open() {
     </template>
     <div
       ref="content"
-      :aria-busy="loading"
+      class="tp-code-content"
       :style="loading ? { minHeight: `${loadingHeight}px` } : undefined"
     >
-      <p v-if="loading" role="status">Generating code…</p>
-      <p v-if="codeError" role="alert">
-        {{ codeError }} <Button class="tp-code-retry" @click="updateCode">Retry</Button>
-      </p>
-      <Code
-        v-if="componentCode"
-        class="tp-code-code"
-        title="Component"
-        lang="js"
-        :link="componentLink"
-        :code="componentCode"
-      >
-        <template #actions>
-          <IconButton
-            :disabled="!componentLink"
-            variant="secondary"
-            :title="playButtonTitle"
-            @click="open"
-          >
-            <Preview />
-          </IconButton>
-        </template>
-      </Code>
-      <Code
-        v-for="{ name, title, lang, code } in codeBlocks"
-        :key="name"
-        class="tp-code-code"
-        :title="title"
-        :lang="lang"
-        :code="code"
-      />
+      <p class="tp-code-status" role="status">{{ showLoading ? 'Generating code…' : '' }}</p>
+      <div :aria-busy="loading">
+        <p v-if="codeError" role="alert">
+          {{ codeError }} <Button class="tp-code-retry" @click="updateCode">Retry</Button>
+        </p>
+        <Code
+          v-if="componentCode"
+          class="tp-code-code"
+          title="Component"
+          lang="js"
+          :link="componentLink"
+          :code="componentCode"
+        >
+          <template #actions>
+            <IconButton
+              :disabled="!componentLink"
+              variant="secondary"
+              :title="playButtonTitle"
+              @click="open"
+            >
+              <Preview />
+            </IconButton>
+          </template>
+        </Code>
+        <Code
+          v-for="{ name, title, lang, code } in codeBlocks"
+          :key="name"
+          class="tp-code-code"
+          :title="title"
+          :lang="lang"
+          :code="code"
+        />
+      </div>
     </div>
   </Section>
 </template>
 
 <style scoped>
+.tp-code-status:empty {
+  margin: 0;
+}
 .tp-code-code {
   margin-bottom: 8px;
 }

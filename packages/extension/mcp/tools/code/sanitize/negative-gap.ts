@@ -1,50 +1,37 @@
+import { expandShorthands } from '@/utils/css'
+
 import type { VisibleTree } from '../model'
 
 type StyleMap = Map<string, Record<string, string>>
 
 export function patchNegativeGapStyles(tree: VisibleTree, styles: StyleMap): void {
-  tree.rootIds.forEach((rootId) => patchNode(rootId, tree, styles))
-}
+  for (const nodeId of tree.order) {
+    const node = tree.nodes.get(nodeId)
+    const style = styles.get(nodeId)
+    if (!node || !style) continue
 
-function patchNode(nodeId: string, tree: VisibleTree, styles: StyleMap): void {
-  const node = tree.nodes.get(nodeId)
-  if (!node) return
+    // Expand only the gap, preserving explicit longhands and unknown shorthand arity.
+    const gap = style.gap ? expandShorthands({ gap: style.gap }) : undefined
+    const row = parsePxLiteral(style['row-gap'] ?? gap?.['row-gap'])
+    const col = parsePxLiteral(style['column-gap'] ?? gap?.['column-gap'])
+    const overlapRow = row != null && row < 0 ? -row : 0
+    const overlapCol = col != null && col < 0 ? -col : 0
+    if (!overlapRow && !overlapCol) continue
 
-  const style = styles.get(node.id)
-  const children = node.children ?? []
-  if (!style) {
-    children.forEach((childId) => patchNode(childId, tree, styles))
-    return
-  }
+    const nextStyle = { ...gap, ...style }
+    if (!gap?.gap) delete nextStyle.gap
+    if (overlapRow) nextStyle['row-gap'] = '0px'
+    if (overlapCol) nextStyle['column-gap'] = '0px'
+    styles.set(nodeId, nextStyle)
 
-  const [row, col] = readGap(style)
-  const negRow = row != null && row < 0
-  const negCol = col != null && col < 0
-  if (!negRow && !negCol) {
-    children.forEach((childId) => patchNode(childId, tree, styles))
-    return
-  }
+    const children = (node.children ?? []).filter(
+      (id) => !/^(absolute|fixed)$/i.test(styles.get(id)?.position?.trim() ?? '')
+    )
+    if (children.length <= 1) continue
 
-  const overlapRow = negRow ? -row! : 0
-  const overlapCol = negCol ? -col! : 0
-  const shouldCompensate = children.length > 1
-
-  const nextStyle = { ...style }
-  delete nextStyle['gap']
-  delete nextStyle['row-gap']
-  delete nextStyle['column-gap']
-
-  if (row != null) nextStyle['row-gap'] = `${Math.max(row, 0)}px`
-  if (col != null) nextStyle['column-gap'] = `${Math.max(col, 0)}px`
-
-  if (shouldCompensate) {
     if (overlapRow) nextStyle['padding-top'] = addPxOrCalc(nextStyle['padding-top'], overlapRow)
     if (overlapCol) nextStyle['padding-left'] = addPxOrCalc(nextStyle['padding-left'], overlapCol)
-  }
-  styles.set(node.id, nextStyle)
-
-  for (const childId of children) {
-    if (shouldCompensate) {
+    for (const childId of children) {
       const childStyle = styles.get(childId) ?? {}
       const nextChildStyle = { ...childStyle }
       if (!nextChildStyle['box-sizing']) nextChildStyle['box-sizing'] = 'border-box'
@@ -56,33 +43,15 @@ function patchNode(nodeId: string, tree: VisibleTree, styles: StyleMap): void {
       }
       styles.set(childId, nextChildStyle)
     }
-    patchNode(childId, tree, styles)
   }
-}
-
-function readGap(style: Record<string, string>): [number | undefined, number | undefined] {
-  const fromGap = parseGap(style['gap'])
-  return [
-    parsePxLiteral(style['row-gap']) ?? fromGap[0],
-    parsePxLiteral(style['column-gap']) ?? fromGap[1]
-  ]
 }
 
 function parsePxLiteral(value?: string): number | null {
   if (!value) return null
-  const match = value.trim().match(/^(-?\d+(?:\.\d+)?)px$/i)
+  const match = value.trim().match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(px)?$/i)
   if (!match) return null
   const n = Number(match[1])
-  return Number.isFinite(n) ? n : null
-}
-
-function parseGap(gap?: string): [number | undefined, number | undefined] {
-  if (!gap) return [undefined, undefined]
-  const [r, c] = gap.trim().split(/\s+/).filter(Boolean)
-  if (!r) return [undefined, undefined]
-  const row = parsePxLiteral(r)
-  const col = parsePxLiteral(c ?? r)
-  return [row ?? undefined, col ?? undefined]
+  return Number.isFinite(n) && (match[2] || n === 0) ? n : null
 }
 
 function addPxOrCalc(existing: string | undefined, deltaPx: number): string {

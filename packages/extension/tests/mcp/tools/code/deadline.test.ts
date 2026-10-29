@@ -4,6 +4,7 @@ import { suggestDepthLimit } from '@/mcp/semantic-tree'
 import { createGetCodeCacheContext, getNodeSemanticsCached } from '@/mcp/tools/code/cache'
 import { createCodeCheckpoint, withCodeDeadline } from '@/mcp/tools/code/deadline'
 import { getLayoutParent } from '@/mcp/tools/code/layout-parent'
+import { buildSourceNameIndex } from '@/mcp/tools/code/tokens/source-index'
 import { buildVisibleTree } from '@/mcp/tools/code/tree'
 import { collectCandidateVariableIds } from '@/mcp/tools/token/candidates'
 
@@ -33,14 +34,16 @@ function node(id: string, children: SceneNode[] = []): SceneNode {
   } as unknown as SceneNode
 }
 
-it('rejects synchronous work that finishes after the deadline before the timer runs', async () => {
+it('retains work completed before the overdue timer runs', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   const advance = clock()
   await expect(
     withCodeDeadline(20, async () => {
       advance(21)
-      return 'too late'
+      return 'completed'
     })
-  ).rejects.toThrow('Code generation timed out')
+  ).resolves.toBe('completed')
+  expect(vi.getTimerCount()).toBe(0)
 })
 
 it('keeps checkpoints cancelled after the timer fires ahead of the monotonic deadline', async () => {
@@ -106,18 +109,16 @@ it('checks a completed synchronous variable scan before building lookups', () =>
     }
   })
   expect(() =>
-    collectCandidateVariableIds([root], undefined, undefined, {
+    collectCandidateVariableIds([root], undefined, {
       traverseChildren: false,
       checkpoint: check
     })
   ).toThrow('timed out')
 })
 
-it('checks the final variable lookup even when there is no following node', () => {
+it('checks the final variable lookup when building the token source index', () => {
   const advance = clock()
   const check = createCodeCheckpoint(20)
-  const root = node('root')
-  Object.assign(root, { boundVariables: { width: { type: 'VARIABLE_ALIAS', id: 'v' } } })
   vi.stubGlobal('figma', {
     variables: {
       getVariableById: () => {
@@ -127,12 +128,9 @@ it('checks the final variable lookup even when there is no following node', () =
     }
   })
   try {
-    expect(() =>
-      collectCandidateVariableIds([root], undefined, undefined, {
-        traverseChildren: false,
-        checkpoint: check
-      })
-    ).toThrow('timed out')
+    expect(() => buildSourceNameIndex(new Set(['v']), new Map(), undefined, check)).toThrow(
+      'timed out'
+    )
   } finally {
     vi.unstubAllGlobals()
   }
@@ -272,7 +270,7 @@ it.each(['range', 'fills', 'effects', 'style-paints', 'nested-bindings'])(
       Object.defineProperty(root, 'fillStyleId', { get: laterRead })
     }
     expect(() =>
-      collectCandidateVariableIds([root], undefined, readers, {
+      collectCandidateVariableIds([root], readers, {
         traverseChildren: false,
         checkpoint: check
       })

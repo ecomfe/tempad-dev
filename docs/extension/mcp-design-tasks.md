@@ -76,8 +76,9 @@ readable to preserve drafts; current delivery uses Queue or Steer.
   higher epoch, or taskless write cannot revive it. Applied changes remain.
 - **Done** closes the review, persists its closure, and clears this round's saved
   comments and unsaved buffers before dismissing controls. It waits for pending
-  storage/delivery work; a failed clear remains retryable. Neither elapsed time,
-  refresh, disconnection, nor viewing the result counts as Done.
+  storage/delivery work; a failed clear remains retryable. For a completed review
+  with unsent content, it asks for confirmation before discarding that content.
+  Neither elapsed time, refresh, disconnection, nor viewing the result counts as Done.
 
 Respect Stop without automatically replacing its task. Further requested or necessary
 work may explicitly begin a fresh task after the running operation drains; no separate
@@ -96,16 +97,27 @@ not human editing, other devices, or unrelated services.
 
 ## Persistence and recovery
 
-The Hub atomically stores task identity, current-file ownership, results, and Stop/Done
-fences under `~/.tempad-dev/state/`. Current, open reviews have no idle eviction. Closed,
-cancelled, and replaced task details are retained for 30 days from retirement; running
-operations must settle before their records can be removed. Existing records without a
+The Hub atomically stores task identity, current-file ownership, results, Stop/Done
+fences, and per-file readback markers under `~/.tempad-dev/state/`. Current, open reviews
+have no idle eviction. Closed, cancelled, and replaced task details are retained for 30 days
+from retirement; running operations must settle before their records can be removed. Existing records without a
 retirement timestamp start their retention window when first loaded by a retention-aware
 Hub. Lease expiry is not a history timestamp.
 
 Begin and resume publish a new lease only after its snapshot is saved. If a resumed lease cannot
 be saved, retain the previous status, epoch, result, and readiness; storage recovery can then retry
 the same resume without having exposed an active lease that would disappear on restart.
+
+Before dispatching a canvas write, the Hub persists a generation-scoped readback marker.
+If saving fails, no write is dispatched and the previous marker is retained. A definitive
+success, rejected dispatch, or confirmed pre-write failure clears only that operation's
+generation. A lost result or failed mutation attempt retains the marker across Hub restarts,
+Stop, and new tasks. Once no operation remains pending, a fresh `get_structure` or
+`get_code` result with a surviving node, or an exact `get_structure` page snapshot, clears
+the file marker. An empty page snapshot is valid; empty selection, failed-node-only
+results, screenshots, and resource catalogs are not. Task resume/reconnection separately
+requires a usable read by the current task owner; another task's read cannot satisfy that
+lease's `needsRead` requirement.
 
 Expired task IDs cannot be queried or resumed. The Hub retains a small fence per affected
 file so an old tab cannot recreate a removed task or bypass a previous Stop with taskless
@@ -136,7 +148,10 @@ Done persists a closure fence before clearing drafts. It propagates through reco
 and worker restarts, and notifies other tabs locally even without a Hub. Late messages,
 autosaves, and delivery receipts cannot reopen or clear a later round. Stop clears
 unsent comments and dismisses cancelled controls after pending work and local saves
-settle. This is local persistence, not cross-device history.
+settle. If cleanup fails, cancellation remains in effect and Done retries cleanup
+explicitly, without confirmation; task refreshes do not retry it automatically.
+The panel retains that recovery action even without a usable anchor. This is local
+persistence, not cross-device history.
 
 ## Host integration
 
@@ -146,10 +161,11 @@ environment edits, helper processes, and agent-driven connection setup do not es
 host support. Protocol tests verify mechanics; live claims require the installed plugin
 against the actual host.
 
-`pnpm agent-plugin:build` generates the portable, native, and local development packages from
-`agent-plugin/src/`. The native and development packages carry each host's marketplace layout
-and omit the portable manifests, so neither host can resolve a conflicting manifest. Codex
-registers no hooks. Claude retains its lifecycle hook definitions.
+`pnpm agent-plugin:build` derives each installation channel from `agent-plugin/src/`.
+Published targets carry only their own installer layout; the ignored local development
+package carries both native host layouts and launches this checkout's MCP runtime. Only
+Claude registers lifecycle hooks. The [agent plugin invariants](../../AGENTS.md#agent-plugin-invariants)
+own the channel-to-target mapping and generated-payload rules.
 
 ### Claude lifecycle hooks
 
@@ -211,6 +227,17 @@ dispatched interruptions, acknowledgements, and failures. There is no hook fallb
 
 ### Codex feedback: native Queue and Steer
 
+Each CLI registers its resolved host paths before forwarding MCP requests. The Hub scopes
+queue readers, helper environments, availability caches and lifecycle subscriptions to that
+context, independently of which client started it. Saved Hub tasks and delivery receipts retain
+the context across reconnects and restarts; these paths are never included in public task data.
+Task reconnection and delivery deduplication use the Codex home and SQLite home, not `HOME` or
+temporary discovery paths. A verified reconnect refreshes those discovery inputs. Claude task
+binding does not compare Codex paths. An older CLI must be updated and its MCP server restarted
+in the host before native feedback is available; reconnecting the same old process is insufficient.
+Canvas access and local Stop remain available. Context paths are
+discovery inputs, not conversation ownership evidence; native verification is still required.
+
 Where legacy admission is available, Queue admits comments into Codex's local native
 queue and settles after the host acknowledges storage. The Hub serializes submissions per conversation, reads the
 latest committed `queued-follow-ups` snapshot from Codex home without modifying
@@ -244,7 +271,7 @@ Discovery failures occur before comment dispatch and must not be reported as unc
 After opening, short repeated discovery queries observe the owner as it loads; a query begun
 before loading can otherwise wait for the router's entire window without noticing the new owner.
 
-Queue uses `thread-follower-set-queued-follow-ups-state` v1. The message ID is the
+Legacy Queue uses `thread-follower-set-queued-follow-ups-state` v1. The message ID is the
 stable feedback ID; composer context holds the review prompt and empty attachment lists.
 The original conversation snapshot supplies its working directory. The task ID remains
 untrusted `writingBlockAdditionalContext`; the owner derives workspace roots, model, and
@@ -313,6 +340,11 @@ message. Cleanup rechecks the receipt inside the conversation's existing seriali
 An unreadable queue is never treated as empty. Uncertain submissions and cancellation
 tombstones that could still receive a late commit remain until that uncertainty is resolved;
 an empty queue alone does not establish that a disconnected writer has finished.
+Pre-context queue receipts with no recoverable task context intentionally have no age-only
+cleanup: their native queue cannot be checked safely. Retaining this bounded legacy set preserves
+delivery deduplication and late cancellation evidence. Reconnecting the original conversation
+through an updated CLI can recover context while its task still exists, after which normal
+verified cleanup applies. Never infer a missing context from the Hub's environment.
 
 Feedback batches older than 30 days, or dated more than five minutes in the future, cannot
 be dispatched. A failed expiry check keeps the draft and delivery identity. The user must
@@ -322,14 +354,13 @@ Ordinary transport disconnects do not remove admitted messages.
 Already consumed input cannot be recalled. Acknowledgement confirms admission, not
 execution or completion of design changes.
 
-The private protocol was inspected against Codex App 26.908.70816, and the busy-owner
-Steer path and paused native queue admission/removal were verified against that macOS host.
-Automatic queued execution and the refreshed plugin/Figma UI flow remain live verification
-items. Windows endpoint selection, handshake,
-URL loading, and rejection of unexpected pipe names have regression coverage; native
-Windows host verification is still required. Incompatible or unavailable hosts keep drafts
-until native delivery becomes available. Fixtures alone
-cannot establish support across host versions or platforms.
+The [IPC report](../engineering/codex-desktop-ipc.md) records the inspected host
+versions and subsequent native admission, ordered execution, coexistence, Steer and
+Stop checks. These dated macOS observations do not establish support across host
+versions or platforms. Windows endpoint selection, handshake, URL loading and
+rejection of unexpected pipe names have regression coverage, without native Windows
+host acceptance. Incompatible or unavailable hosts keep drafts until native delivery
+becomes available; fixtures alone cannot establish host support.
 
 ## Canvas controls and comments
 
@@ -354,7 +385,11 @@ remain separate from drag, and cancellation/blur releases capture. Locate frames
 anchor and bar while preserving the offset. Pan clips the bar at the canvas edge; page
 changes hide it. No canvas action implicitly changes the user's page, viewport, or selection.
 
-All overlays share one animation-frame snapshot of canvas, viewport, page, and selection.
+All overlays share one snapshot of canvas, viewport, page, and selection per update.
+Captured interaction events keep animation-frame updates active for 500 ms; otherwise,
+the scheduler polls every 100 ms and pauses while the document is hidden. Tooltip
+membership is cached until relevant DOM changes, while visibility and geometry are
+measured on each update.
 Native geometry determines projection; control sizes remain in screen pixels. Transparent
 wrappers and pointer-travel regions are passive. Feedback popovers sit above the main panel;
 the panel stays above canvas task controls. Markers stay below native floating layers,

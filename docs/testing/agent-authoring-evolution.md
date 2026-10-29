@@ -14,26 +14,31 @@ replace judgment and must not grow into a second product-quality rubric.
 
 ## Operational tools
 
-Run the live evolution workflow through CLI commands, native task-management
-tools, and TemPad MCP. The development-plugin replacement script below is the
-sole CDP exception: it operates Codex App’s plugin installation UI. Do not use
-computer-use or browser-use tools, CDP, accessibility automation, or browser-driving
-scripts for Figma authoring, feedback acceptance, or other live app operations.
+Use CLI commands, native task-management tools, and TemPad MCP for runtime
+inspection and authoring. When authorized, invoke the repository's detached
+CDP installer directly for Codex plugin replacement; this does not require
+acquiring Codex as a computer-use app. Use computer use for Chrome extension
+reload, Figma reload, and MCP activation. Prefer native Chrome controls: browser
+instrumentation has interfered with the code-output plugin's HTML sandbox.
 
 - Build, install, inspect processes/logs, and run preflight through the CLI.
 - Create, inspect, and wait for native evaluation tasks through the host's
   task-management tools.
 - Inspect and change Figma through TemPad MCP; use `get_screenshot` and open
   the returned image for visual review.
+- Observe or exercise feedback controls through supported native tools or
+  authorized UI automation. Record which path was used; MCP state alone does
+  not prove that a visual interaction worked.
 - Research through web/image search, direct source retrieval, and supplied
   references. Preserve the distinction between retrieved text and visual
   evidence; do not claim to have experienced an interface from text alone.
 
-If a required extension reload, tab reload, or task reconnection has no
-supported CLI or native API, request that specific manual action and resume
-with preflight and a native MCP read. Do not substitute UI automation or
-dispatch against an unverified runtime. This boundary applies to live app
-operation; isolated repository browser regression tests still follow `TESTING.md`.
+After any refresh, require preflight and a native MCP read before dispatch.
+A broken UI codegen sandbox does not establish that independent MCP tools are
+broken, or vice versa:
+report the affected lane separately. Codegen-plugin acceptance needs a clean
+page without the interfering instrumentation. Isolated browser regression
+tests still follow `TESTING.md`.
 
 ## Why this process exists
 
@@ -283,13 +288,30 @@ remains readable but is not required.
 
 Before every live dispatch:
 
+For native runtime-switch acceptance only, the explicit
+[local release-test fixture](../../TESTING.md#native-runtime-switch-acceptance) replaces the
+usual checkout launch below. The generated dev plugin records its private descriptor;
+preflight verifies that configuration and the active immutable Hub rather than assuming
+`dist/hub.mjs`. Keep the same native installation and read-back requirements, and restore the
+ordinary checkout plugin and extension after the probe. This fixture never fetches online releases.
+
 1. Build the affected packages when the change needs them and generate the
    development plugin when a generator input changed:
 
    ```sh
-   pnpm build
+   TEMPAD_MCP_DEV_CHECKOUT="$PWD" pnpm build
    pnpm agent-plugin:build
    ```
+
+   The explicit checkout identity is required for a production-mode extension candidate.
+   Without it, `pnpm build` produces a release extension, which connects only to the release
+   Hub. `pnpm dev` selects the checkout automatically. Both use the same checkout hash as
+   the generated development plugin; checkout discovery never falls back to release ports.
+
+   When upgrading from the shared development runtime, restart the old dev Hub once to release
+   its release discovery port. Existing dev task state and assets remain in the release stores;
+   they are not migrated. Checkout state now defaults to `~/.tempad-dev/checkouts/<id>/state`,
+   and previously returned dev asset references no longer resolve through the new checkout Hub.
 
 2. When generated plugin content changed, replace `tempad-dev-dev` **in the running
    Codex App** using the CDP script:
@@ -299,9 +321,12 @@ Before every live dispatch:
    ```
 
    The script validates that the configured local marketplace points at this checkout,
-   selects one Codex App page, uninstalls the development plugin in its UI, waits for
-   this checkout's old MCP processes to stop, then installs the generated version in
-   the App. It checks both the visible installed state and the enabled version on disk.
+   selects one Codex App page, uninstalls the development plugin in its UI, stops
+   this checkout's CLI/Hub processes and requires an empty process list for
+   1.5 seconds before installing the generated version in the App. It checks both
+   the visible installed state and
+   the enabled version on disk. Uninstall is also checked on disk; a respawning
+   checkout process aborts installation instead of being killed repeatedly.
    CLI `plugin add` alone changes installation on disk; it does **not** establish that
    the running App refreshed its plugin state, skills, tools, or MCP connections.
    The script uses the bundled CLI only for read-only source/version checks.
@@ -314,15 +339,29 @@ Before every live dispatch:
    When CDP is unavailable, explicitly authorize App restart and use:
 
    ```sh
-   pnpm agent-plugin:reinstall --restart-codex --cdp-url http://127.0.0.1:9222
+   pnpm agent-plugin:reinstall --restart-codex \
+     --resume-thread "$CODEX_THREAD_ID" --cdp-url http://127.0.0.1:9222
    ```
 
-   Restart can interrupt other Codex tasks. The macOS script runs the recovery in
-   a detached launchctl job, quits only the configured App, relaunches it with a
-   loopback debugging port, and continues UI installation. It prints a log path
-   under `.dev/`; inspect the final log after reconnecting. Scheduling the job is
-   not installation success. Do not start a second reinstall while it is running.
-   `--resume-after-restart` is an internal continuation flag, not a normal command.
+   Restart can interrupt other Codex tasks. Capture the original task UUID before
+   quitting; the restart flag defaults to `CODEX_THREAD_ID`, while an external
+   terminal must pass the captured UUID explicitly. The script saves that ID,
+   checkout, expected version, phase, and log path under `.dev/` before scheduling
+   an independent launchctl job. That job quits only the configured App,
+   relaunches it with loopback CDP, uninstalls, verifies runtime shutdown, and
+   reinstalls without needing another agent tool call. It then loads the saved
+   local task route and sends one visible continuation through its composer.
+   It preserves existing drafts and does not send into an already-running task.
+
+   Inspect the saved report and log after reconnecting. Scheduling is not
+   success, and isolated Chromium fixtures do not prove compatibility with the
+   installed App. A report left at `resume-dispatching`, or a later failure,
+   can mean the message was sent without acknowledgement: inspect the task
+   before retrying. Saved reports cannot be replayed. Do not start a second job
+   while one is running. `--resume-after-restart` and `--report-path` are internal
+   continuation arguments, not normal commands. If installation fails after
+   attaching to the App, recovery attempts to return to the original task with
+   the failure information rather than claiming success.
 
    App installation success still does not prove that the current task transport is
    ready. Use a new task when the host cannot refresh its existing tools or connection;
@@ -330,9 +369,20 @@ Before every live dispatch:
    successful native MCP read. A fresh task alone may reuse an old Hub. Do not launch
    another app-server or helper MCP client to stand in for the App under evaluation.
 
-3. When extension runtime code changed, reload it and the intended Figma tab through
-   a supported native interface, or request the manual reload under the
-   operational-tools rule above. Keep one intended live Figma tab and file active.
+3. Reload the extension and intended Figma tab when their runtime changed:
+   - In Chrome's existing extension manager, open **TemPad Dev → Details** and
+     verify its ID and **Loaded from** directory against the candidate output.
+     A production-mode checkout commonly uses `.output/chrome-mv3`; do not
+     assume `.output/chrome-mv3-dev` is the installed directory.
+   - Click that extension's **Reload** and confirm Chrome reports **Reloaded**.
+     Switch to the existing fixture tab and reload the full page, then wait for
+     Figma and the TemPad panel to load. Do not duplicate the file in another tab.
+   - Activate the **MCP** button in the **TemPad Dev** panel, not Figma's own MCP
+     setup control. The active badge selects the target; browser focus does not.
+   - Verify the source fingerprint and connected file below. An enabled extension,
+     a successful click, or a cached page is not evidence of a current connection.
+     Use computer use for this sequence when permitted, or request only the
+     unavailable manual action. Keep one intended live Figma tab and file active.
 4. Confirm the extension is connected to the same checkout's Hub, then make a
    read-only native MCP call such as `list_design_sessions` through the
    evaluator task's own connection. A connected extension badge or another
@@ -346,7 +396,7 @@ Before every live dispatch:
      --log /absolute/path/to/authoring-runs.jsonl
    ```
 
-The start command rejects stale or partial checkout processes, multiple Hubs,
+The start command rejects an absent or partial checkout runtime, multiple Hubs,
 an inactive or mismatched extension, and an installed development-plugin
 version different from the generated cachebuster. It stops before page creation
 on failure.

@@ -4,13 +4,19 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
+import { workspaceSources } from './build/workspace-sources.ts'
+
 const rootDir = fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
   plugins: [vue()],
+  optimizeDeps: {
+    include: ['vue/compiler-sfc', 'prismjs']
+  },
   resolve: {
     conditions: ['source', 'module', 'browser', 'development|production'],
     alias: {
+      ...workspaceSources,
       '@': path.resolve(rootDir)
     }
   },

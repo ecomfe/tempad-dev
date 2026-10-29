@@ -6,8 +6,10 @@ import {
   COVERAGE_BASELINE_FILES,
   EXTENSION_CORE_COVERAGE_FILES,
   MCP_CORE_COVERAGE_FILES,
-  EXTENSION_SOURCE_FILES
-} from './vitest.coverage'
+  EXTENSION_SOURCE_FILES,
+  FULL_COVERAGE_THRESHOLDS,
+  SHARED_SCHEMA_COVERAGE_FILES
+} from './vitest.coverage.ts'
 
 export default defineConfig({
   test: {
@@ -28,13 +30,19 @@ export default defineConfig({
         'packages/{mcp-server,shared,plugins,site}/src/**/*.ts'
       ],
       exclude: ['**/dist/**', '**/.output/**', '**/*.d.ts'],
-      thresholds: coverageThresholds(
-        [...COVERAGE_BASELINE_FILES, ...AGENT_RUNTIME_FILES],
-        [
-          ...EXTENSION_CORE_COVERAGE_FILES.map((file) => `packages/extension/${file}`),
-          ...MCP_CORE_COVERAGE_FILES.map((file) => `packages/mcp-server/${file}`)
-        ]
-      )
+      thresholds: {
+        ...coverageThresholds(
+          [...COVERAGE_BASELINE_FILES, ...AGENT_RUNTIME_FILES],
+          [
+            ...EXTENSION_CORE_COVERAGE_FILES.map((file) => `packages/extension/${file}`),
+            ...MCP_CORE_COVERAGE_FILES.map((file) => `packages/mcp-server/${file}`)
+          ]
+        ),
+        [`{${[
+          ...SHARED_SCHEMA_COVERAGE_FILES.map((file) => `packages/shared/${file}`),
+          'packages/plugins/src/index.ts'
+        ].join(',')}}`]: FULL_COVERAGE_THRESHOLDS
+      }
     }
   }
 })

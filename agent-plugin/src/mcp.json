@@ -4,7 +4,7 @@
     "tempad-dev": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@tempad-dev/mcp@latest"]
+      "args": ["-y", "@tempad-dev/mcp@latest", "--runtime-updates=stable"]
     }
   }
 }

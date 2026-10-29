@@ -16,7 +16,8 @@ use a separate narrow runtime message validated by the background worker.
 
 Explicit design tasks add file leases, fixed session routing, page-side fencing,
 and DOM feedback. See [design tasks](mcp-design-tasks.md) for lifecycle, takeover,
-expiry, and recovery semantics. Taskless reads still use the active route.
+expiry, and recovery semantics. Taskless reads use the active route unless they specify an exact
+`sessionId` from `list_design_sessions`.
 
 ## Connection lifecycle
 
@@ -28,6 +29,14 @@ expiry, and recovery semantics. Taskless reads still use the active route.
 3. The broker starts one WebSocket client for all Figma tabs in the extension context.
 4. The client probes the known ports and requests the `tempad-mcp` WebSocket subprotocol before
    receiving any frames. It accepts a candidate only after receiving both `registered` and `state`.
+   Release and checkout builds use disjoint port pools from shared constants. A checkout Hub
+   announces its real-path profile hash in `registered`; the broker must match it and send
+   `runtimeHello` before the Hub registers the connection or exposes state and asset access.
+   Missing profile fields mean release. Checkout peers reject missing or different identities
+   and never fall back to release ports. Release peers preserve the existing handshake.
+   Discovery uses the build profile independently of the runtime fingerprint. A checkout build
+   without a valid runtime identity makes no connection attempt. Checkout Hubs close connections
+   with code 1008 if the runtime handshake has not completed within five seconds.
    Registration announces `protocolVersion` and the versions the Hub still serves. A Hub that does
    not serve this extension is rejected with instructions to restart the agent's MCP connection
    using `@tempad-dev/mcp@latest`, including other agents keeping an old Hub alive. Reloading Figma
@@ -42,6 +51,11 @@ expiry, and recovery semantics. Taskless reads still use the active route.
    that opens a replacement runtime port registers its session before forwarding the request.
    A draft request that cannot be forwarded receives an error response instead of being
    silently dropped. A waiting request never carries over into a replacement enable.
+
+Granting loopback access in Chrome settings also triggers a fresh permission check. The broker
+notifies Figma content scripts through extension messaging so an enabled page whose initial
+check was denied can register without a reload. The notification grants no authority: each
+page rechecks permission, disabled pages stay disabled, and a newer revocation wins.
 
 The bridge protocol version covers the shared tool contract as well as transport messages. Bump it
 whenever a Hub and extension built from different revisions must not exchange tool calls.
@@ -77,7 +91,8 @@ agent decides whether to reuse or refresh the Hub under the
 [evolution guide](../testing/agent-authoring-evolution.md#3-establish-a-trustworthy-runtime).
 Compatible extension updates can reconnect to the same Hub. Runtime handshakes,
 protocol validation, connection ownership, and stale-request checks remain enforced.
-Exact checkout matching belongs to preflight and the frozen run record.
+Checkout identity must match during the handshake. Exact source/build matching belongs to
+preflight and the frozen run record.
 
 ### Released unversioned extensions
 
@@ -146,14 +161,74 @@ still synchronizes after a failed dispatch or reconnect, including after page re
 restored Stop attempts native interruption before cancellation; absent native turn identity cannot
 guarantee interruption, but never removes the canvas fence.
 Hiding a stopped review does not discard its cancellation. The page and broker retain the live
-Stop fence for reconnect when storage fails; unpersisted state cannot survive a full browser restart.
+Stop fence when storage fails. The content bridge also retains the latest matching review and
+marks local Stop before forwarding it, so a replacement service worker receives cancellation in
+the replayed enable even if storage is still unavailable. A stale active update cannot undo that
+Stop. Another tab's live review does not become this page's claim, while cancellation and Done
+fences can synchronize from any tab in the same file. Changing file/session or disabling the
+bridge clears its cache; if all surviving page and worker state is lost before persistence or
+Hub delivery, the unpersisted Stop cannot be recovered.
+Even with a surviving page, a failed `storage.local.get` during worker replacement can lose the
+saved browser identity. The replacement then connects with a new browser ID, so the Hub rejects
+reviews bound to the previous identity. The page still enforces its local Stop fence; its cached
+cancellation alone cannot establish the old browser identity.
 Closing that review still requires a durable receipt, and reconnect processes Stop before Done.
 
 Mutating tool waits warn at their configured timeout and stop waiting after twice that interval.
 An unknown outcome keeps the file operation fenced until a definitive result or session recovery;
-the error explicitly forbids replaying the write. Incompatible saved task records retain a durable
+the error explicitly forbids replaying the write. When a dispatched write's caller stops waiting
+because of cancellation, timeout, or disconnection, that file also requires a successful
+`get_structure` or `get_code` read before further writes. A late result releases the execution
+fence but does not clear this read requirement, which survives Stop and beginning a fresh task.
+A completed write whose result cannot be formatted or fit the inline budget also requires readback.
+`EXTENSION_RESULT_LOST` also covers page-to-extension result transfer failure after execution.
+`CANVAS_APPLY_FAILED` remains an uncertain outcome, including failures from older extensions.
+Current extensions return `CANVAS_APPLY_ABORTED` only at gates that prove authoring execution has
+not started, including broker/page rejection, editor availability, schema/theme validation, and
+markup parsing. The diagnostic retains the original error code. These failures do not require a
+file readback. Reconciliation preflight can import library resources before the Undo boundary,
+so its failures return `CANVAS_APPLY_FAILED` even when the original cause is a validation error.
+Undo-boundary failures retain the requirement even if the
+protected snapshots match: those checks do not prove that every native resource field or
+concurrent user edit was restored. Uncoded or unknown error codes from dispatched writes also
+retain readback, including result-transfer failures from older peers. Only the positive
+`CANVAS_APPLY_ABORTED` and `EXTENSION_DELIVERY_FAILED` outcomes release a failed dispatched
+write's marker. Other diagnostics can originate inside a mutation on supported older peers,
+so they retain readback even when a particular rejection happened before writing.
+The Hub persists a file read marker before dispatch and retires it only after a definitive usable
+outcome or a qualifying read. Thus a Hub restart, including while the write is still running,
+retains the requirement. A failed marker save prevents dispatch; a failed clear retains the fence.
+A qualifying read returns at least one structure root or code result, or an exact page snapshot
+(which can confirm an empty page). Empty selections and batches containing only errors do not
+acknowledge it. This recovery gate is file-scoped: a qualifying read by any caller clears it for
+that file; it does not prove that the original caller inspected every affected node. Task-specific
+resume read requirements remain bound to their task and owner.
+A failed initial page-port delivery reports
+`EXTENSION_DELIVERY_FAILED`, which releases the operation because execution never started;
+`EXTENSION_DISCONNECTED` remains an unknown outcome after delivery. Incompatible saved task records retain a durable
 file fence while valid records recover independently. An unreadable snapshot with no identifiable
 file boundary preserves its evidence and blocks all writes, allowing read tools to remain available.
+
+Peers may negotiate terminal receipts through an optional registration offer and runtime hello;
+released peers retain their existing messages. A surviving worker can resend only a completed
+call's receipt after reconnecting. The optional `durableTerminalReceipts` offer/hello allows
+receipts from a previous Hub generation; it is sent only when the receiver offers it, preserving
+released strict hello schemas. The Hub checks the persisted original request,
+receipt identity, browser and extension Origin, and exact Figma session, file, tab and document
+before releasing that operation. It never replays the write. If the original result was lost,
+`EXTENSION_RESULT_LOST` requires reading the original target; recovered writes require a
+successful `get_structure` or `get_code` read of that file before another write, including calls
+without a task. A disconnect reported before the receipt arrives also warns that the write outcome
+is unknown and must not be replayed. Unfinished receipt records are bounded by rejecting new calls
+before dispatch, and completed receipts are acknowledged idempotently while retained. Unresolved
+writes persist in task storage before dispatch, including for peers without receipts; their
+files stay blocked across cold restarts. Reads cannot clear this exclusion. Original-browser
+tab closure or document replacement can release it; a different browser ID and ordinary idle
+snapshots cannot. A lost worker cannot reconstruct receipts. Operator recovery then requires
+the interactive CLI described in the [MCP README](../../packages/mcp-server/README.md#task-storage-recovery),
+preserves Stop and records abandonment plus mandatory readback atomically. No page bridge exposes
+that control. Peers without durable receipts cannot transfer unresolved writes during a planned
+runtime switch.
 
 ## Assets
 

@@ -2,14 +2,17 @@
  * Gradient and color utilities for Figma styles
  */
 
-import { getCssPaintLayers } from '@/utils/figma-paint'
+import { getCssPaintLayers, isRenderablePaint, isVisiblePaint } from '@/utils/figma-paint'
 import { getVariableCssName } from '@/utils/figma-variables'
 
 import type { FigmaLookupReaders, PaintList, PaintResolutionSize } from './types'
 
 import { formatHexAlpha, splitByTopLevelComma } from '../css'
 
-type ResolvedBackgroundFill = { kind: 'color'; value: string } | { kind: 'layers'; value: string[] }
+type ResolvedBackgroundFill =
+  | { kind: 'color'; value: string }
+  | { kind: 'layers'; value: string[] }
+  | { kind: 'native' }
 
 type BackgroundFillResolverOptions = {
   background?: string
@@ -24,6 +27,8 @@ type BackgroundFillResolverOptions = {
     index: number
   ) => string | null
 }
+
+type BackgroundPaintLayers = { paint: Paint; index: number; sources: string[] }
 
 function isGradientPaint(paint: Paint): paint is GradientPaint {
   return 'gradientStops' in paint && Array.isArray(paint.gradientStops)
@@ -158,18 +163,28 @@ export function resolveBackgroundFillFromPaints(
 
   const resolveGradient = options.resolveGradientPaint ?? resolveGradientPaintCss
   const resolveSolid = options.resolveSolidPaint ?? resolveSolidPaint
-  const sourceLayers = splitByTopLevelComma(options.background ?? '')
+  const background = options.background ?? ''
+  const sourceLayers = matchBackgroundPaintLayers(background, paints)
 
-  if (visible.length === 1) {
+  if (visible.length === 1 && (!sourceLayers || sourceLayers.length === 1)) {
     const { paint, index } = visible[0]!
     if (isSolidPaint(paint)) {
       const color = resolveSolid(paint, readers, index)
       return color ? { kind: 'color', value: color } : null
     }
   }
+  if (!sourceLayers && /(?:linear|radial|conic)-gradient\s*\(/i.test(background)) {
+    // Keep every native channel; returning replacement layers would clear a separate base color.
+    return { kind: 'native' }
+  }
 
   const layers: string[] = []
-  for (const [layerIndex, { paint, index }] of visible.entries()) {
+  for (const { paint, index, sources } of sourceLayers ??
+    visible.map((entry) => ({ ...entry, sources: undefined }))) {
+    if (!isRenderablePaint(paint)) {
+      layers.push(...(sources ?? []))
+      continue
+    }
     if (isSolidPaint(paint)) {
       const color = resolveSolid(paint, readers, index)
       if (!color) return null
@@ -178,25 +193,202 @@ export function resolveBackgroundFillFromPaints(
     }
     if (!isGradientPaint(paint)) return null
 
-    let gradient = resolveGradient(paint, size, readers)
-    if (!gradient) return null
-    if (paint.type === 'GRADIENT_RADIAL' && sourceLayers.length === visible.length) {
-      gradient = preserveRadialGeometry(sourceLayers[layerIndex]!, gradient)
-    }
+    const resolved = resolveGradient(paint, size, readers)
+    if (!resolved) return null
+    const gradient = sources?.every((source) =>
+      /^(?:linear|radial|conic)-gradient\s*\(/i.test(source)
+    )
+      ? sources
+          .map((source) => preserveGradientGeometry(source, resolved, paint.type) ?? source)
+          .join(', ')
+      : resolved
     layers.push(gradient)
   }
 
   return { kind: 'layers', value: layers }
 }
 
-function preserveRadialGeometry(source: string, resolved: string): string {
-  const match = source.match(/^radial-gradient\(([\s\S]*)\)$/i)
-  if (!match) return resolved
-  const geometry = splitByTopLevelComma(match[1]!)[0]
-  if (!geometry || !isRadialGeometry(geometry)) return resolved
-  const args = splitByTopLevelComma(resolved.slice('radial-gradient('.length, -1))
-  if (args[0] && isRadialGeometry(args[0])) args.shift()
-  return `radial-gradient(${[geometry, ...args].join(', ')})`
+/** Pair complete native CSS stacks with their paints, including Figma's diamond quadrants. */
+export function matchBackgroundPaintLayers(
+  background: string,
+  paints: ReadonlyArray<Paint>
+): BackgroundPaintLayers[] | null {
+  const layers = splitByTopLevelComma(background)
+  const groups: BackgroundPaintLayers[] = []
+  let offset = 0
+  for (let index = paints.length - 1; index >= 0; index--) {
+    const paint = paints[index]!
+    if (!isVisiblePaint(paint)) continue
+    const sources = paintSourceLayers(paint, layers, offset)
+    const transparent = sources?.every(isTransparentLayer) ?? false
+    if (!isRenderablePaint(paint)) {
+      // Native CSS can omit an invisible paint or retain its transparent layer.
+      // Consume only proven transparent output; never shift a visible neighbor.
+      if ((!isSolidPaint(paint) && !isGradientPaint(paint)) || !transparent) continue
+    } else if (transparent) {
+      // A renderable paint cannot establish ownership of an all-transparent
+      // source. Keep native CSS if the stack cannot be matched unambiguously.
+      return null
+    }
+    if (!sources) return null
+    groups.push({ paint, index, sources })
+    offset += sources.length
+  }
+  return offset === layers.length ? groups : null
+}
+
+function paintSourceLayers(paint: Paint, layers: string[], offset: number): string[] | null {
+  const diamond =
+    paint.type === 'GRADIENT_DIAMOND' && /^linear-gradient\s*\(/i.test(layers[offset] ?? '')
+  const count = diamond ? 4 : 1
+  const group = layers.slice(offset, offset + count)
+  if (group.length !== count) return null
+  if (!diamond) return group
+  const corners = new Set<string>()
+  for (const layer of group) {
+    const gradient = parseGradient(layer)
+    const corner = /^\s+(top|bottom)\s+(left|right)\s*\/\s*50%\s+50%\s+no-repeat\s*$/i.exec(
+      gradient?.suffix ?? ''
+    )
+    if (gradient?.fn !== 'linear-gradient' || !corner) return null
+    const position = `${corner[1]!.toLowerCase()} ${corner[2]!.toLowerCase()}`
+    if (gradient.geometry?.toLowerCase() !== `to ${position}`) return null
+    corners.add(position)
+  }
+  return corners.size === 4 ? group : null
+}
+
+function isTransparentLayer(value: string): boolean {
+  const gradient = parseGradient(value)
+  return gradient
+    ? gradient.stops.every((stop) => isTransparentColor(stop.color))
+    : isTransparentColor(value)
+}
+
+function isTransparentColor(value: string): boolean {
+  value = value.trim().toLowerCase()
+  if (value === 'transparent' || /^#(?:[\da-f]{3}0|[\da-f]{6}00)$/.test(value)) return true
+  const match = /^rgba\(([^()]*)\)$/.exec(value)
+  if (!match) return false
+  const parts = match[1]!.split(',').map((part) => part.trim())
+  return (
+    parts.length === 4 &&
+    parts.every((part) => /^[+-]?(?:\d*\.)?\d+$/.test(part)) &&
+    parts.slice(0, 3).every((part) => Number(part) >= 0 && Number(part) <= 255) &&
+    Number(parts[3]) === 0
+  )
+}
+
+export function preserveGradientGeometry(
+  source: string,
+  resolved: string,
+  paintType?: GradientPaint['type']
+): string | null {
+  const original = parseGradient(source)
+  const replacement = parseGradient(resolved)
+  if (!original || !replacement) return null
+  const diamondQuadrant =
+    paintType === 'GRADIENT_DIAMOND' &&
+    original.fn === 'linear-gradient' &&
+    replacement.fn === 'radial-gradient'
+  if (original.fn !== replacement.fn && !diamondQuadrant) return null
+
+  let first = 0
+  let last = original.stops.length
+  if (original.stops.length !== replacement.stops.length && replacement.stops.length !== 1) {
+    if (original.fn !== 'conic-gradient') return null
+    // Figma closes angular gradients with interpolated 0/360-degree stops when
+    // the authored stops do not reach those endpoints. Their native colors
+    // already include opacity; only the authored stop colors need replacement.
+    const firstPosition = gradientAngle(replacement.stops[0]!.position)
+    const lastPosition = gradientAngle(replacement.stops.at(-1)!.position)
+    if (
+      firstPosition !== null &&
+      firstPosition.value > 0 &&
+      gradientAngle(original.stops[0]!.position)?.value === 0
+    )
+      first++
+    if (
+      lastPosition !== null &&
+      lastPosition.value < 1 &&
+      gradientAngle(original.stops.at(-1)!.position)?.value === 1
+    )
+      last--
+    for (const [index, stop] of replacement.stops.entries()) {
+      const sourcePosition = gradientAngle(original.stops[index + first]?.position ?? '')
+      const targetPosition = gradientAngle(stop.position)
+      if (
+        !sourcePosition ||
+        !targetPosition ||
+        Math.abs(sourcePosition.value - targetPosition.value) >
+          sourcePosition.rounding + targetPosition.rounding
+      )
+        return null
+    }
+  }
+  if (last - first !== replacement.stops.length && replacement.stops.length !== 1) return null
+  const stops = original.stops.map((stop, index) => {
+    if (index < first || index >= last) return stop.color + stop.position
+    const replacementStop = replacement.stops[index - first] ?? replacement.stops[0]!
+    return replacementStop.color + stop.position
+  })
+  const geometry = original.geometry
+  return `${original.fn}(${[...(geometry ? [geometry] : []), ...stops].join(', ')})${original.suffix}`
+}
+
+function gradientAngle(position: string): { value: number; rounding: number } | null {
+  const match = /^\s*([+-]?(?:\d*\.)?\d+)(%|deg)\s*$/.exec(position)
+  if (!match) return null
+  const decimals = match[1]!.split('.')[1]?.length ?? 0
+  // Native CSS uses degrees; generated paint stops use formatPercent's two decimals.
+  return match[2] === 'deg'
+    ? { value: Number(match[1]) / 360, rounding: (0.5 * 10 ** -decimals) / 360 }
+    : { value: Number(match[1]) / 100, rounding: 0.00005 }
+}
+
+function parseGradient(value: string): {
+  fn: string
+  geometry?: string
+  stops: { color: string; position: string }[]
+  suffix: string
+} | null {
+  value = value.trim()
+  const match = /^(linear-gradient|radial-gradient|conic-gradient)\s*\(/i.exec(value)
+  if (!match) return null
+  const fn = match[1]!.toLowerCase()
+  const start = match[0].length
+  let depth = 1
+  let end = start
+  for (; end < value.length; end++) {
+    if (value[end] === '(') depth++
+    else if (value[end] === ')' && --depth === 0) break
+  }
+  if (depth !== 0) return null
+  const args = splitByTopLevelComma(value.slice(start, end))
+  let geometry: string | undefined
+  if (
+    args[0] &&
+    (fn === 'radial-gradient'
+      ? isRadialGeometry(args[0])
+      : /^(?:to\s|from\s|at\s|in\s|[+-]?(?:\d*\.)?\d+(?:deg|grad|rad|turn)(?:\s|$))/i.test(args[0]))
+  ) {
+    geometry = args.shift()
+  }
+  const stops: { color: string; position: string }[] = []
+  for (const arg of args) {
+    if (!/^(?:#[\da-f]+|[a-z][\w-]*(?:\(|(?=\s|$)))/i.test(arg)) return null
+    let colorEnd = 0
+    depth = 0
+    for (; colorEnd < arg.length; colorEnd++) {
+      const ch = arg[colorEnd]!
+      if (ch === '(') depth++
+      else if (ch === ')') depth--
+      else if (/\s/.test(ch) && depth === 0) break
+    }
+    if (depth !== 0) return null
+    stops.push({ color: arg.slice(0, colorEnd), position: arg.slice(colorEnd) })
+  }
+  return stops.length ? { fn, geometry, stops, suffix: value.slice(end + 1) } : null
 }
 
 function isRadialGeometry(value: string): boolean {
@@ -252,13 +444,12 @@ export function formatGradientStopColor(
     try {
       const v = readers.getVariableById(bound.id)
       if (v) {
-        const fallbackOpaque = formatHexAlpha(stop.color, 1)
-        const fallbackAlpha = formatHexAlpha(stop.color, alpha)
+        const fallback = formatHexAlpha(stop.color, baseAlpha)
         const cssVarName = getVariableCssName(v)
-        const varName = `var(${cssVarName}, ${fallbackOpaque})`
-        if (alpha >= 0.99) return `var(${cssVarName}, ${fallbackAlpha})`
-        // Use color-mix for transparency
-        const pct = Math.round(alpha * 10000) / 100
+        const varName = `var(${cssVarName}, ${fallback})`
+        // Bound stop alpha is already in the variable; only paint opacity is independent.
+        if (fillOpacity >= 1) return varName
+        const pct = Math.round(Math.max(0, Math.min(1, fillOpacity)) * 10000) / 100
         return `color-mix(in srgb, ${varName} ${pct}%, transparent)`
       }
     } catch {

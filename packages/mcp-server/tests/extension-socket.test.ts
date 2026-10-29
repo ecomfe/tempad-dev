@@ -3,7 +3,7 @@ import {
   TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
   TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS
 } from '@tempad-dev/shared'
-import { EventEmitter } from 'node:events'
+import { EventEmitter, once } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket, WebSocketServer } from 'ws'
 
@@ -17,11 +17,279 @@ const servers: WebSocketServer[] = []
 const registries: ExtensionRegistry[] = []
 
 afterEach(async () => {
+  vi.useRealTimers()
   registries.splice(0).forEach((registry) => registry.dispose())
   await Promise.all(servers.splice(0).map(closeServer))
 })
 
 describe('extension socket lifecycle', () => {
+  it.each(['checkout', 'release'] as const)(
+    'bounds only checkout handshakes and releases connection capacity (%s)',
+    async (kind) => {
+      const profile = kind === 'checkout' ? { kind, id: 'a'.repeat(16) } : { kind }
+      const registry = new ExtensionRegistry(10000)
+      registries.push(registry)
+      const started = await startExtensionWebSocketServer({
+        maxConnections: 1,
+        maxPayloadBytes: 4096,
+        originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
+        portCandidates: [0]
+      })
+      servers.push(started.server)
+      started.server.on('connection', (socket) =>
+        attachExtensionSocket(socket, {
+          createId: () => 'peer',
+          origin: STORE_ORIGIN,
+          registry,
+          runtimeProfile: profile,
+          onStateChange: () => {},
+          onToolResult: () => {},
+          onToolError: () => {}
+        })
+      )
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      const connect = async () => {
+        const connected = once(started.server, 'connection')
+        const client = new WebSocket(
+          `ws://127.0.0.1:${started.port}`,
+          TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+          {
+            origin: STORE_ORIGIN
+          }
+        )
+        await once(client, 'message')
+        const [serverSocket] = await connected
+        return { client, serverSocket: serverSocket as WebSocket }
+      }
+      const first = await connect()
+      expect(started.server.clients.size).toBe(1)
+      if (kind === 'release') {
+        await vi.advanceTimersByTimeAsync(5000)
+        expect(first.client.readyState).toBe(WebSocket.OPEN)
+        expect(registry.size).toBe(1)
+        return
+      }
+      const clientClosed = once(first.client, 'close')
+      const serverClosed = once(first.serverSocket, 'close')
+      await vi.advanceTimersByTimeAsync(5000)
+      expect((await clientClosed)[0]).toBe(1008)
+      await serverClosed
+      expect(started.server.clients.size).toBe(0)
+      expect(registry.size).toBe(0)
+
+      const second = await connect()
+      const received = once(second.serverSocket, 'message')
+      second.client.send(
+        JSON.stringify({
+          type: 'runtimeHello',
+          protocolVersion: 15,
+          extensionVersion: '1',
+          extensionRuntimeFingerprint: 'a'.repeat(64),
+          runtimeProfile: profile
+        })
+      )
+      await received
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(second.client.readyState).toBe(WebSocket.OPEN)
+      expect(registry.size).toBe(1)
+    }
+  )
+
+  it.each(['matching', 'foreign', 'missing', 'legacy', 'premature'] as const)(
+    'gates checkout routes and assets until the %s peer is verified',
+    async (kind) => {
+      const profile = { kind: 'checkout' as const, id: 'a'.repeat(16) }
+      const registry = new ExtensionRegistry(1)
+      registries.push(registry)
+      const started = await startExtensionWebSocketServer({
+        maxConnections: 1,
+        maxPayloadBytes: 4096,
+        originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
+        portCandidates: [0]
+      })
+      servers.push(started.server)
+      const onConnected = vi.fn()
+      started.server.on('connection', (socket) =>
+        attachExtensionSocket(socket, {
+          createId: () => 'checkout',
+          origin: STORE_ORIGIN,
+          registry,
+          runtimeProfile: profile,
+          onConnected,
+          onStateChange: () =>
+            registry.list().forEach(({ ws }) =>
+              ws.send(
+                JSON.stringify({
+                  type: 'state',
+                  activeId: registry.getActiveId(),
+                  assetServerUrl: 'http://127.0.0.1:1234/private'
+                })
+              )
+            ),
+          onToolResult: () => {},
+          onToolError: () => {}
+        })
+      )
+      const client = new WebSocket(
+        `ws://127.0.0.1:${started.port}`,
+        kind === 'legacy' ? [] : TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+        { origin: STORE_ORIGIN }
+      )
+      const closed = waitForClose(client)
+      const frames: Record<string, unknown>[] = []
+      client.on('message', (raw) => frames.push(JSON.parse(raw.toString())))
+      await waitForOpen(client)
+      await waitUntil(() => frames.length > 0)
+      expect(onConnected).not.toHaveBeenCalled()
+      expect(registry.getActive()).toBeUndefined()
+      expect(frames.some((frame) => frame.type === 'state')).toBe(false)
+      if (kind === 'premature') client.send(JSON.stringify({ type: 'activate' }))
+      else if (kind !== 'legacy')
+        client.send(
+          JSON.stringify({
+            type: 'runtimeHello',
+            protocolVersion: 15,
+            extensionVersion: '1',
+            extensionRuntimeFingerprint: 'a'.repeat(64),
+            ...(kind === 'missing'
+              ? {}
+              : {
+                  runtimeProfile: { ...profile, id: (kind === 'matching' ? 'a' : 'b').repeat(16) }
+                })
+          })
+        )
+      if (kind === 'matching') {
+        await waitUntil(() => frames.some((frame) => frame.type === 'state'))
+        expect(onConnected).toHaveBeenCalledOnce()
+        expect(registry.size).toBe(1)
+        client.close()
+      }
+      await closed
+      await waitUntil(() => registry.size === 0)
+    }
+  )
+
+  it('ignores queued messages after rejecting the runtime handshake', async () => {
+    const registry = new ExtensionRegistry(10_000)
+    registries.push(registry)
+    const onActivated = vi.fn()
+    const onRuntimeHello = vi.fn()
+    const started = await startExtensionWebSocketServer({
+      maxConnections: 1,
+      maxPayloadBytes: 4096,
+      originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
+      portCandidates: [0]
+    })
+    servers.push(started.server)
+    started.server.on('connection', (socket) =>
+      attachExtensionSocket(socket, {
+        createId: () => 'rejected',
+        origin: STORE_ORIGIN,
+        registry,
+        onActivated,
+        onRuntimeHello,
+        onStateChange: () => {},
+        onToolResult: () => {},
+        onToolError: () => {}
+      })
+    )
+    const client = new WebSocket(`ws://127.0.0.1:${started.port}/`, TEMPAD_MCP_BRIDGE_SUBPROTOCOL, {
+      origin: STORE_ORIGIN
+    })
+    await waitForOpen(client)
+    const closed = waitForClose(client)
+    const hello = {
+      type: 'runtimeHello',
+      extensionVersion: '1.0.0',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    }
+    client.send(
+      JSON.stringify({
+        ...hello,
+        protocolVersion: Math.max(...TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS) + 1
+      })
+    )
+    client.send(JSON.stringify({ ...hello, protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION }))
+    client.send(JSON.stringify({ type: 'activate' }))
+
+    await closed
+    expect(onRuntimeHello).not.toHaveBeenCalled()
+    expect(onActivated).not.toHaveBeenCalled()
+  })
+
+  it('requires negotiated receipts and allows a failed acknowledgment to be retried', () => {
+    const registry = new ExtensionRegistry(10000)
+    registries.push(registry)
+    const socket = Object.assign(new EventEmitter(), {
+      protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+      readyState: WebSocket.OPEN,
+      send: vi.fn<(data: string) => void>(),
+      close: vi.fn()
+    })
+    const onToolCompletion = vi.fn().mockReturnValue(true)
+    const onSocketError = vi.fn()
+    attachExtensionSocket(socket as unknown as WebSocket, {
+      createId: () => 'extension',
+      origin: STORE_ORIGIN,
+      registry,
+      terminalReceiptGeneration: 'hub',
+      onToolCompletion,
+      onSocketError,
+      onStateChange: () => {},
+      onToolResult: () => {},
+      onToolError: () => {}
+    })
+    const send = (message: unknown) => socket.emit('message', JSON.stringify(message), false)
+    const hello = {
+      type: 'runtimeHello',
+      protocolVersion: 15,
+      extensionVersion: '1',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    }
+    send(hello)
+    const completion = {
+      type: 'toolCompletion',
+      id: 'call',
+      generation: 'hub',
+      receiptId: 'receipt'
+    }
+    send(completion)
+    expect(onToolCompletion).not.toHaveBeenCalled()
+    expect(socket.close).toHaveBeenCalledWith(1008, 'Terminal receipts were not negotiated.')
+    // A separate negotiated connection must survive losing the acknowledgment.
+    const negotiated = Object.assign(new EventEmitter(), {
+      protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+      readyState: WebSocket.OPEN,
+      send: vi.fn<(data: string) => void>(),
+      close: vi.fn()
+    })
+    attachExtensionSocket(negotiated as unknown as WebSocket, {
+      createId: () => 'negotiated',
+      origin: STORE_ORIGIN,
+      registry,
+      terminalReceiptGeneration: 'hub',
+      onToolCompletion,
+      onSocketError,
+      onStateChange: () => {},
+      onToolResult: () => {},
+      onToolError: () => {}
+    })
+    negotiated.emit('message', JSON.stringify({ ...hello, terminalReceipts: true }), false)
+    negotiated.send.mockImplementationOnce(() => {
+      throw new Error('ack lost')
+    })
+    expect(() => negotiated.emit('message', JSON.stringify(completion), false)).not.toThrow()
+    expect(onSocketError).toHaveBeenCalledWith(
+      'negotiated',
+      expect.objectContaining({ message: 'ack lost' })
+    )
+    negotiated.emit('message', JSON.stringify(completion), false)
+    expect(JSON.parse(negotiated.send.mock.calls.at(-1)![0])).toEqual({
+      ...completion,
+      type: 'toolCompletionAck',
+      accepted: true
+    })
+  })
   it('requires runtime identity and rejects session IDs already held by another connection', () => {
     const registry = new ExtensionRegistry(10000)
     registries.push(registry)
@@ -29,6 +297,7 @@ describe('extension socket lifecycle', () => {
     const peer = (id: string) => {
       const socket = Object.assign(new EventEmitter(), {
         protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+        readyState: WebSocket.OPEN,
         send: vi.fn(),
         close: vi.fn()
       })

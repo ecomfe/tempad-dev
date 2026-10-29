@@ -19,27 +19,30 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
-export function decodeXmlText(value: string): string {
-  return value
-    .replaceAll(/&#(x[0-9a-f]+|\d+);/gi, (entity, code: string) => {
-      const point = code.toLowerCase().startsWith('x')
-        ? Number.parseInt(code.slice(1), 16)
-        : Number.parseInt(code, 10)
+function decodeXmlText(value: string): string {
+  const named: Record<string, string> = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' }
+  return value.replaceAll(
+    /&(#(?:[xX][0-9a-fA-F]+|\d+)|lt|gt|quot|apos|amp);/g,
+    (entity, code: string) => {
+      if (!code.startsWith('#')) return named[code]!
+      const numeric = code.slice(1)
+      const point = numeric.toLowerCase().startsWith('x')
+        ? Number.parseInt(numeric.slice(1), 16)
+        : Number.parseInt(numeric, 10)
       try {
         return String.fromCodePoint(point)
       } catch {
         return entity
       }
-    })
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&apos;', "'")
-    .replaceAll('&amp;', '&')
+    }
+  )
 }
 
 // Inspect source records, not model prose or tool output claiming an identity.
-export function inspectAgentRunIdentity(rows: Iterable<RolloutRow>): AgentRunIdentity {
+export function inspectAgentRun(rows: Iterable<RolloutRow>): {
+  identity: AgentRunIdentity
+  prompt: string | null
+} {
   const taskIds = new Set<string>()
   const models = new Set<string>()
   const efforts = new Set<string>()
@@ -132,13 +135,16 @@ export function inspectAgentRunIdentity(rows: Iterable<RolloutRow>): AgentRunIde
   const reasoningEffort = single(efforts, 'Reasoning effort')
   prompts.unshift(...delegatedPrompts)
   if (prompts.length !== 1) issues.add('A clean run requires exactly one original task prompt.')
-  const prompt = prompts[0]?.trim().replaceAll(/\s+/g, ' ')
+  const prompt = prompts[0]?.trim().replaceAll(/\s+/g, ' ') || null
   return {
-    taskId,
-    model,
-    reasoningEffort,
-    promptCount: prompts.length,
-    promptSha256: prompt ? createHash('sha256').update(prompt).digest('hex') : null,
-    issues: [...issues]
+    prompt,
+    identity: {
+      taskId,
+      model,
+      reasoningEffort,
+      promptCount: prompts.length,
+      promptSha256: prompt ? createHash('sha256').update(prompt).digest('hex') : null,
+      issues: [...issues]
+    }
   }
 }

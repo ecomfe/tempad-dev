@@ -76,7 +76,8 @@ skill installations should also remove the old skill after installing the new on
 The standalone package retains the former name as a generated alias for one extension store
 release cycle so setup commands in older installed extensions continue to work.
 
-Use TemPad Dev extension **0.23.4 or later** and MCP server **0.11.0 or later**.
+For the complete 1.0 release, update the TemPad Dev extension, MCP server, and
+Agent Plugin (or its standalone skills) to **1.0.0 or later**.
 Node.js **22.x, 24.x, or 26+** is required for the MCP server.
 Multi-node reads and consumer-aware token resolution require matching protocol 15 Hub and
 extension builds. MCP 0.11.0 also supports extension 0.22.0 through protocol 13, preserving
@@ -84,13 +85,17 @@ existing reads, sessions, tasks, and canvas writes during the store rollout. New
 prompt an extension upgrade; results identify older selection and token semantics.
 MCP 0.10.0 and later use `manage_design_task` in place of the older lifecycle tools.
 
-1. Update the browser extension to 0.23.4 or later and reload the Figma tab. Version 0.23.4 includes packaged rewrite rules and SVG placement fixes; multi-node reads arrived in 0.23.0.
+1. Update the browser extension to 1.0.0 or later and reload the Figma tab.
 2. Update the installed plugin through the client or installer used originally. With standalone
    setup, update both `figma-design-to-code` and `design-in-figma`.
 3. Keep the release MCP configuration on `@tempad-dev/mcp@latest`; replace any previous
-   `@alpha` or fixed alpha version. Reconnect the MCP client and start a new task so it loads the
-   updated tools and skills. If a stale Hub is reported, close tasks using the old MCP server
-   before reconnecting.
+   `@alpha` or fixed alpha version. Plugin 1.0.0 enables verified runtime downloads with MCP
+   1.0.0 or later on macOS, Linux and Windows. Compatible Hub updates switch automatically during idle MCP
+   sessions with waiting support; Claude also requires a verified session and receipt/retry-capable hooks.
+   When upgrading from an unmanaged Hub, disconnect all TemPad MCP
+   clients once, then restart their MCP servers. Edge processes, installed plugins and incompatible
+   runtime changes still require their normal update/restart. See the
+   [runtime update controls](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/README.md#runtime-updates-100).
 4. Open TemPad Dev, enable **MCP access**, and click the MCP badge in the intended Figma tab when
    a session choice is needed. The badge selects the default file; agents can also discover
    connected sessions and target independent reads by exact session ID.

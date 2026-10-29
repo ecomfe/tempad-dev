@@ -7,7 +7,8 @@ import {
   MCP_MAX_CONCURRENT_ASSET_UPLOADS,
   MCP_MAX_EXTENSION_CONNECTIONS,
   MCP_MAX_PAYLOAD_BYTES,
-  MCP_PORT_CANDIDATES,
+  runtimePortCandidates,
+  type RuntimeProfile,
   MCP_GET_CODE_TIMEOUT_MS,
   MCP_GET_DESIGN_SYSTEM_TIMEOUT_MS,
   MCP_TOOL_TIMEOUT_MS
@@ -61,9 +62,9 @@ function resolveMaxExtensionConnections(): number {
   )
 }
 
-export function getMcpServerConfig() {
+export function getMcpServerConfig(profile?: RuntimeProfile) {
   return {
-    wsPortCandidates: [...MCP_PORT_CANDIDATES],
+    wsPortCandidates: [...runtimePortCandidates(profile)],
     toolTimeoutMs: resolveToolTimeoutMs(),
     getCodeTimeoutMs: resolveToolTimeoutMs(
       process.env.TEMPAD_MCP_GET_CODE_TIMEOUT,

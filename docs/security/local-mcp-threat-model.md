@@ -137,8 +137,9 @@ authentication are outside the current protocol; Origin checks must not be descr
   `sandbox="allow-scripts"` iframe, verifies the exact frame window and opaque `null` Origin, and then
   transfers a private `MessageChannel`.
 - The broker accepts only two fixed packaged Worker kinds. Requests and responses are limited to
-  plain structured data, 4 MiB, depth 64, and 100,000 entries. It caps four active Workers and 32
-  queued requests and normalizes error messages to 2,048 characters.
+  plain structured data, 4 MiB, depth 64, and 100,000 entries. These budgets include enumerable
+  array properties and count shared references along every traversal path. It caps four active
+  Workers and 32 queued requests and normalizes error messages to 2,048 characters.
 - Codegen and variable transforms use a fresh Worker for every broker request. MCP component
   generation may put up to 32 same-plugin jobs in one request to amortize startup; module state is
   shared only within that batch. Each Worker is terminated after success, failure, unreadable

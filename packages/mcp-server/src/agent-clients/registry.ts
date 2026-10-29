@@ -2,6 +2,7 @@ import type { DesignAction, DesignActionResult } from '@tempad-dev/shared'
 
 import type { ClientBindingUpdate } from '../client-binding'
 import type { CodexAppLifecycle, CodexLifecycleState } from './codex-lifecycle'
+import type { HostContext } from './host-context'
 import type { ClientBinding } from './types'
 
 import { getVerifiedTaskClient, type DesignTasks } from '../design-tasks'
@@ -9,6 +10,13 @@ import { HISTORY_RETENTION_MS } from '../history-retention'
 import { log } from '../shared'
 import { CODEX_APP_FEEDBACK, type CodexAppFeedback } from './codex-feedback'
 import { ClientHooks, type ClientHook } from './hooks'
+import {
+  HostContextSchema,
+  MISSING_HOST_CONTEXT_MESSAGE,
+  codexStoreKey,
+  hostContextKey,
+  hostConversationKey
+} from './host-context'
 import { bindRequestMetadata, clientDescriptor, ClientEventSchema } from './identity'
 import {
   CANVAS_ONLY,
@@ -25,8 +33,30 @@ function soleActiveTurn(state?: CodexLifecycleState): string | undefined {
 
 /** Conversation bindings and native delivery stay outside shared task lifecycle logic. */
 export class AgentClients {
-  private readonly hooks = new ClientHooks()
+  needsClaudeHooks(connectionId: string, clientInfo?: { name: string }): boolean {
+    const pending = this.pendingClaudeBindings.has(connectionId)
+    const client = this.connections.get(connectionId)?.client
+    if (!pending && client?.kind !== 'claude' && clientInfo?.name !== 'claude-code') return false
+    // An initialized host or cached session hint cannot prove that installed hooks
+    // reach this Hub. Require the exact binding established by fresh lifecycle evidence.
+    return pending || client?.kind !== 'claude' || !this.hooks.receiptCapable(client.sessionId)
+  }
+
+  get lastActivity(): number {
+    return this.activityAt
+  }
+
+  private activityAt = performance.now()
+
+  get hasLegacyHooks(): boolean {
+    return [...this.connections.values()].some(
+      (binding) =>
+        binding.client.kind === 'claude' && !this.hooks.receiptCapable(binding.client.sessionId)
+    )
+  }
+  private readonly hooks: ClientHooks
   private readonly connections = new Map<string, ClientBinding>()
+  private readonly contexts = new Map<string, HostContext>()
   private readonly pendingClaudeBindings = new Map<
     string,
     { binding: ClientBinding; needsInitialize: boolean }
@@ -38,6 +68,7 @@ export class AgentClients {
     { signature: string; pending: Promise<DesignActionResult>; settledAt?: number }
   >()
   private readonly feedbackSignals = new Map<string, AbortController>()
+  private readonly pendingRemovals = new Set<Promise<void>>()
   private readonly lifecycle?: Pick<
     CodexAppLifecycle,
     'watch' | 'state' | 'retain' | 'interrupt' | 'close'
@@ -47,15 +78,50 @@ export class AgentClients {
     private readonly tasks: DesignTasks,
     private readonly codex?: CodexAppFeedback,
     lifecycle?: (
-      changed: (conversationId: string, state: CodexLifecycleState | undefined) => void
+      changed: (
+        conversationId: string,
+        state: CodexLifecycleState | undefined,
+        context?: HostContext
+      ) => void
     ) => NonNullable<AgentClients['lifecycle']>
   ) {
-    this.lifecycle = lifecycle?.((id, state) => this.onNativeState(id, state))
+    this.hooks = new ClientHooks((input) => tasks.takeClaudeStopNotice(input))
+    this.lifecycle = lifecycle?.((id, state, context) => this.onNativeState(id, state, context))
   }
 
-  private onNativeState(conversationId: string, state?: CodexLifecycleState): void {
+  registerContext(connectionId: string, value: unknown): void {
+    const context = HostContextSchema.parse(value)
+    const previous = this.contexts.get(connectionId)
+    if (previous) {
+      if (hostContextKey(previous) !== hostContextKey(context))
+        throw new Error('MCP host context cannot change on an existing connection.')
+      return
+    }
+    if (
+      [...this.bindings.keys()].some(
+        (id) => id === connectionId || id.startsWith(`${connectionId}/`)
+      )
+    )
+      throw new Error('Register MCP host context before using tools.')
+    this.contexts.set(connectionId, context)
+  }
+
+  get hasPendingActions(): boolean {
+    return (
+      this.pendingRemovals.size > 0 ||
+      [...this.actions.values()].some((action) => action.settledAt === undefined)
+    )
+  }
+
+  private onNativeState(
+    conversationId: string,
+    state?: CodexLifecycleState,
+    context?: HostContext
+  ): void {
+    this.activityAt = performance.now()
     for (const [ownerId, binding] of this.bindings) {
       if (nativeConversation(binding.client) !== conversationId) continue
+      if (hostContextKey(binding.hostContext) !== hostContextKey(context)) continue
       const previous = state?.turns.find((turn) => turn.turnId === binding.turnId)
       if (previous && ['completed', 'interrupted', 'failed'].includes(previous.status)) {
         for (const record of this.tasks.list()) {
@@ -72,9 +138,11 @@ export class AgentClients {
     }
   }
 
-  clientHook(input: ClientHook) {
+  clientHook(input: ClientHook, fresh = true) {
     // Older installed Codex packages may still call hooks. Native state is authoritative.
     if (input.kind === 'codex') return {}
+    const result = fresh ? this.hooks.handle(input) : this.hooks.reconcile(input)
+    if (!result) return {}
     if (input.event === 'PostToolUse' && input.taskId) {
       this.event('hook', {
         method: 'notifications/tempad/client-event',
@@ -87,7 +155,6 @@ export class AgentClients {
         }
       })
     }
-    const result = this.hooks.handle(input)
     if (['UserPromptSubmit', 'Stop', 'Interrupt', 'SessionEnd'].includes(input.event)) {
       this.event('hook', {
         method: 'notifications/tempad/client-event',
@@ -104,6 +171,24 @@ export class AgentClients {
         this.refresh(ownerId)
     }
     return result
+  }
+
+  retireHook(input: ClientHook): void {
+    if (input.kind !== 'claude' || !this.hooks.retire(input)) return
+    // Require fresh lifecycle evidence to reclaim this session. SessionEnd's
+    // cleanup pauses tasks without removing Stop or pending-execution fences.
+    this.event('hook', {
+      method: 'notifications/tempad/client-event',
+      params: { event: 'SessionEnd', kind: input.kind, sessionId: input.sessionId }
+    })
+  }
+
+  retireLegacyHooks(): void {
+    for (const sessionId of this.hooks.retireLegacy())
+      this.event('hook', {
+        method: 'notifications/tempad/client-event',
+        params: { event: 'SessionEnd', kind: 'claude', sessionId }
+      })
   }
 
   event(connectionId: string, input: unknown): void {
@@ -127,7 +212,10 @@ export class AgentClients {
       const record = this.tasks.find(params.taskId)
       if (
         !record ||
-        (record.task.client?.sessionId && record.task.client.sessionId !== params.sessionId)
+        (record.task.client?.sessionId && record.task.client.sessionId !== params.sessionId) ||
+        (record.claudeStopNotice?.turnId &&
+          params.turnId &&
+          record.claudeStopNotice.turnId !== params.turnId)
       )
         return
       const connectionId = record.ownerId.split('/')[0]!
@@ -148,9 +236,14 @@ export class AgentClients {
       this.bindings.set(ownerId, next)
       record.ownerId = ownerId
       record.task.client = next.client
-      this.tasks.attachClient(ownerId, next.client, {
-        ...(record.task.capabilities ?? CANVAS_ONLY)
-      })
+      this.tasks.attachClient(
+        ownerId,
+        next.client,
+        {
+          ...(record.task.capabilities ?? CANVAS_ONLY)
+        },
+        next.hostContext
+      )
       return
     }
     for (const record of this.tasks.list()) {
@@ -171,7 +264,7 @@ export class AgentClients {
       // A delayed Stop for an earlier turn cannot pause a later resumed turn.
       if (params.turnId && bound?.turnId && params.turnId !== bound.turnId) continue
       if (params.event === 'SessionEnd' && bound)
-        this.tasks.attachClient(record.ownerId, bound.client, CANVAS_ONLY)
+        this.tasks.attachClient(record.ownerId, bound.client, CANVAS_ONLY, bound.hostContext)
       else this.refresh(record.ownerId)
       if (['Interrupt', 'SessionEnd'].includes(params.event)) this.abortFeedback(record.task.taskId)
       if (['Interrupt', 'Stop', 'SessionEnd'].includes(params.event))
@@ -227,6 +320,8 @@ export class AgentClients {
       isClaude ? undefined : metadata
     )
     if (needsMetadata && !binding.client.sessionId) binding = { client: fallback }
+    const context = this.contexts.get(connectionId)
+    if (context) binding = { ...binding, hostContext: context }
     const reportedName = clientInfo?.title?.trim() || clientInfo?.name.trim()
     if (reportedName) binding.client = { ...binding.client, name: reportedName.slice(0, 80) }
     const ownerId = binding.client.sessionId
@@ -237,7 +332,17 @@ export class AgentClients {
     if (previous?.client.kind === binding.client.kind) binding.turnId ??= previous.turnId
     this.bindings.set(ownerId, binding)
     // Reconnect only after runtime metadata has supplied an exact client conversation.
-    this.tasks.attachClient(ownerId, binding.client)
+    const mismatchedTasks = this.tasks.attachClient(
+      ownerId,
+      binding.client,
+      undefined,
+      binding.hostContext
+    )
+    if (mismatchedTasks.length)
+      log.warn(
+        { ownerId, taskIds: mismatchedTasks },
+        'Task reconnect refused: Codex storage differs or host context is missing. Update and restart the original MCP server with its original Codex configuration.'
+      )
     return ownerId
   }
 
@@ -266,12 +371,17 @@ export class AgentClients {
   private refresh(ownerId: string): void {
     const binding = this.bindings.get(ownerId)
     if (binding) {
-      this.tasks.attachClient(ownerId, binding.client, this.unavailable(binding))
+      this.tasks.attachClient(
+        ownerId,
+        binding.client,
+        this.unavailable(binding),
+        binding.hostContext
+      )
       if (this.codex)
         void this.describe(ownerId)
           .then(({ capabilities }) => {
             if (this.bindings.get(ownerId) === binding)
-              this.tasks.attachClient(ownerId, binding.client, capabilities)
+              this.tasks.attachClient(ownerId, binding.client, capabilities, binding.hostContext)
           })
           .catch((error) => log.warn({ error }, 'Could not refresh client capabilities.'))
     }
@@ -283,23 +393,27 @@ export class AgentClients {
     // Native App delivery belongs to the conversation, independently of an MCP connection.
     const record = this.tasks.list().find((record) => record.ownerId === ownerId)
     const client = record && getVerifiedTaskClient(record)
-    return client && nativeFeedback(client) ? { client } : undefined
+    return client && nativeFeedback(client)
+      ? { client, ...(record?.hostContext ? { hostContext: record.hostContext } : {}) }
+      : undefined
   }
 
   private interruptionTarget(binding?: ClientBinding) {
     const conversationId = nativeConversation(binding?.client)
     if (!this.lifecycle || !conversationId) return undefined
     // An exact binding wins. The owner guards against interrupting a later turn.
-    const turnId = binding?.turnId ?? soleActiveTurn(this.lifecycle.state(conversationId))
-    return turnId ? { conversationId, turnId } : undefined
+    const turnId =
+      binding?.turnId ?? soleActiveTurn(this.lifecycle.state(conversationId, binding?.hostContext))
+    return turnId ? { conversationId, turnId, context: binding?.hostContext } : undefined
   }
 
   async describe(ownerId: string) {
     const binding = this.binding(ownerId)
     const conversationId = nativeConversation(binding?.client)
-    if (conversationId) this.lifecycle?.watch(conversationId)
+    if (conversationId) this.lifecycle?.watch(conversationId, binding?.hostContext)
     return {
       client: binding?.client ?? clientDescriptor('other'),
+      ...(binding?.hostContext ? { hostContext: binding.hostContext } : {}),
       capabilities:
         binding && (await this.codex?.available(binding))
           ? { ...CODEX_APP_FEEDBACK, interrupt: !!this.interruptionTarget(binding) }
@@ -310,10 +424,14 @@ export class AgentClients {
   }
 
   private unavailable(binding: ClientBinding) {
-    return nativeFeedback(binding.client) ? CODEX_FEEDBACK_UNAVAILABLE : CANVAS_ONLY
+    if (!nativeFeedback(binding.client)) return CANVAS_ONLY
+    return binding.hostContext
+      ? CODEX_FEEDBACK_UNAVAILABLE
+      : { ...CANVAS_ONLY, reason: MISSING_HOST_CONTEXT_MESSAGE }
   }
 
   async action(action: DesignAction, onAccepted?: () => void): Promise<DesignActionResult> {
+    this.activityAt = performance.now()
     this.pruneActions()
     const record = this.tasks.find(action.taskId)
     const client = record?.task.client
@@ -323,6 +441,7 @@ export class AgentClients {
       action.feedback && record && client?.sessionId
         ? JSON.stringify([
             'feedback',
+            codexStoreKey(this.binding(record.ownerId)?.hostContext),
             client.kind,
             client.sessionId,
             record.task.target.fileKey,
@@ -353,20 +472,24 @@ export class AgentClients {
     let dispatched = false
     const pending = this.perform(action, onAccepted, () => {
       dispatched = true
-    }).then((result) => {
-      const entry = this.actions.get(key)
-      if (entry) entry.settledAt = Date.now()
-      // A rejection before host dispatch is safe to retry with the same delivery
-      // identity. Queue retries re-enter the adapter's durable receipt reconciliation;
-      // they cannot replay an uncertain native write.
-      if (
-        result.status === 'failed' &&
-        (!dispatched ||
-          (action.action === 'feedback' && action.feedback?.mode === 'queue' && this.codex))
-      )
-        this.actions.delete(key)
-      return result
     })
+      .then((result) => {
+        const entry = this.actions.get(key)
+        if (entry) entry.settledAt = Date.now()
+        // A rejection before host dispatch is safe to retry with the same delivery
+        // identity. Queue retries re-enter the adapter's durable receipt reconciliation;
+        // they cannot replay an uncertain native write.
+        if (
+          result.status === 'failed' &&
+          (!dispatched ||
+            (action.action === 'feedback' && action.feedback?.mode === 'queue' && this.codex))
+        )
+          this.actions.delete(key)
+        return result
+      })
+      .finally(() => {
+        this.activityAt = performance.now()
+      })
     this.actions.set(key, { signature, pending })
     return pending
   }
@@ -411,10 +534,12 @@ export class AgentClients {
       if (action.action === 'stop') {
         if (this.tasks.current(record.task.target.fileKey) !== record)
           throw new Error('This task has been replaced. Stop the current task instead.')
-        if (['completed', 'cancelled'].includes(record.task.status))
+        if (record.task.status === 'cancelled')
           return result('delivered', 'This design task has already ended.')
+        const completed = record.task.status === 'completed'
         // Capture the target before cancellation callbacks can advance native state.
-        const target = this.interruptionTarget(binding)
+        // A completed review can still be cancelled, but no longer owns host work.
+        const target = completed ? undefined : this.interruptionTarget(binding)
         const diagnostic = {
           taskId: action.taskId,
           requestId: action.requestId,
@@ -422,15 +547,23 @@ export class AgentClients {
           boundTurnId: binding?.turnId,
           expectedTurnId: target?.turnId
         }
-        if (binding?.client.kind === 'claude') this.hooks.stop(binding, action.taskId)
+        const stopNotice =
+          !completed && binding?.client.kind === 'claude' && binding.client.sessionId
+            ? { sessionId: binding.client.sessionId, turnId: binding.turnId }
+            : undefined
         // Stop's local fence and host interruption must not wait for a pending queue write.
         void this.cancelFeedback(action.taskId).catch(() => {})
-        this.tasks.stop(action.taskId, 'cancelled')
+        this.tasks.stop(action.taskId, 'cancelled', stopNotice)
         onAccepted?.()
+        if (completed) return result('delivered', 'Design task stopped.')
         if (this.lifecycle && target) {
           log.info(diagnostic, 'Requesting native Codex Stop interruption.')
           try {
-            const interrupted = await this.lifecycle.interrupt(target.conversationId, target.turnId)
+            const interrupted = await this.lifecycle.interrupt(
+              target.conversationId,
+              target.turnId,
+              target.context
+            )
             log.info({ ...diagnostic, interrupted }, 'Native Codex Stop interruption settled.')
             return result(
               'delivered',
@@ -466,7 +599,7 @@ export class AgentClients {
         throw new Error('The feedback belongs to a different Figma file.')
       if (!nativeFeedback(binding.client) || !this.codex || !binding.client.sessionId) {
         const capabilities = this.unavailable(binding)
-        this.tasks.attachClient(record.ownerId, binding.client, capabilities)
+        this.tasks.attachClient(record.ownerId, binding.client, capabilities, binding.hostContext)
         throw new Error(capabilities.reason)
       }
       let controller = this.feedbackSignals.get(action.taskId)
@@ -490,7 +623,12 @@ export class AgentClients {
           )
       }
       await this.codex.enqueue(binding, action.taskId, feedback, signal, beforeSend, onDispatch)
-      this.tasks.attachClient(record.ownerId, binding.client, CODEX_APP_FEEDBACK)
+      this.tasks.attachClient(
+        record.ownerId,
+        binding.client,
+        CODEX_APP_FEEDBACK,
+        binding.hostContext
+      )
       return result('delivered', 'Feedback sent to the bound agent conversation.')
     } catch (error) {
       return result(
@@ -528,7 +666,9 @@ export class AgentClients {
       new Set(
         reviews.flatMap((record) => {
           const conversationId = nativeConversation(getVerifiedTaskClient(record))
-          return conversationId ? [conversationId] : []
+          return conversationId
+            ? [hostConversationKey(conversationId, this.binding(record.ownerId)?.hostContext)]
+            : []
         })
       )
     )
@@ -537,8 +677,12 @@ export class AgentClients {
       const binding = this.bindings.get(ownerId)
       const { client, capabilities } = await this.describe(ownerId)
       if (this.bindings.get(ownerId) === binding)
-        this.tasks.attachClient(ownerId, client, capabilities)
+        this.tasks.attachClient(ownerId, client, capabilities, this.binding(ownerId)?.hostContext)
     }
+    this.codex.retainContexts([
+      ...this.contexts.values(),
+      ...this.tasks.list().flatMap((record) => (record.hostContext ? [record.hostContext] : []))
+    ])
   }
 
   close(): void {
@@ -553,11 +697,18 @@ export class AgentClients {
   }
 
   cancelFeedback(taskId: string): Promise<void> {
+    this.activityAt = performance.now()
     this.abortFeedback(taskId)
-    return this.codex?.cancelQueued(taskId) ?? Promise.resolve()
+    const pending = this.codex?.cancelQueued(taskId) ?? Promise.resolve()
+    this.pendingRemovals.add(pending)
+    return pending.finally(() => {
+      this.pendingRemovals.delete(pending)
+      this.activityAt = performance.now()
+    })
   }
 
   disconnect(connectionId: string): void {
+    this.contexts.delete(connectionId)
     this.connections.delete(connectionId)
     this.pendingClaudeBindings.delete(connectionId)
     this.bindingListeners.delete(connectionId)

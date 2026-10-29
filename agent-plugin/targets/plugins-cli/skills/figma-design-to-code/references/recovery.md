@@ -29,9 +29,13 @@ affected root, preserve any trustworthy parent composition:
   the reported condition before retrying.
 - **`depth-cap`**: keep the returned top-level composition, then use returned
   `data-hint-id` values for targeted child `get_code` calls.
-- **`token-resolution`**: some references remain in code even with
-  `resolveTokens: true`. Treat those consumer values as unresolved; do not
-  replace them with a collection default or claim all values were inlined.
+- **`token-resolution`**: read the message to distinguish unresolved consumer
+  values or units from a CSS typed-arithmetic compatibility warning. The latter
+  can occur with `resolveTokens: false` for length-valued opacity or font-weight
+  tokens. If the project needs portable literals, reread the exact target with
+  `resolveTokens: true` and verify the affected values became literals. References
+  that remain unresolved must not be replaced with collection defaults or reported
+  as successfully inlined.
 - **`token-definition`**: definitions or mode labels are missing or ambiguous.
   Pause decisions that depend on those facts; successfully resolved consumer
   literals remain usable under the [token fallback guidance](assets-and-tokens.md#tokens).

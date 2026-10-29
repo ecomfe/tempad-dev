@@ -6,6 +6,14 @@ export const AGGREGATE_COVERAGE_THRESHOLDS = {
   perFile: false
 } as const
 
+export const FULL_COVERAGE_THRESHOLDS = {
+  branches: 100,
+  functions: 100,
+  lines: 100,
+  statements: 100,
+  perFile: true
+} as const
+
 // A per-file floor prevents a new or neglected core module from disappearing
 // into the aggregate. It does not replace the stronger existing baseline.
 export const CORE_COVERAGE_THRESHOLDS = {
@@ -17,11 +25,17 @@ export const CORE_COVERAGE_THRESHOLDS = {
 } as const
 
 export const EXTENSION_CORE_COVERAGE_FILES = ['mcp/**/*.ts'] as const
-// CLI and Hub launchers are exercised in child processes, outside instrumentation.
+// CLI/Hub/acquisition launchers run in child-process acceptance harnesses.
 // Include every other top-level module and every nested runtime module.
-export const MCP_CORE_COVERAGE_FILES = ['src/!(cli.ts|hub.ts)', 'src/*/**/*.ts'] as const
+export const MCP_CORE_COVERAGE_FILES = [
+  'src/!(cli.ts|hub.ts|runtime-prototype.ts|managed-runtime.ts|runtime-installer.ts)',
+  'src/*/**/*.ts'
+] as const
 
-export const AGENT_RUNTIME_FILES = ['agent-plugin/src/clients/shared/runtime-paths.mjs']
+export const AGENT_RUNTIME_FILES = [
+  'agent-plugin/src/clients/shared/runtime-paths.mjs',
+  'agent-plugin/src/clients/shared/runtime-profile.mjs'
+]
 
 export const EXTENSION_COVERAGE_FILES = [
   'scripts/inspect-agent-run-identity.ts',
@@ -98,7 +112,6 @@ export const EXTENSION_COVERAGE_FILES = [
   'mcp/tools/code/messages.ts',
   'mcp/tools/code/render/plugin.ts',
   'mcp/tools/code/render/props.ts',
-  'mcp/tools/code/variables.ts',
   'mcp/tools/code/sanitize/negative-gap.ts',
   'mcp/tools/code/sanitize/relative-parent.ts',
   'mcp/tools/code/sanitize/stacking.ts',
@@ -128,7 +141,6 @@ export const EXTENSION_COVERAGE_FILES = [
   'mcp/tools/token/candidates.ts',
   'mcp/tools/token/cache.ts',
   'mcp/tools/token/indexer.ts',
-  'mcp/tools/token/mapping.ts',
   'mcp/tools/token/index.ts',
   'mcp/tools/token/value.ts'
 ] as const
@@ -139,12 +151,14 @@ export const MCP_COVERAGE_FILES = [
   'src/config.ts',
   'src/consumer-transport.ts',
   'src/client-binding.ts',
+  'src/process-environment.ts',
   'src/log-retention.ts',
   'src/log-destination.ts',
   'src/log-transport.ts',
   'src/request.ts',
   'src/design-tasks.ts',
   'src/agent-clients/identity.ts',
+  'src/agent-clients/host-context.ts',
   'src/agent-clients/registry.ts',
   'src/agent-clients/hooks.ts',
   'src/agent-clients/codex-ipc.ts',
@@ -167,6 +181,7 @@ export const SHARED_SCHEMA_COVERAGE_FILES = [
   'src/index.ts',
   'src/mcp/browser-gateway.ts',
   'src/mcp/constants.ts',
+  'src/mcp/string-record.ts',
   'src/mcp/design-task.ts',
   'src/mcp/errors.ts',
   'src/mcp/index.ts',

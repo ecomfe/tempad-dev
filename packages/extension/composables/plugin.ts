@@ -1,4 +1,4 @@
-import { shallowRef } from 'vue'
+import { onScopeDispose, shallowRef } from 'vue'
 
 import { readBoundedResponseBytes } from '@/mcp/bounded-response'
 import SNAPSHOT_PLUGINS from '@/plugins/available-plugins.json'
@@ -77,6 +77,8 @@ export function usePluginInstall() {
     controller = null
     installing.value = false
   }
+
+  onScopeDispose(cancel, true)
 
   async function install(src: string) {
     if (installing.value) {

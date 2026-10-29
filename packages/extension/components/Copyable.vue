@@ -21,7 +21,11 @@ function copyText() {
     class="tp-copyable"
     :class="`tp-copyable-${size || 'm'} tp-copyable-${variant || 'normal'}`"
     ref="root"
+    role="button"
+    tabindex="0"
     @click="copyText"
+    @keydown.enter.prevent="copyText"
+    @keydown.space.prevent="copyText"
   >
     <slot />
   </div>
@@ -35,6 +39,11 @@ function copyText() {
 
 .tp-copyable:hover {
   background: var(--color-bg-hover);
+}
+
+.tp-copyable:focus-visible {
+  outline: 1px solid var(--color-border-selected);
+  outline-offset: 1px;
 }
 
 .tp-copyable-s:not(.tp-copyable-block) {

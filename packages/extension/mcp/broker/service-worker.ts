@@ -8,7 +8,9 @@ import type {
   PageToBridgeMessage,
   RuntimeHelloMessage,
   TempadMcpErrorCode,
-  ToolCallMessage
+  ToolCallMessage,
+  TerminalReceipt,
+  ToolCompletionAckMessage
 } from '@tempad-dev/shared'
 
 import {
@@ -27,10 +29,11 @@ import type { McpBrokerPort } from './sessions'
 import { readBoundedResponseBytes } from '../bounded-response'
 import { getFeedbackDraftScope } from '../design-feedback'
 import { base64ToBytes, bytesToBase64, digestMatchesAssetHash, sha256Hex } from '../encoding'
-import { coerceToolErrorPayload, createCodedError } from '../errors'
+import { canvasAbortedError, coerceToolErrorPayload, createCodedError } from '../errors'
 import {
   MCP_LOCAL_HOST_ORIGIN,
   MCP_LOCAL_HOST_PERMISSION_ERROR,
+  MCP_PERMISSION_CHANGE_MESSAGE,
   type McpPermissionMessageType,
   type McpPermissionResponse,
   isMcpPermissionMessage
@@ -55,6 +58,7 @@ export type McpBrokerHubClient = Pick<
   | 'getSnapshot'
   | 'sendActivate'
   | 'sendToolResult'
+  | 'sendToolCompletion'
   | 'sendSessions'
   | 'sendDesignAction'
   | 'start'
@@ -74,7 +78,15 @@ export class McpServiceWorkerBroker {
   private permissionRevision = 0
   private permissionChangeRevision = 0
   private readonly hubClient: McpBrokerHubClient
-  private readonly pendingToolCalls = new Map<string, string>()
+  private readonly pendingToolCalls = new Map<
+    string,
+    {
+      sessionId: string
+      port: McpBrokerPort
+      receipt?: TerminalReceipt
+      completed?: true
+    }
+  >()
   private readonly portSessions = new WeakMap<McpBrokerPort, string>()
   private readonly sessions = new McpSessionRegistry()
   private readonly serializeTaskState = createSerialQueue()
@@ -90,6 +102,8 @@ export class McpServiceWorkerBroker {
         {
           onSnapshot: (snapshot) => this.handleHubSnapshot(snapshot),
           onToolCall: (message) => this.routeToolCall(message),
+          onToolCompletionAck: (message) => this.handleToolCompletionAck(message),
+          onKeepalive: () => this.flushToolCompletions(),
           onDesignTask: (message) => {
             void this.routeDesignTask(message).catch(() => {
               /* Retry on the next session update. */
@@ -110,6 +124,12 @@ export class McpServiceWorkerBroker {
   }
 
   start(): void {
+    browser.permissions?.onAdded?.addListener((permissions) => {
+      if (!permissions.origins?.includes(MCP_LOCAL_HOST_ORIGIN)) return
+      void this.restorePermission().catch(() => {
+        // A tab may navigate or close before the permission notification arrives.
+      })
+    })
     browser.permissions?.onRemoved?.addListener((permissions) => {
       if (!permissions.origins?.includes(MCP_LOCAL_HOST_ORIGIN)) return
       this.permissionRevision++
@@ -375,6 +395,21 @@ export class McpServiceWorkerBroker {
     }
   }
 
+  private async restorePermission(): Promise<void> {
+    const { granted } = await this.handlePermissionMessage('mcp.permissions.contains')
+    if (!granted) return
+    // Initially denied pages have no registered port. Wake only Figma content scripts;
+    // each enabled script rechecks permission before opening its own port.
+    const tabs = await browser.tabs.query({ url: `${TEMPAD_MCP_FIGMA_ORIGIN}/*` })
+    await Promise.allSettled(
+      tabs.flatMap((tab) =>
+        tab.id === undefined
+          ? []
+          : [browser.tabs.sendMessage(tab.id, MCP_PERMISSION_CHANGE_MESSAGE)]
+      )
+    )
+  }
+
   private async handlePermissionMessage(
     type: McpPermissionMessageType
   ): Promise<McpPermissionResponse> {
@@ -494,16 +529,57 @@ export class McpServiceWorkerBroker {
     message: Extract<PageToBridgeMessage, { type: 'mcp.toolResult' }>
   ): void {
     if (this.portSessions.get(port) !== message.sessionId) return
-    const pendingSessionId = this.pendingToolCalls.get(message.callId)
-    if (pendingSessionId !== message.sessionId) {
+    const pending = this.pendingToolCalls.get(message.callId)
+    if (
+      !pending ||
+      pending.sessionId !== message.sessionId ||
+      pending.port !== port ||
+      pending.completed
+    ) {
       return
     }
-    this.pendingToolCalls.delete(message.callId)
+    // Only a page's actual terminal response proves execution ended. A synthetic
+    // port-disconnection error must never become a completion receipt.
+    if (pending.receipt && message.error?.code !== TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED) {
+      pending.completed = true
+    } else {
+      this.pendingToolCalls.delete(message.callId)
+    }
     this.hubClient.sendToolResult(
       message.error !== undefined
         ? { error: message.error, id: message.callId, type: 'toolResult' }
         : { id: message.callId, payload: message.payload, type: 'toolResult' }
     )
+    this.flushToolCompletions()
+  }
+
+  private handleToolCompletionAck(message: ToolCompletionAckMessage): void {
+    const pending = this.pendingToolCalls.get(message.id)
+    if (
+      pending?.completed &&
+      pending.receipt?.generation === message.generation &&
+      pending.receipt.receiptId === message.receiptId
+    )
+      this.pendingToolCalls.delete(message.id)
+  }
+
+  private flushToolCompletions(): void {
+    const snapshot = this.hubClient.getSnapshot()
+    if (snapshot.status !== 'connected') return
+    for (const [id, pending] of this.pendingToolCalls) {
+      if (
+        !pending.completed ||
+        !pending.receipt ||
+        (!snapshot.durableTerminalReceipts &&
+          pending.receipt.generation !== snapshot.terminalReceiptGeneration)
+      )
+        continue
+      if (this.sessions.get(pending.sessionId)?.port !== pending.port) {
+        this.pendingToolCalls.delete(id)
+        continue
+      }
+      this.hubClient.sendToolCompletion({ type: 'toolCompletion', id, ...pending.receipt })
+    }
   }
 
   private async uploadAsset(port: McpBrokerPort, message: AssetUploadMessage): Promise<void> {
@@ -558,7 +634,14 @@ export class McpServiceWorkerBroker {
 
   private handleHubSnapshot(snapshot: ReturnType<McpBrokerHubClient['getSnapshot']>): void {
     if (snapshot.registeredId !== this.connectedHubId) {
-      this.pendingToolCalls.clear()
+      for (const [id, pending] of this.pendingToolCalls) {
+        if (
+          !pending.receipt ||
+          (!snapshot.durableTerminalReceipts &&
+            pending.receipt.generation !== snapshot.terminalReceiptGeneration)
+        )
+          this.pendingToolCalls.delete(id)
+      }
       if (snapshot.status === 'connected') void this.refreshOpenTabs()
     }
     if (snapshot.registeredId && snapshot.registeredId !== this.connectedHubId) {
@@ -566,9 +649,25 @@ export class McpServiceWorkerBroker {
     }
     this.connectedHubId = snapshot.registeredId
     this.broadcastState()
+    // broadcastState publishes the current inventory first, on the same socket.
+    this.flushToolCompletions()
   }
 
   private routeToolCall(message: ToolCallMessage): void {
+    if (this.pendingToolCalls.has(message.id)) return
+    const rejectBeforeDelivery = (code: TempadMcpErrorCode, messageText: string): void => {
+      const error = createCodedError(code, messageText)
+      const failure = message.payload.name === 'apply_canvas' ? canvasAbortedError(error) : error
+      this.sendToolError(message.id, failure.code, failure.message)
+    }
+    if (this.pendingToolCalls.size >= 128) {
+      this.sendToolError(
+        message.id,
+        TEMPAD_MCP_ERROR_CODES.EXTENSION_DELIVERY_FAILED,
+        'Too many calls await completion acknowledgment. This call was not delivered to Figma.'
+      )
+      return
+    }
     const activeSession = message.route
       ? this.sessions.get(message.route.sessionId)
       : this.sessions.getActive()
@@ -577,16 +676,14 @@ export class McpServiceWorkerBroker {
       (message.route.gatewayId !== this.connectedHubId ||
         activeSession?.document?.fileKey !== message.route.fileKey)
     ) {
-      this.sendToolError(
-        message.id,
+      rejectBeforeDelivery(
         TEMPAD_MCP_ERROR_CODES.DESIGN_TARGET_CHANGED,
         'The requested Figma runtime is no longer connected. No other tab was selected.'
       )
       return
     }
     if (!activeSession) {
-      this.sendToolError(
-        message.id,
+      rejectBeforeDelivery(
         TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
         'No active TemPad Dev Figma session available.'
       )
@@ -604,7 +701,14 @@ export class McpServiceWorkerBroker {
 
     try {
       activeSession.port.postMessage(bridgeMessage)
-      this.pendingToolCalls.set(message.id, activeSession.sessionId)
+      this.pendingToolCalls.set(message.id, {
+        sessionId: activeSession.sessionId,
+        port: activeSession.port,
+        ...(message.terminalReceipt?.generation ===
+        this.hubClient.getSnapshot().terminalReceiptGeneration
+          ? { receipt: message.terminalReceipt }
+          : {})
+      })
     } catch {
       this.unregisterSession(
         activeSession.sessionId,
@@ -612,7 +716,7 @@ export class McpServiceWorkerBroker {
       )
       this.sendToolError(
         message.id,
-        TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED,
+        TEMPAD_MCP_ERROR_CODES.EXTENSION_DELIVERY_FAILED,
         'Figma session disconnected before receiving a tool call.'
       )
       this.stopHubIfIdle()
@@ -635,9 +739,10 @@ export class McpServiceWorkerBroker {
   }
 
   private rejectPendingForSession(sessionId: string, message: string): void {
-    for (const [callId, pendingSessionId] of this.pendingToolCalls) {
-      if (pendingSessionId !== sessionId) continue
+    for (const [callId, pending] of this.pendingToolCalls) {
+      if (pending.sessionId !== sessionId) continue
       this.pendingToolCalls.delete(callId)
+      if (pending.completed) continue
       this.sendToolError(callId, TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED, message)
     }
   }
@@ -658,6 +763,7 @@ export class McpServiceWorkerBroker {
     request: AssetUploadMessage,
     error?: { code?: TempadMcpErrorCode; message: string }
   ): void {
+    if (this.portSessions.get(port) !== request.sessionId) return
     const message: BridgeToPageMessage = {
       ...(error ? { error } : {}),
       requestId: request.requestId,
@@ -684,6 +790,7 @@ export class McpServiceWorkerBroker {
     payload?: AssetDownloadResultPayload,
     error?: { code?: TempadMcpErrorCode; message: string }
   ): void {
+    if (this.portSessions.get(port) !== request.sessionId) return
     const message: BridgeToPageMessage = {
       ...(error ? { error } : { payload: payload! }),
       requestId: request.requestId,
@@ -714,13 +821,16 @@ export class McpServiceWorkerBroker {
     const snapshot = this.hubClient.getSnapshot()
     const brokerIsActive =
       snapshot.registeredId !== null && snapshot.activeId === snapshot.registeredId
+    const selectedTabUnavailable =
+      this.selection != null && !this.sessions.get(this.selection.sessionId)
     const commonState = {
       activeSessionId: brokerIsActive ? this.sessions.getActiveId() : null,
       gatewayId: snapshot.registeredId,
       assetServerUrl: snapshot.assetServerUrl,
       errorMessage: this.permissionMissing
         ? MCP_LOCAL_HOST_PERMISSION_ERROR
-        : snapshot.errorMessage,
+        : (snapshot.errorMessage ??
+          (selectedTabUnavailable ? 'The selected Figma tab is unavailable.' : null)),
       sessionCount: this.sessions.size,
       status: this.permissionMissing
         ? 'connecting'
@@ -889,7 +999,8 @@ export class McpServiceWorkerBroker {
       else await browser.storage.local.set({ [key]: this.browserId })
       await this.reviews().ready()
     } catch {
-      // The current connection can still work; recovery will require live session evidence.
+      // Connection can still work, but without the saved browser ID the Hub cannot
+      // authenticate reviews bound to the previous identity.
     }
   }
 
@@ -945,7 +1056,7 @@ export class McpServiceWorkerBroker {
     if (previous && message.task.revision < previous.revision) return
     const task = await this.reviews()
       .save(message.task)
-      .catch(() => message.task)
+      .catch(() => this.reviews().preserveFences(message.task))
     if (gatewayId !== this.connectedHubId) return
     this.designTasks.set(fileKey, task)
     for (const session of this.sessions.list()) {
@@ -979,6 +1090,10 @@ function extensionRuntimeIdentity(): RuntimeHelloMessage | null {
     type: 'runtimeHello',
     protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
     extensionVersion: manifest.version,
+    ...(typeof __TEMPAD_RUNTIME_PROFILE__ !== 'undefined' &&
+    __TEMPAD_RUNTIME_PROFILE__.kind === 'checkout'
+      ? { runtimeProfile: __TEMPAD_RUNTIME_PROFILE__ }
+      : {}),
     extensionRuntimeFingerprint: runtimeFingerprint
   }
 }

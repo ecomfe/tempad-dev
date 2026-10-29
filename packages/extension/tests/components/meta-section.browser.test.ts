@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
-import { computed, shallowRef, useTemplateRef } from 'vue'
+import { computed, nextTick, shallowRef, useTemplateRef } from 'vue'
 
 import MetaSection from '@/components/sections/MetaSection.vue'
-import { selection } from '@/ui/state'
+import { selection, selectionRevision } from '@/ui/state'
 
 import { mount, unmountAll } from './mount'
 
@@ -16,10 +16,15 @@ vi.mock('@/composables', async () => ({
 vi.mock('@/ui/state', async () => {
   const { shallowRef, computed } = await import('vue')
   const selection = shallowRef<SceneNode[]>([])
+  const selectionRevision = shallowRef(0)
   return {
     selection,
+    selectionRevision,
     selectedNode: computed(() => selection.value[0] ?? null),
-    selectedTemPadComponent: shallowRef(null)
+    selectedTemPadComponent: computed(() => {
+      void selectionRevision.value
+      return null
+    })
   }
 })
 
@@ -52,6 +57,19 @@ afterEach(() => {
   unmountAll()
   selection.value = []
   vi.unstubAllGlobals()
+})
+
+it('updates the title and copied name when the same ordinary layer is renamed', async () => {
+  const selected = node(async () => [])
+  selection.value = [selected]
+  const host = mount(MetaSection)
+  const title = host.querySelector('.tp-meta-title .tp-copyable')!
+  expect(title.textContent).toBe('Layer')
+  selected.name = 'Renamed layer'
+  selectionRevision.value++
+  await nextTick()
+  expect(title.textContent).toBe('Renamed layer')
+  expect(title.getAttribute('data-tooltip')).toBe('Click to copy layer name: Renamed layer')
 })
 
 it('refreshes empty, changed, and deleted links without changing selection', async () => {

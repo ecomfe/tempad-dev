@@ -31,6 +31,8 @@ export function buildSourceNameIndex(
 
     const cs = v.codeSyntax?.WEB?.trim()
     if (cs) {
+      // Literal codeSyntax can coincide with unrelated colors, lengths or classes.
+      // Per-node projection has already converted bound values to CSS references.
       let canonical = canonicalizeVarName(cs)
       if (!canonical) {
         const trimmed = cs.replace(/^[$@]/, '').trim()
@@ -42,8 +44,6 @@ export function buildSourceNameIndex(
       if (canonical) addName(canonical, id)
       // Match the normalized name that may appear in var(--...) outputs.
       addName(normalizeFigmaVarName(cs), id)
-      // Non-var codeSyntax should also be matched (for example, rounded-2xl).
-      addName(cs, id)
     }
 
     const figmaName = normalizeFigmaVarName(v.name ?? '')

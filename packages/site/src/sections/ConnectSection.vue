@@ -106,6 +106,9 @@ const setupGroups = computed(() => {
 })
 const { resolvedColorMode } = useSiteColorMode()
 let feedbackTimer: number | undefined
+let cancelDeepLink: (() => void) | undefined
+
+watch(selectedAgentId, () => cancelDeepLink?.())
 
 function showFeedback(text: string, kind: FeedbackKind = 'success'): void {
   if (feedbackTimer) {
@@ -124,34 +127,37 @@ async function writeClipboard(text: string, successMessage: string): Promise<voi
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text)
     } else {
+      const previousFocus = document.activeElement
       const textarea = document.createElement('textarea')
       textarea.value = text
       textarea.setAttribute('readonly', '')
-      textarea.style.position = 'absolute'
-      textarea.style.left = '-9999px'
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textarea)
+      textarea.style.cssText = 'position:fixed;left:-9999px;top:0'
+      document.body.append(textarea)
+      try {
+        textarea.select()
+        if (!document.execCommand('copy')) throw new Error('Clipboard copy was rejected.')
+      } finally {
+        textarea.remove()
+        if (previousFocus instanceof HTMLElement && previousFocus.isConnected)
+          previousFocus.focus({ preventScroll: true })
+      }
     }
 
     copiedText.value = text
     showFeedback(successMessage)
   } catch {
+    copiedText.value = null
     showFeedback('Clipboard access failed. Please copy it manually.', 'error')
   }
 }
 
 function openDeepLink(action: AgentIntegrationAction, agent: SetupTarget): void {
-  let cleaned = false
-
   const cleanup = (): void => {
-    if (cleaned) return
-    cleaned = true
     window.clearTimeout(timeoutId)
     window.removeEventListener('blur', cleanup)
     window.removeEventListener('pagehide', cleanup)
     document.removeEventListener('visibilitychange', handleVisibilityChange)
+    if (cancelDeepLink === cleanup) cancelDeepLink = undefined
   }
 
   const handleVisibilityChange = (): void => {
@@ -176,10 +182,12 @@ function openDeepLink(action: AgentIntegrationAction, agent: SetupTarget): void 
   window.addEventListener('pagehide', cleanup, { once: true })
   document.addEventListener('visibilitychange', handleVisibilityChange)
 
+  cancelDeepLink = cleanup
   window.location.href = action.value
 }
 
 function handleAgentAction(action: AgentIntegrationAction, agent: SetupTarget): void {
+  cancelDeepLink?.()
   if (action.kind === 'deep-link') {
     openDeepLink(action, agent)
     return
@@ -244,6 +252,7 @@ function getCopyHint(action: AgentIntegrationAction, index: number): string {
 }
 
 onBeforeUnmount(() => {
+  cancelDeepLink?.()
   if (feedbackTimer) window.clearTimeout(feedbackTimer)
   listAnimation?.cancel()
 })

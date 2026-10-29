@@ -26,6 +26,22 @@ export function createCodedError(
   return Object.assign(new Error(message), { code })
 }
 
+/** Use only at a boundary that proves no native authoring work has started. */
+export function canvasAbortedError(error: unknown): Error & { code: TempadMcpErrorCode } {
+  const payload = coerceToolErrorPayload(error)
+  const diagnostic =
+    payload.code && payload.code !== TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED
+      ? ` [${payload.code}]`
+      : ''
+  return Object.assign(
+    createCodedError(
+      TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      `${payload.message}${diagnostic}`
+    ),
+    { cause: error }
+  )
+}
+
 export function coerceToolErrorPayload(error: unknown): ToolErrorPayload {
   if (error instanceof Error) {
     const message = error.message || 'Unknown error'

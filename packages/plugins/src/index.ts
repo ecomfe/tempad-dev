@@ -403,7 +403,8 @@ export function h<T extends object = Record<string, unknown>>(
   propsOrChildren?: T | (DevComponent | string)[] | DevComponent | string | null,
   childrenOrSingle?: (DevComponent | string)[] | DevComponent | string
 ): DevComponent<T> {
-  const childrenOnly = propsOrChildren == null || isChildrenArgument(propsOrChildren)
+  const childrenOnly =
+    propsOrChildren == null || (arguments.length < 3 && isChildrenArgument(propsOrChildren))
   const props = childrenOnly ? ({} as T) : (propsOrChildren as T)
   const childSource = childrenOnly ? (propsOrChildren ?? childrenOrSingle) : childrenOrSingle
 
@@ -454,7 +455,8 @@ function matchProperty<T>(
     }
 
     if (condition instanceof RegExp) {
-      return condition.test(value)
+      // Queries match independently of earlier nodes and the caller's lastIndex.
+      return new RegExp(condition.source, condition.flags).test(value)
     }
   }
 
@@ -563,14 +565,19 @@ export function findAll<T extends DesignNode = DesignNode>(
   query: NodeQuery
 ): T[] {
   const result: DesignNode[] = []
-  for (const child of node.children) {
-    if (matchNode(child, query)) {
-      result.push(child)
-    }
-    if ('children' in child) {
-      result.push(...findAll(child, query))
+
+  function visit(container: ContainerNode): void {
+    for (const child of container.children) {
+      if (matchNode(child, query)) {
+        result.push(child)
+      }
+      if ('children' in child) {
+        visit(child)
+      }
     }
   }
+
+  visit(node)
   return result as T[]
 }
 

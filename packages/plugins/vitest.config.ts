@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config'
 
+import { FULL_COVERAGE_THRESHOLDS } from '../../vitest.coverage'
+
 export default defineConfig({
   test: {
     name: 'plugins',
@@ -9,13 +11,7 @@ export default defineConfig({
       provider: 'istanbul',
       reporter: ['text', 'html'],
       include: ['src/index.ts'],
-      thresholds: {
-        lines: 100,
-        functions: 100,
-        branches: 100,
-        statements: 100,
-        perFile: true
-      }
+      thresholds: FULL_COVERAGE_THRESHOLDS
     }
   }
 })

@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({ spawn: vi.fn(), execFile: vi.fn() }))
 vi.mock('node:child_process', () => mocks)
 
 import { CodexQueueRpc, codexQueueExecutable } from '../src/agent-clients/codex-queue-rpc'
+import { captureHostContext } from '../src/agent-clients/host-context'
+
+const context = captureHostContext({ HOME: '/fixture', TMPDIR: '/fixture/tmp' })
 
 type Request = { id?: number; method: string; params?: Record<string, unknown> }
 const clients: CodexQueueRpc[] = []
@@ -42,12 +45,44 @@ function peer(handle: (request: Request) => unknown = () => ({ data: [], nextCur
 }
 
 function client(executable = vi.fn(async () => '/host/resources/codex')) {
-  const rpc = new CodexQueueRpc(executable)
+  const rpc = new CodexQueueRpc(context, executable)
   clients.push(rpc)
   return rpc
 }
 
 describe('queue-only native RPC', () => {
+  it('starts each helper with its originating host paths and without inherited credentials', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'not-for-helpers')
+    vi.stubEnv('CODEX_HOME', '/first-launcher')
+    vi.stubEnv('CODEX_THREAD_ID', 'first-thread')
+    vi.stubEnv('NODE_OPTIONS', '--require /unrelated.js')
+    try {
+      peer()
+      peer()
+      const first = client()
+      const otherContext = {
+        ...context,
+        codexHome: '/second-home',
+        codexSqliteHome: '/second-sqlite'
+      }
+      const second = new CodexQueueRpc(otherContext, async () => '/host/resources/codex')
+      clients.push(second)
+      await Promise.all([first.list('same-thread'), second.list('same-thread')])
+      expect(mocks.spawn.mock.calls.map((call) => call[2].env.CODEX_HOME)).toEqual([
+        context.codexHome,
+        otherContext.codexHome
+      ])
+      for (const [, , options] of mocks.spawn.mock.calls) {
+        expect(options.env).not.toHaveProperty('OPENAI_API_KEY')
+        expect(options.env).not.toHaveProperty('CODEX_THREAD_ID')
+        expect(options.env).not.toHaveProperty('NODE_OPTIONS')
+      }
+      expect(mocks.spawn.mock.calls[1]![2].env.CODEX_SQLITE_HOME).toBe('/second-sqlite')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('releases an idle queue process and reconnects on demand', async () => {
     vi.useFakeTimers()
     const first = peer()
@@ -147,6 +182,23 @@ describe('queue-only native RPC', () => {
     await rejected
   })
 
+  it.each([
+    { error: 'Rejected' },
+    { error: { code: -32603 } },
+    { error: { code: -32603, message: {} } },
+    { error: { code: 'unknown', message: 'Rejected' } },
+    { error: { code: -32603, message: 'Rejected' }, result: {} }
+  ])('does not treat an incompatible rejection as definite: %j', async (response) => {
+    const f = peer(() => undefined)
+    const rejected = expect(
+      client().add('thread-a', 'feedback-a', 'Comment', new AbortController().signal)
+    ).rejects.toMatchObject({ uncertain: true })
+    await vi.waitFor(() => expect(f.requests.at(-1)?.method).toBe('thread/queue/add'))
+    f.reply({ id: f.requests.at(-1)!.id, ...response })
+    await rejected
+    expect(f.requests.filter(({ method }) => method === 'thread/queue/add')).toHaveLength(1)
+  })
+
   it('rejects an incompatible admission acknowledgement', async () => {
     peer(() => ({ queuedSubmission: { id: 'one', clientUserMessageId: 'other' } }))
     await expect(
@@ -157,6 +209,17 @@ describe('queue-only native RPC', () => {
   it('rejects malformed queue data instead of treating it as empty', async () => {
     peer(() => ({ data: [{ id: 5 }], nextCursor: null }))
     await expect(client().list('thread-a')).rejects.toThrow('incompatible server queue')
+  })
+
+  it('rejects a repeated pagination cursor before requesting the same page again', async () => {
+    let pages = 0
+    const f = peer(() => ({
+      data: [],
+      // A final null bounds the broken implementation without an endless test.
+      nextCursor: ['page-a', 'page-b', 'page-a', null][pages++]
+    }))
+    await expect(client().list('thread-a')).rejects.toThrow('incompatible queue cursor')
+    expect(f.requests.filter(({ method }) => method === 'thread/queue/list')).toHaveLength(3)
   })
 
   it('does not spawn after shutdown during executable discovery', async () => {
@@ -188,32 +251,34 @@ describe('desktop executable discovery', () => {
     processes(
       '/usr/local/bin/codex\n/Applications/Codex.app/Contents/Resources/codex\n/Applications/Codex.app/Contents/Resources/codex\n'
     )
-    expect(await codexQueueExecutable()).toBe('/Applications/Codex.app/Contents/Resources/codex')
+    expect(await codexQueueExecutable(context)).toBe(
+      '/Applications/Codex.app/Contents/Resources/codex'
+    )
   })
 
   it('does not guess between different running desktop installations', async () => {
     processes(
       '/Applications/Codex.app/Contents/Resources/codex\n/Applications/ChatGPT.app/Contents/Resources/codex\n'
     )
-    await expect(codexQueueExecutable()).rejects.toThrow('could not be identified')
+    await expect(codexQueueExecutable(context)).rejects.toThrow('could not be identified')
   })
 
   it('discovers the nested desktop CLI and deduplicates its running processes', async () => {
     const executable =
       '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'
     processes(`/usr/local/bin/codex\n${executable}\n${executable}\n`)
-    expect(await codexQueueExecutable()).toBe(executable)
+    expect(await codexQueueExecutable(context)).toBe(executable)
   })
 
   it('rejects ambiguity between nested and legacy desktop installations', async () => {
     processes(
       '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex\n/Applications/Codex.app/Contents/Resources/codex\n'
     )
-    await expect(codexQueueExecutable()).rejects.toThrow('could not be identified')
+    await expect(codexQueueExecutable(context)).rejects.toThrow('could not be identified')
   })
 
   it('does not use a standalone CLI when no desktop binary is running', async () => {
     processes('/usr/local/bin/codex\n')
-    await expect(codexQueueExecutable()).rejects.toThrow('could not be identified')
+    await expect(codexQueueExecutable(context)).rejects.toThrow('could not be identified')
   })
 })

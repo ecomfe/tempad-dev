@@ -78,7 +78,14 @@ export async function exportVectorAssets(
 
     assertActive()
     results.forEach(({ entry, exportedAssets, id }) => {
-      exportedAssets.forEach((asset, hash) => assetRegistry.set(hash, asset))
+      exportedAssets.forEach((asset, hash) => {
+        const existing = assetRegistry.get(hash)
+        const descriptor = { ...asset }
+        // Shared bytes do not establish shared variable semantics. A fixed-color
+        // consumer keeps the deduplicated asset fixed, regardless of export order.
+        if (existing && !existing.themeable) delete descriptor.themeable
+        assetRegistry.set(hash, descriptor)
+      })
       if (!entry) {
         if (cache?.metrics) cache.metrics.vectorExportNull += 1
         return

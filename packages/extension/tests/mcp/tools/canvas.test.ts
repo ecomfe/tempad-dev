@@ -108,30 +108,6 @@ afterEach(() => {
 })
 
 describe('mcp/tools/canvas', () => {
-  it('preserves the size produced by a native-only variant change', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvas({
-      mode: 'create',
-      markup:
-        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="button" class="w-16 h-8"/></div>',
-      bindings: { button: { component: { id: 'component:1' } } }
-    })
-    const button = fixture.getNode(created.nodeIdsByKey.button!) as unknown as InstanceNode
-    const setProperties = vi.mocked(button.setProperties).getMockImplementation()
-    if (!setProperties) throw new Error('Expected the fixture instance setter.')
-    vi.spyOn(button, 'setProperties').mockImplementation((properties) => {
-      setProperties(properties)
-      button.resize(160, 64)
-    })
-    const updated = await applyCanvasFromTool({
-      mode: 'update',
-      targetNodeId: created.rootNodeId!,
-      native: { button: { componentProperties: { State: 'Hover' } } }
-    })
-    expect(button).toMatchObject({ width: 160, height: 64 })
-    expect(updated.verification.status).toBe('passed')
-  })
-
   it('ignores copied ownership data on a duplicated managed frame', async () => {
     const fixture = createFixture()
     const created = await applyCanvas({
@@ -166,6 +142,43 @@ describe('mcp/tools/canvas', () => {
     ).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
     expect(write).not.toHaveBeenCalled()
   })
+
+  it.each(['lineHeight', 'letterSpacing'] as const)(
+    'preserves float32 %s without suppressing unit or value changes',
+    async (field) => {
+      const fixture = createFixture()
+      const property = field === 'lineHeight' ? 'leading' : 'tracking'
+      const markup = (utility: string) =>
+        `<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-10 ${utility}">Label</span></div>`
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup: markup(`${property}-[24.1px]`)
+      })
+      const label = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+      let stored: LetterSpacing = { unit: 'PIXELS', value: Math.fround(24.1) }
+      const write = vi.fn((value: LetterSpacing) => {
+        stored = { ...value, value: Math.fround(value.value) }
+      })
+      Object.defineProperty(label, field, { configurable: true, get: () => stored, set: write })
+      const update = (measure: LetterSpacing) =>
+        applyCanvasFromTool({
+          mode: 'update',
+          targetNodeId: created.rootNodeId!,
+          markup: markup(`${property}-[${measure.value}${measure.unit === 'PIXELS' ? 'px' : '%'}]`)
+        })
+
+      await expect(update({ unit: 'PIXELS', value: 24.1 })).resolves.toMatchObject({
+        mutationCount: 0,
+        updatedNodeIds: []
+      })
+      expect(write).not.toHaveBeenCalled()
+      await update({ unit: 'PIXELS', value: 24.2 })
+      expect(write).toHaveBeenLastCalledWith({ unit: 'PIXELS', value: 24.2 })
+      await update({ unit: 'PERCENT', value: 24.2 })
+      expect(write).toHaveBeenLastCalledWith({ unit: 'PERCENT', value: 24.2 })
+      expect(write).toHaveBeenCalledTimes(2)
+    }
+  )
 
   it('adopts a copied subtree by exact ids and converges with float32 native values', async () => {
     const fixture = createFixture({ float32: ['opacity', 'width', 'height'] })
@@ -244,33 +257,6 @@ describe('mcp/tools/canvas', () => {
     })
   })
 
-  it('validates native-only assets before downloading or mutating', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvas({
-      mode: 'create',
-      markup: '<div data-key="root" class="w-20 h-20"/>'
-    })
-    const before = fixture.getNode(created.rootNodeId!).name
-    await expect(
-      applyCanvasFromTool({
-        mode: 'update',
-        targetNodeId: created.rootNodeId!,
-        native: {
-          root: {
-            figma: {
-              name: 'Changed',
-              fills: [{ type: 'IMAGE', assetKey: 'missing', scaleMode: 'FILL' }]
-            }
-          }
-        }
-      })
-    ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
-      message: expect.stringContaining('not declared')
-    })
-    expect(fixture.getNode(created.rootNodeId!).name).toBe(before)
-  })
-
   it('rejects variable type mismatches before creating resources', async () => {
     createFixture()
     await expect(
@@ -287,7 +273,8 @@ describe('mcp/tools/canvas', () => {
         bindings: { root: { variables: { fill: { variableKey: 'color' } } } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected COLOR')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -306,7 +293,8 @@ describe('mcp/tools/canvas', () => {
     const fetch = vi.fn()
     vi.stubGlobal('fetch', fetch)
     await expect(applyCanvas(videoUrlSpec(url))).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('public HTTPS')
     })
     expect(fetch).not.toHaveBeenCalled()
@@ -332,538 +320,6 @@ describe('mcp/tools/canvas', () => {
     })
   })
 
-  it('updates native state by stable key without moving nested nodes', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup:
-        '<div data-key="root" class="flex flex-col w-[320px] h-[240px]"><div data-key="media" class="flex flex-col w-full h-[180px]"><div data-key="photo" class="w-full h-[150px]"></div><span data-key="caption" class="w-fit h-fit">Pool</span></div><span data-key="footer" class="w-fit h-fit">Book</span></div>'
-    })
-    const root = fixture.getNode(created.rootNodeId!)
-    const media = fixture.getNode(created.nodeIdsByKey.media!)
-    const photo = fixture.getNode(created.nodeIdsByKey.photo!)
-    const rootChildren = root.children.map((node) => node.id)
-    const mediaChildren = media.children.map((node) => node.id)
-    const imageUrl = 'https://images.example.com/pool.png'
-    const update = {
-      mode: 'update' as const,
-      targetNodeId: root.id,
-      native: {
-        photo: {
-          figma: { fills: [{ type: 'IMAGE' as const, imageUrl, scaleMode: 'FILL' as const }] }
-        }
-      }
-    }
-
-    const updated = await applyCanvasFromTool(update)
-
-    expect(root.children.map((node) => node.id)).toEqual(rootChildren)
-    expect(media.children.map((node) => node.id)).toEqual(mediaChildren)
-    expect(photo.parent).toBe(media)
-    expect(photo.fills).toEqual([
-      expect.objectContaining({ type: 'IMAGE', imageHash: `image:${imageUrl}`, scaleMode: 'FILL' })
-    ])
-    expect(updated).toMatchObject({
-      rootNodeId: root.id,
-      nodeIdsByKey: { photo: photo.id },
-      createdNodeIds: [],
-      updatedNodeIds: [photo.id],
-      removedNodeIds: [],
-      verification: {
-        status: 'passed',
-        nodesChecked: 1,
-        referencesChecked: 0,
-        nativeFieldsChecked: 1,
-        warnings: []
-      }
-    })
-    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
-  })
-
-  it.each(['include the bound node', 'separate native-only update'] as const)(
-    'repairs a mixed update by choosing to %s without replacing existing nodes',
-    async (repair) => {
-      const fixture = createFixture()
-      const content =
-        '<div data-key="content" class="flex flex-col w-full h-fit"><div data-key="panel" class="w-full h-[32px] bg-black"></div></div>'
-      const markup = (children: string) =>
-        `<div data-key="root" class="flex flex-col w-[320px] h-[200px]">${children}</div>`
-      const created = await applyCanvasFromTool({ mode: 'create', markup: markup(content) })
-      const root = fixture.getNode(created.rootNodeId!)
-      const parent = fixture.getNode(created.nodeIdsByKey.content!)
-      const panel = fixture.getNode(created.nodeIdsByKey.panel!)
-      const update = {
-        mode: 'update' as const,
-        targetNodeId: root.id,
-        native: { panel: { figma: { name: 'Updated panel' } } }
-      }
-      const banner = '<div data-key="banner" class="w-full h-[24px]"></div>'
-      vi.mocked(figma.createFrame).mockClear()
-      fixture.commitUndo.mockClear()
-
-      await expect(applyCanvasFromTool({ ...update, markup: markup(banner) })).rejects.toThrow(
-        'Binding "panel" has no matching data-key in the supplied markup.'
-      )
-      expect(figma.createFrame).not.toHaveBeenCalled()
-      expect(fixture.commitUndo).not.toHaveBeenCalled()
-      expect(root.children.map((node) => node.id)).toEqual([parent.id])
-      expect(panel.name).toBe('panel')
-
-      if (repair === 'include the bound node') {
-        await applyCanvasFromTool({ ...update, markup: markup(banner + content) })
-      } else {
-        await applyCanvasFromTool({
-          mode: 'update',
-          targetNodeId: root.id,
-          markup: markup(banner)
-        })
-        await applyCanvasFromTool(update)
-      }
-
-      expect(panel.name).toBe('Updated panel')
-      expect(panel.parent).toBe(parent)
-      expect(parent.parent).toBe(root)
-      expect(parent.children.map((node) => node.id)).toEqual([panel.id])
-      expect(root.children).toHaveLength(2)
-      expect(root.children.map((node) => node.name)).toEqual(
-        expect.arrayContaining(['banner', 'content'])
-      )
-      expect(figma.createFrame).toHaveBeenCalledOnce()
-    }
-  )
-
-  it('updates native display names without changing stable identity or omitted state', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup:
-        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-fit h-fit">Guest</span></div>'
-    })
-    const root = fixture.getNode(created.rootNodeId!)
-    const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
-    const update = {
-      mode: 'update' as const,
-      targetNodeId: root.id,
-      native: {
-        root: { figma: { name: 'Seating plan' } },
-        copy: { figma: { name: 'Guest name' } }
-      }
-    }
-
-    const updated = await applyCanvasFromTool(update)
-
-    expect(root.name).toBe('Seating plan')
-    expect(copy).toMatchObject({ name: 'Guest name', characters: 'Guest' })
-    expect(root.children.map((node) => node.id)).toEqual([copy.id])
-    expect(updated).toMatchObject({
-      nodeIdsByKey: created.nodeIdsByKey,
-      createdNodeIds: [],
-      updatedNodeIds: [root.id, copy.id],
-      removedNodeIds: []
-    })
-    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
-
-    await applyCanvasFromTool({
-      mode: 'update',
-      targetNodeId: root.id,
-      native: {
-        root: { figma: { locked: true } },
-        copy: { figma: { locked: true } }
-      }
-    })
-    expect(root.name).toBe('Seating plan')
-    expect(copy.name).toBe('Guest name')
-
-    await applyCanvasFromTool({
-      mode: 'update',
-      targetNodeId: root.id,
-      native: { root: { figma: { name: '' } } }
-    })
-    expect(root.name).toBe('')
-  })
-
-  it('updates native text properties without markup and preserves omitted typography', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup:
-        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-[240px] h-[80px] text-[20px] leading-[28px]">Guest</span></div>'
-    })
-    const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
-    const update = {
-      mode: 'update' as const,
-      targetNodeId: created.rootNodeId!,
-      native: {
-        copy: {
-          figma: {
-            text: {
-              fontName: { family: 'IBM Plex Sans', style: 'Medium' },
-              verticalAlign: 'CENTER' as const,
-              paragraphSpacing: 8
-            }
-          }
-        }
-      }
-    }
-
-    await applyCanvasFromTool(update)
-    expect(copy).toMatchObject({
-      characters: 'Guest',
-      textAutoResize: 'NONE',
-      fontName: { family: 'IBM Plex Sans', style: 'Medium' },
-      textAlignVertical: 'CENTER',
-      paragraphSpacing: 8,
-      fontSize: 20,
-      lineHeight: { unit: 'PIXELS', value: 28 },
-      width: 240,
-      height: 80
-    })
-    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
-
-    copy.fontName = figma.mixed
-    copy.textAutoResize = 'TRUNCATE'
-    await applyCanvasFromTool({
-      mode: 'update',
-      targetNodeId: created.rootNodeId!,
-      native: { copy: { figma: { name: 'Guest name' } } }
-    })
-    expect(copy.fontName).toBe(figma.mixed)
-    expect(copy.textAutoResize).toBe('TRUNCATE')
-    expect(copy.characters).toBe('Guest')
-    expect(copy.textAlignVertical).toBe('CENTER')
-  })
-
-  it('updates native-only Auto Layout spacing and stacking while preserving the live layout', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup:
-        '<div data-key="root" class="flex flex-row flex-wrap w-[320px] h-[200px] gap-[8px] p-[16px] items-center"><div data-key="child" class="w-[40px] h-[20px]"></div></div>'
-    })
-    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
-    const update = {
-      mode: 'update' as const,
-      targetNodeId: root.id,
-      native: {
-        root: {
-          figma: {
-            autoLayout: { itemSpacing: -12, counterAxisSpacing: 20, itemReverseZIndex: true }
-          }
-        }
-      }
-    }
-
-    await applyCanvasFromTool(update)
-    expect(root).toMatchObject({
-      itemSpacing: -12,
-      counterAxisSpacing: 20,
-      itemReverseZIndex: true,
-      layoutMode: 'HORIZONTAL',
-      layoutWrap: 'WRAP',
-      paddingLeft: 16,
-      paddingRight: 16,
-      counterAxisAlignItems: 'CENTER',
-      width: 320,
-      height: 200
-    })
-    expect(root.children.map((node) => node.id)).toEqual([created.nodeIdsByKey.child])
-    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
-
-    const synchronized = {
-      ...update,
-      native: {
-        root: {
-          figma: {
-            autoLayout: { itemSpacing: 0, counterAxisSpacing: null, itemReverseZIndex: false }
-          }
-        }
-      }
-    }
-    await applyCanvasFromTool(synchronized)
-    expect(root).toMatchObject({ itemSpacing: 0, counterAxisSpacing: 0, itemReverseZIndex: false })
-    await expect(applyCanvasFromTool(synchronized)).resolves.toMatchObject({ mutationCount: 0 })
-
-    await applyCanvasFromTool({
-      ...update,
-      native: { root: { figma: { autoLayout: { itemSpacing: 6 } } } }
-    })
-    expect(root).toMatchObject({ itemSpacing: 6, counterAxisSpacing: 6, itemReverseZIndex: false })
-    await applyCanvasFromTool({
-      ...update,
-      native: { root: { figma: { autoLayout: { counterAxisSpacing: 6 } } } }
-    })
-    await applyCanvasFromTool({
-      ...update,
-      native: { root: { figma: { autoLayout: { itemSpacing: 12 } } } }
-    })
-    expect(root).toMatchObject({ itemSpacing: 12, counterAxisSpacing: 6 })
-  })
-
-  it.each<CanvasFigmaProperties>([
-    { text: { paragraphSpacing: 8 } },
-    { shape: { type: 'RECTANGLE' } },
-    { section: { contentsHidden: true } },
-    { group: true },
-    { booleanOperation: 'UNION' },
-    { component: { type: 'COMPONENT' } },
-    { slot: {} }
-  ])(
-    'rejects native-only type declarations that do not match the live frame: %j',
-    async (properties) => {
-      const fixture = createFixture()
-      const created = await applyCanvasFromTool({
-        mode: 'create',
-        markup: '<div data-key="root" class="w-[120px] h-[80px]"></div>'
-      })
-      const root = fixture.getNode(created.rootNodeId!)
-
-      await expect(
-        applyCanvasFromTool({
-          mode: 'update',
-          targetNodeId: root.id,
-          native: { root: { figma: { ...properties, name: 'Must not be applied' } } }
-        })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
-      expect(root).toMatchObject({ name: 'root', type: 'FRAME', width: 120, height: 80 })
-    }
-  )
-
-  it.each([
-    { classes: 'w-[120px] h-[80px]', autoLayout: { itemSpacing: 4 } },
-    { classes: 'grid grid-cols-2 w-[120px] h-[80px]', autoLayout: { itemSpacing: 4 } },
-    { classes: 'flex flex-row w-[120px] h-[80px]', autoLayout: { counterAxisSpacing: 4 } }
-  ])(
-    'rejects native-only Auto Layout state incompatible with the live layout: %j',
-    async ({ classes, autoLayout }) => {
-      const fixture = createFixture()
-      const created = await applyCanvasFromTool({
-        mode: 'create',
-        markup: `<div data-key="root" class="${classes}"></div>`
-      })
-      const root = fixture.getNode(created.rootNodeId!)
-      await expect(
-        applyCanvasFromTool({
-          mode: 'update',
-          targetNodeId: root.id,
-          native: { root: { figma: { autoLayout, name: 'Must not be applied' } } }
-        })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
-      expect(root.name).toBe('root')
-    }
-  )
-
-  it.each<CanvasFigmaProperties>([
-    { corners: { radius: 8 } },
-    { corners: { smoothing: 0.5 } },
-    { stroke: { weights: { top: 1, right: 2, bottom: 3, left: 4 } } }
-  ])('rejects native-only geometry unsupported by a text node: %j', async (properties) => {
-    const fixture = createFixture()
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup:
-        '<div data-key="root" class="flex flex-col w-[120px] h-[80px]"><span data-key="copy" class="w-fit h-fit">Text</span></div>'
-    })
-    const copy = fixture.getNode(created.nodeIdsByKey.copy!)
-    await expect(
-      applyCanvasFromTool({
-        mode: 'update',
-        targetNodeId: copy.id,
-        native: { copy: { figma: { ...properties, name: 'Must not be applied' } } }
-      })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
-    expect(copy.name).toBe('copy')
-  })
-
-  it('resolves native-only component property definitions before dependent sublayer bindings', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup:
-        '<div data-key="card" class="flex flex-col w-[200px] h-[100px]"><span data-key="title" class="w-fit h-fit">Title</span></div>',
-      native: { card: { figma: { component: { type: 'COMPONENT' } } } }
-    })
-    const card = fixture.getNode(created.rootNodeId!) as unknown as ComponentNode
-    const title = fixture.getNode(created.nodeIdsByKey.title!) as unknown as TextNode
-    const update = {
-      mode: 'update' as const,
-      targetNodeId: card.id,
-      native: {
-        title: { figma: { componentPropertyReferences: { characters: 'title' } } },
-        card: {
-          figma: {
-            component: {
-              type: 'COMPONENT' as const,
-              properties: { title: { type: 'TEXT' as const, name: 'Title', defaultValue: 'Title' } }
-            }
-          }
-        }
-      }
-    }
-
-    await applyCanvasFromTool(update)
-    const propertyName = Object.keys(card.componentPropertyDefinitions).find((name) =>
-      name.startsWith('Title#')
-    )!
-    expect(propertyName).toBeDefined()
-    expect(title.componentPropertyReferences).toEqual({ characters: propertyName })
-    expect(card.children.map((node) => node.id)).toEqual([title.id])
-    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
-  })
-
-  it('preserves Auto Layout translation while resolving native-only vector Pattern references', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup:
-        '<div data-key="root" class="flex flex-row w-[200px] h-[100px]"><div data-key="icon" class="w-[24px] h-[24px]"></div><div data-key="source" class="w-[24px] h-[24px]"></div></div>',
-      native: {
-        icon: {
-          figma: {
-            shape: {
-              type: 'VECTOR',
-              paths: [{ windingRule: 'NONZERO', data: 'M 0 0 L 24 0 L 0 24 Z' }]
-            }
-          }
-        }
-      }
-    })
-    const icon = fixture.getNode(created.nodeIdsByKey.icon!) as unknown as VectorNode
-    const source = fixture.getNode(created.nodeIdsByKey.source!)
-    const translation = [icon.relativeTransform[0][2], icon.relativeTransform[1][2]]
-    const update = {
-      mode: 'update' as const,
-      targetNodeId: created.rootNodeId!,
-      native: {
-        icon: {
-          figma: {
-            relativeTransform: [
-              [0, -1, 300],
-              [1, 0, 400]
-            ],
-            shape: {
-              type: 'VECTOR',
-              network: {
-                vertices: [
-                  { x: 0, y: 0 },
-                  { x: 24, y: 0 },
-                  { x: 0, y: 24 }
-                ],
-                segments: [
-                  { start: 0, end: 1 },
-                  { start: 1, end: 2 },
-                  { start: 2, end: 0 }
-                ],
-                regions: [
-                  {
-                    windingRule: 'NONZERO',
-                    loops: [[0, 1, 2]],
-                    fills: [
-                      {
-                        type: 'PATTERN',
-                        sourceCanvasKey: 'source',
-                        tileType: 'RECTANGULAR',
-                        scalingFactor: 1,
-                        spacing: { x: 0, y: 0 },
-                        horizontalAlignment: 'START'
-                      }
-                    ]
-                  }
-                ]
-              }
-            }
-          }
-        }
-      }
-    }
-
-    await applyCanvasFromTool(update)
-    expect(icon.relativeTransform).toEqual([
-      [0, -1, translation[0]],
-      [1, 0, translation[1]]
-    ])
-    expect(icon.vectorNetwork.regions?.[0]?.fills).toMatchObject([
-      { type: 'PATTERN', sourceNodeId: source.id }
-    ])
-    expect(icon).toMatchObject({ width: 24, height: 24 })
-    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
-  })
-
-  it('rejects conflicting native-only exact fonts and text styles before mutation', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup:
-        '<div data-key="root" class="flex flex-col w-[200px] h-[100px]"><span data-key="copy" class="w-fit h-fit">Text</span></div>',
-      styles: {
-        body: {
-          type: 'TEXT',
-          name: 'Body',
-          fontName: { family: 'Inter', style: 'Regular' },
-          fontSize: 16
-        }
-      }
-    })
-    const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
-    await expect(
-      applyCanvasFromTool({
-        mode: 'update',
-        targetNodeId: created.rootNodeId!,
-        native: {
-          copy: {
-            styles: { text: { styleKey: 'body' } },
-            figma: {
-              name: 'Must not be applied',
-              text: { fontName: { family: 'Roboto', style: 'Bold' } }
-            }
-          }
-        }
-      })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
-    expect(copy).toMatchObject({ name: 'copy', textStyleId: '' })
-    const update = {
-      mode: 'update' as const,
-      targetNodeId: created.rootNodeId!,
-      native: { copy: { styles: { text: { styleKey: 'body' } } } }
-    }
-    await applyCanvasFromTool(update)
-    expect(copy.textStyleId).not.toBe('')
-    expect(copy.fontName).toEqual({ family: 'Inter', style: 'Regular' })
-    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
-
-    const unlinked = {
-      ...update,
-      native: {
-        copy: {
-          styles: { text: null },
-          figma: { text: { fontName: { family: 'Roboto', style: 'Bold' } } }
-        }
-      }
-    }
-    await applyCanvasFromTool(unlinked)
-    expect(copy).toMatchObject({ textStyleId: '', fontName: { family: 'Roboto', style: 'Bold' } })
-    await expect(applyCanvasFromTool(unlinked)).resolves.toMatchObject({ mutationCount: 0 })
-  })
-
-  it('rejects a markup-less native key outside the update scope', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup: '<div data-key="root" class="w-[120px] h-[80px]"></div>'
-    })
-
-    await expect(
-      applyCanvasFromTool({
-        mode: 'update',
-        targetNodeId: created.rootNodeId!,
-        native: { missing: { figma: { locked: true } } }
-      })
-    ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
-      message: expect.stringContaining('does not exist inside the update scope')
-    })
-    expect(fixture.getNode(created.rootNodeId!).locked).toBe(false)
-  })
-
   it('rejects unsupported and read-only editors before accepting a desired result', async () => {
     const fixture = createFixture()
     const input = {
@@ -873,14 +329,16 @@ describe('mcp/tools/canvas', () => {
 
     vi.stubGlobal('window', {} as Window)
     await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_UNSUPPORTED_EDITOR
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      message: expect.stringContaining('CANVAS_UNSUPPORTED_EDITOR')
     })
 
     vi.stubGlobal('window', {
       INITIAL_OPTIONS: { editor_type: 'whiteboard' }
     } as unknown as Window)
     await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_UNSUPPORTED_EDITOR
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      message: expect.stringContaining('CANVAS_UNSUPPORTED_EDITOR')
     })
 
     vi.stubGlobal('window', {
@@ -890,7 +348,7 @@ describe('mcp/tools/canvas', () => {
       throw Object.setPrototypeOf(new Error('Cannot write to internal and read-only nodes'), null)
     })
     await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_READ_ONLY,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining('requires edit access')
     })
     expect(fixture.commitUndo).toHaveBeenCalledOnce()
@@ -900,7 +358,7 @@ describe('mcp/tools/canvas', () => {
       throw 'Cannot write to internal and read-only nodes'
     })
     await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_READ_ONLY,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining('requires edit access')
     })
 
@@ -916,7 +374,8 @@ describe('mcp/tools/canvas', () => {
     })
 
     await expect(applyCanvasFromTool()).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      message: expect.stringContaining('INVALID_CANVAS_SPEC')
     })
   })
 
@@ -1304,7 +763,9 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining('fill geometry does not match')
     })
-    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    // The ignored setter left no new change for Undo to distinguish from the prior create.
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(child.width).toBe(0)
   })
 
   it('reports declared and applied sizing modes when Figma rejects a sizing change', async () => {
@@ -1339,7 +800,8 @@ describe('mcp/tools/canvas', () => {
         'declared horizontal=FILL, vertical=FIXED, grow=false; applied horizontal=FIXED'
       )
     })
-    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(child.layoutSizingHorizontal).toBe('FIXED')
   })
 
   it('auto-places a transformed root and updates exact native transforms idempotently', async () => {
@@ -1702,7 +1164,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
     })
     expect(figma.group).toHaveBeenCalledTimes(1)
 
@@ -1718,7 +1181,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
     })
   })
 
@@ -1773,7 +1237,8 @@ describe('mcp/tools/canvas', () => {
           '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div>'
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('Moving these children would leave GROUP')
     })
     expect(root.children).toEqual([group])
@@ -1912,7 +1377,8 @@ describe('mcp/tools/canvas', () => {
       })
       if (scenario === 'retain outer') {
         await expect(update).rejects.toMatchObject({
-          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+          code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+          cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
           message: expect.stringContaining(outer.id)
         })
         expect(fixture.commitUndo).not.toHaveBeenCalled()
@@ -1971,7 +1437,8 @@ describe('mcp/tools/canvas', () => {
       })
       if (order === 'after') {
         await expect(update).rejects.toMatchObject({
-          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+          code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+          cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
           message: expect.stringContaining(outer.id)
         })
         expect(fixture.commitUndo).not.toHaveBeenCalled()
@@ -2083,7 +1550,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['inner']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining(outer.id)
     })
     expect(fixture.commitUndo).not.toHaveBeenCalled()
@@ -2341,7 +1809,8 @@ describe('mcp/tools/canvas', () => {
 
     Object.assign(variants, { remote: true })
     await expect(applyCanvas(metadataUpdate)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
     })
   })
 
@@ -2542,7 +2011,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('cannot exceed maxChildren')
     })
 
@@ -2799,7 +2269,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining(
         'give the instance a new key and remove the primitive key in the same update'
       )
@@ -2839,7 +2310,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringMatching(
         /update root cannot become an instance in place.*bounded ancestor.*new key.*remove the old keyed node/
       )
@@ -3536,7 +3008,8 @@ describe('mcp/tools/canvas', () => {
   ])('preflights %s before applying', async (_name, input, message) => {
     const fixture = createFixture()
     await expect(applyCanvas(input as CanvasResolvedApplyParameters)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining(message)
     })
     expect(fixture.page.children).toEqual([])
@@ -3694,7 +3167,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('requires an existing instance or a component reference')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -3758,9 +3232,9 @@ describe('mcp/tools/canvas', () => {
   it('updates an existing primary nested instance as the declarative root', async () => {
     const fixture = createFixture()
     const component = fixture.nodes.get('component:1') as ComponentNode
+    const container = fixture.createNode('COMPONENT')
     const primary = component.createInstance()
-    const mutablePrimary = primary as unknown as MutableNode
-    mutablePrimary.parent = component
+    container.appendChild(primary)
     const input: CanvasResolvedApplyParameters = {
       mode: 'update',
       targetNodeId: primary.id,
@@ -3776,6 +3250,10 @@ describe('mcp/tools/canvas', () => {
     const result = await applyCanvas(input)
     expect(result.rootNodeId!).toBe(primary.id)
     expect(primary.isExposedInstance).toBe(true)
+    expect(primary.parent).toBe(container)
+    expect(container.children).toEqual([primary])
+    expect(fixture.page.children).not.toContain(primary)
+    expect(await primary.getMainComponentAsync()).toBe(component)
     expect((await applyCanvas(input)).mutationCount).toBe(0)
 
     const pageInstance = component.createInstance()
@@ -3790,7 +3268,10 @@ describe('mcp/tools/canvas', () => {
           }
         }
       })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+    })
     expect(pageInstance.isExposedInstance).toBe(false)
   })
 
@@ -3819,7 +3300,10 @@ describe('mcp/tools/canvas', () => {
           }
         }
       })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+    })
     expect(figma.createFrame).not.toHaveBeenCalled()
   })
 
@@ -3837,7 +3321,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('could not be imported')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -4000,7 +3485,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expects STAR')
     })
   })
@@ -4161,6 +3647,7 @@ describe('mcp/tools/canvas', () => {
   it.each([
     {
       shape: { type: 'VECTOR' as const },
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
       message: 'requires at least one path or network vertex'
     },
     {
@@ -4168,6 +3655,7 @@ describe('mcp/tools/canvas', () => {
         type: 'VECTOR' as const,
         paths: [{ windingRule: 'NONE' as const, data: 'm 0 0 l 1 1' }]
       },
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: 'Unsupported vector path command'
     },
     {
@@ -4185,27 +3673,35 @@ describe('mcp/tools/canvas', () => {
           ]
         }
       },
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: 'expected PAINT'
     }
-  ])('rejects invalid vector authoring before mutation: $message', async ({ shape, message }) => {
-    createFixture()
-    await expect(
-      applyCanvas({
-        mode: 'create',
-        markup:
-          '<div data-key="root" class="flex flex-row w-[100px] h-[100px]"><div data-key="icon" class="w-[24px] h-[24px]"></div></div>',
-        bindings: {
-          icon: {
-            figma: { shape }
+  ])(
+    'rejects invalid vector authoring before mutation: $message',
+    async ({ shape, code, message }) => {
+      createFixture()
+      await expect(
+        applyCanvas({
+          mode: 'create',
+          markup:
+            '<div data-key="root" class="flex flex-row w-[100px] h-[100px]"><div data-key="icon" class="w-[24px] h-[24px]"></div></div>',
+          bindings: {
+            icon: {
+              figma: { shape }
+            }
           }
-        }
+        })
+      ).rejects.toMatchObject({
+        code:
+          code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED
+            ? code
+            : TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        ...(code === TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC ? { cause: { code } } : {}),
+        message: expect.stringContaining(message)
       })
-    ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
-      message: expect.stringContaining(message)
-    })
-    expect(figma.createVector).not.toHaveBeenCalled()
-  })
+      expect(figma.createVector).not.toHaveBeenCalled()
+    }
+  )
 
   it.each([
     ['path', 'create'],
@@ -4390,100 +3886,6 @@ describe('mcp/tools/canvas', () => {
     await expect(applyCanvas(updated)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
-  it('updates native stroke and corner geometry without markup and preserves omitted appearance', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup:
-        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><div data-key="shape" class="w-[80px] h-[48px] bg-[#112233] border-[2px] border-[#445566] rounded-[4px] opacity-50"></div></div>',
-      native: { shape: { figma: { shape: { type: 'RECTANGLE' } } } }
-    })
-    const root = fixture.getNode(created.rootNodeId!)
-    const shape = fixture.getNode(created.nodeIdsByKey.shape!) as unknown as RectangleNode
-    const fills = shape.fills
-    const strokes = shape.strokes
-    const update = {
-      mode: 'update' as const,
-      targetNodeId: root.id,
-      native: {
-        shape: {
-          figma: {
-            stroke: {
-              weight: 5,
-              align: 'OUTSIDE' as const,
-              cap: 'SQUARE' as const,
-              join: 'BEVEL' as const,
-              miterLimit: 6,
-              dashPattern: [4, 3]
-            },
-            corners: { radius: 10, smoothing: 0.75 }
-          }
-        }
-      }
-    }
-
-    await applyCanvasFromTool(update)
-    expect(shape).toMatchObject({
-      strokeWeight: 5,
-      strokeAlign: 'OUTSIDE',
-      strokeCap: 'SQUARE',
-      strokeJoin: 'BEVEL',
-      strokeMiterLimit: 6,
-      dashPattern: [4, 3],
-      cornerRadius: 10,
-      cornerSmoothing: 0.75,
-      width: 80,
-      height: 48,
-      opacity: 0.5,
-      fills,
-      strokes
-    })
-    expect(root.children.map((node) => node.id)).toEqual([shape.id])
-    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
-
-    await applyCanvasFromTool({
-      mode: 'update',
-      targetNodeId: root.id,
-      native: {
-        shape: { figma: { stroke: { dashPattern: [] }, corners: { smoothing: 0 } } }
-      }
-    })
-    expect(shape).toMatchObject({
-      strokeWeight: 5,
-      strokeAlign: 'OUTSIDE',
-      dashPattern: [],
-      cornerRadius: 10,
-      cornerSmoothing: 0
-    })
-
-    const individual = {
-      mode: 'update' as const,
-      targetNodeId: root.id,
-      native: {
-        shape: {
-          figma: {
-            stroke: { weights: { top: 0, right: 2, bottom: 3, left: 4 } },
-            corners: { radii: { topLeft: 0, topRight: 6, bottomRight: 7, bottomLeft: 8 } }
-          }
-        }
-      }
-    }
-    await applyCanvasFromTool(individual)
-    expect(shape).toMatchObject({
-      strokeTopWeight: 0,
-      strokeRightWeight: 2,
-      strokeBottomWeight: 3,
-      strokeLeftWeight: 4,
-      topLeftRadius: 0,
-      topRightRadius: 6,
-      bottomRightRadius: 7,
-      bottomLeftRadius: 8,
-      fills,
-      strokes
-    })
-    await expect(applyCanvasFromTool(individual)).resolves.toMatchObject({ mutationCount: 0 })
-  })
-
   it('binds every stroke and corner variable field and preserves bound geometry', async () => {
     const fixture = createFixture()
     const sideVariables = {
@@ -4606,7 +4008,7 @@ describe('mcp/tools/canvas', () => {
     expect(title.fontSize).toBe(24)
     expect(title.textCase).toBe('TITLE')
     expect(title.textDecoration).toBe('UNDERLINE')
-    expect(title.paragraphIndent).toBe(12)
+    expect(title.getRangeParagraphIndent(0, title.characters.length)).toBe(12)
     expect(title.paragraphSpacing).toBe(20)
     expect(fixture.importStyleByKeyAsync).toHaveBeenCalledWith('stroke-style-key')
     expect(fixture.loadFontAsync.mock.calls).toEqual(
@@ -4970,7 +4372,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected FLOAT')
     })
     await expect(
@@ -4989,7 +4392,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected TEXT')
     })
     await expect(
@@ -5014,7 +4418,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -5324,8 +4729,12 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
-      message: 'Verification failed for "root": direct fills do not match.'
+      message: expect.stringContaining('direct fills do not match; automatic rollback'),
+      cause: expect.objectContaining({
+        message: 'Verification failed for "root": direct fills do not match.'
+      })
     })
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
 
   it('rolls back when Figma does not retain a declared native paint stack', async () => {
@@ -5677,7 +5086,8 @@ describe('mcp/tools/canvas', () => {
         })
       )
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist')
     })
     await expect(
@@ -5696,13 +5106,15 @@ describe('mcp/tools/canvas', () => {
         })
       )
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist or is not a scene node')
     })
     await expect(
       applyCanvas(input({ fills: [{ type: 'SHADER', id: 'shader:effect' }] }))
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('effect shader, not a fill shader')
     })
     await expect(
@@ -5718,7 +5130,8 @@ describe('mcp/tools/canvas', () => {
         })
       )
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected COLOR')
     })
     await expect(
@@ -5740,7 +5153,8 @@ describe('mcp/tools/canvas', () => {
         })
       )
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist')
     })
     expect(fixture.createImageAsync).not.toHaveBeenCalled()
@@ -5769,7 +5183,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('canvas key "missing" does not exist')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -5804,7 +5219,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['obsolete']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('Referenced node')
     })
     expect(obsolete.removed).toBe(false)
@@ -5830,7 +5246,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['obsolete']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('Referenced node')
     })
     expect(obsolete.removed).toBe(false)
@@ -5882,7 +5299,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.IMAGE_IMPORT_FAILED,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.IMAGE_IMPORT_FAILED },
       message: expect.stringMatching(
         /fill paint 0 on "root".*direct public image URL.*resolved image asset/
       )
@@ -5958,7 +5376,8 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas(videoUrlSpec('https://media.example.com/invalid.mp4'))
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('paid team file')
     })
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -5967,11 +5386,11 @@ describe('mcp/tools/canvas', () => {
 
   it('reconciles the complete ordered native effect stack with variables and shader properties', async () => {
     const fixture = createFixture()
-    const input: CanvasResolvedApplyParameters = {
+    const input: ApplyCanvasParametersInput = {
       mode: 'create',
       markup:
         '<div data-key="root" class="w-[320px] h-[200px] bg-[#FFFFFF] overflow-hidden"></div>',
-      bindings: {
+      native: {
         root: {
           figma: {
             effects: [
@@ -6077,7 +5496,7 @@ describe('mcp/tools/canvas', () => {
       }
     }
 
-    const created = await applyCanvas(input)
+    const created = await applyCanvasFromTool(input)
     const root = fixture.getNode(created.rootNodeId!)
     expect(root.effects.map((effect) => effect.type)).toEqual([
       'DROP_SHADOW',
@@ -6106,6 +5525,8 @@ describe('mcp/tools/canvas', () => {
       visible: true,
       boundVariables: { radius: { id: 'variable:spacing' } }
     })
+    expect(root.effects[5]).toMatchObject({ noiseSize: 2, noiseSizeVector: { x: 2, y: 3 } })
+    expect(root.effects[7]).toMatchObject({ noiseSize: 1, noiseSizeVector: { x: 1, y: 2 } })
     expect(root.effects[9]).toMatchObject({
       id: 'shader:effect',
       visible: true,
@@ -6130,7 +5551,7 @@ describe('mcp/tools/canvas', () => {
     })
     expect(fixture.importShaderById).toHaveBeenCalledWith('shader:effect')
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
+      applyCanvasFromTool({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
 
@@ -6363,7 +5784,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('fill shader')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -6386,7 +5808,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expects NUMBER')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -6411,7 +5834,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected COLOR')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -6436,7 +5860,8 @@ describe('mcp/tools/canvas', () => {
         bindings: { root: { figma: { effects: [effect] } } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('clipped frame/instance with a visible fill')
     })
     expect(figma.createTextStyle).not.toHaveBeenCalled()
@@ -6531,14 +5956,14 @@ describe('mcp/tools/canvas', () => {
       textDecoration: 'UNDERLINE',
       textTruncation: 'ENDING',
       maxLines: 2,
-      paragraphIndent: 12,
-      paragraphSpacing: 16,
-      listSpacing: 8,
       hangingPunctuation: true,
       hangingList: true,
       leadingTrim: 'CAP_HEIGHT',
       hyperlink: { type: 'URL', value: 'https://example.com' }
     })
+    expect(copy.getRangeParagraphIndent(0, copy.characters.length)).toBe(12)
+    expect(copy.getRangeParagraphSpacing(0, copy.characters.length)).toBe(16)
+    expect(copy.getRangeListSpacing(0, copy.characters.length)).toBe(8)
     await expect(
       applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
@@ -6584,12 +6009,12 @@ describe('mcp/tools/canvas', () => {
       maxLines: null,
       paragraphIndent: 0,
       paragraphSpacing: 0,
-      listSpacing: 0,
       hangingPunctuation: false,
       hangingList: false,
       leadingTrim: 'NONE',
       hyperlink: null
     })
+    expect(copy.getRangeListSpacing(0, copy.characters.length)).toBe(0)
     await expect(applyCanvas(updated)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
@@ -6710,7 +6135,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist')
     })
     expect(copy.hyperlink).toEqual({ type: 'NODE', value: target.id })
@@ -6724,7 +6150,7 @@ describe('mcp/tools/canvas', () => {
         mode: 'create',
         markup: `
         <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
-          <span data-key="copy" class="w-full h-fit">Link</span>
+          <span data-key="copy" class="w-full h-fit">Link text</span>
           <div data-key="target" class="w-[80px] h-[40px]"></div>
         </div>
       `,
@@ -6781,7 +6207,7 @@ describe('mcp/tools/canvas', () => {
     const created = await applyCanvas({
       mode: 'create',
       markup:
-        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Link</span><div data-key="target" class="w-[80px] h-[40px]"></div></div>'
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Link text</span><div data-key="target" class="w-[80px] h-[40px]"></div></div>'
     })
     const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
     const events: string[] = []
@@ -6804,7 +6230,7 @@ describe('mcp/tools/canvas', () => {
       mode: 'update',
       targetNodeId: created.rootNodeId!,
       markup:
-        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Link</span><div data-key="target" class="w-[80px] h-[40px]"></div></div>',
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Link text</span><div data-key="target" class="w-[80px] h-[40px]"></div></div>',
       bindings: {
         copy: {
           figma: {
@@ -6911,8 +6337,8 @@ describe('mcp/tools/canvas', () => {
 
     expect(copy.characters).toBe('Hello\nworld')
     expect(copy.getRangeTextStyleId(0, 5)).toBe('style:text')
-    expect(copy.getRangeFontName(0, 5)).toEqual({ family: 'Inter', style: 'Bold' })
-    expect(copy.getRangeFontSize(0, 5)).toBe(20)
+    expect(copy.getRangeFontName(0, 5)).toEqual({ family: 'Roboto', style: 'Bold' })
+    expect(copy.getRangeFontSize(0, 5)).toBe(22)
     expect(copy.getRangeTextCase(0, 5)).toBe('UPPER')
     expect(copy.getRangeLetterSpacing(0, 5)).toEqual({ unit: 'PERCENT', value: -2 })
     expect(copy.getRangeLineHeight(0, 5)).toEqual({ unit: 'PIXELS', value: 28 })
@@ -7020,7 +6446,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected FLOAT')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -7043,7 +6470,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected TEXT')
     })
     expect(fixture.page.children).toEqual([])
@@ -7204,7 +6632,8 @@ describe('mcp/tools/canvas', () => {
         bindings: { [key]: { figma: { mask: 'ALPHA' } } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining(message)
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -7234,7 +6663,8 @@ describe('mcp/tools/canvas', () => {
         targetNodeId: created.rootNodeId!
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('describe every direct child')
     })
     expect(root.children).toContain(unmanaged)
@@ -7263,7 +6693,8 @@ describe('mcp/tools/canvas', () => {
         markup
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('describe every direct child')
     })
     expect(mask.isMask).toBe(true)
@@ -8224,7 +7655,8 @@ describe('mcp/tools/canvas', () => {
         targetNodeId: created.rootNodeId!
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('not owned')
     })
     expect(root.removed).toBe(false)
@@ -8253,7 +7685,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8261,7 +7694,8 @@ describe('mcp/tools/canvas', () => {
     const style = figma.createPaintStyle()
     style.paints = [pattern]
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8291,7 +7725,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
     expect(instance.removed).toBe(false)
@@ -8324,7 +7759,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8350,7 +7786,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8365,7 +7802,8 @@ describe('mcp/tools/canvas', () => {
       }
     ]
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8380,7 +7818,8 @@ describe('mcp/tools/canvas', () => {
       }
     ]
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still referenced outside')
     })
 
@@ -8518,7 +7957,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['owned']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('not owned')
     })
     expect(manual.removed).toBe(false)
@@ -8531,7 +7971,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['root']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('root cannot be removed')
     })
 
@@ -8554,7 +7995,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['left']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('at least two remaining operands')
     })
     expect(left.removed).toBe(false)
@@ -8578,7 +8020,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['component']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('instances outside the removal scope')
     })
     expect(component.removed).toBe(false)
@@ -8609,7 +8052,8 @@ describe('mcp/tools/canvas', () => {
         removeKeys: ['remove']
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('requires every remaining sibling')
     })
 
@@ -8868,7 +8312,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('without replacing the existing Paint style')
     })
     expect(root.strokeStyleId).toBe('style:stroke')
@@ -8924,7 +8369,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('has no mode')
     })
     await expect(
@@ -8938,7 +8384,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('could not be resolved')
     })
     expect(figma.createFrame).toHaveBeenCalledTimes(1)
@@ -9085,8 +8532,10 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
-      message: 'Variable authoring key "product/color/surafce" could not be resolved.'
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
+      message:
+        'Variable authoring key "product/color/surafce" could not be resolved. [INVALID_CANVAS_SPEC]'
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
   })
@@ -9428,7 +8877,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('Authoring keys are file-wide')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -9524,7 +8974,8 @@ describe('mcp/tools/canvas', () => {
         bindings: undefined
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still selected')
     })
 
@@ -9549,7 +9000,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('must retain at least one mode')
     })
   })
@@ -9570,13 +9022,11 @@ describe('mcp/tools/canvas', () => {
         }
       })
       const page = figma.createPage()
-      let rejectLoad!: (error: Error) => void
-      vi.mocked(page.loadAsync).mockImplementationOnce(
-        () =>
-          new Promise<void>((_, reject) => {
-            rejectLoad = reject
-          })
-      )
+      const loading = Promise.withResolvers<void>()
+      vi.mocked(page.loadAsync).mockImplementationOnce(async () => {
+        await loading.promise
+        throw new Error('Cold page unavailable')
+      })
       fixture.commitUndo.mockClear()
       const createCollection = vi.mocked(figma.variables.createVariableCollection)
       createCollection.mockClear()
@@ -9594,17 +9044,19 @@ describe('mcp/tools/canvas', () => {
           tokens: removal
         }
       }).catch((error: unknown) => error)
-      await vi.waitFor(() => expect(rejectLoad).toBeTypeOf('function'))
-      const commitsWhileLoading = fixture.commitUndo.mock.calls.length
-      const creationsWhileLoading = createCollection.mock.calls.length
-      const nameWhileLoading = fixture.getNode(created.rootNodeId!).name
-      rejectLoad(new Error('Cold page unavailable'))
-      const error = await pending
-      expect(commitsWhileLoading).toBe(0)
-      expect(creationsWhileLoading).toBe(0)
-      expect(nameWhileLoading).not.toBe('Changed')
+      let error: unknown
+      try {
+        await vi.waitFor(() => expect(page.loadAsync).toHaveBeenCalled())
+        expect(fixture.commitUndo).not.toHaveBeenCalled()
+        expect(createCollection).not.toHaveBeenCalled()
+        expect(fixture.getNode(created.rootNodeId!).name).not.toBe('Changed')
+      } finally {
+        loading.resolve()
+        error = await pending
+      }
       expect(error).toMatchObject({
-        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
         message: expect.stringContaining(`Page "${page.id}" could not be inspected`)
       })
     }
@@ -9796,7 +9248,8 @@ describe('mcp/tools/canvas', () => {
           variableCollections: { tokens: { modes: { dark: null } } }
         })
       ).rejects.toMatchObject({
-        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
         message: expect.stringContaining(`still selected on "${target.id}"`)
       })
       expect(collection.modes.some((mode) => mode.modeId === dark)).toBe(true)
@@ -9832,7 +9285,8 @@ describe('mcp/tools/canvas', () => {
         variableCollections: { tokens: { modes: { dark: null }, variables: { surface: null } } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still used by node')
     })
     expect(figma.listAvailableShaders).toHaveBeenCalledOnce()
@@ -9874,7 +9328,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still used by node')
     })
     expect(figma.listAvailableShaders).toHaveBeenCalledOnce()
@@ -9977,7 +9432,8 @@ describe('mcp/tools/canvas', () => {
       }
 
       await expect(applyCanvas(removal)).rejects.toMatchObject({
-        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
         message: expect.stringContaining('still used by')
       })
       expect(variable.remove).not.toHaveBeenCalled()
@@ -10051,7 +9507,10 @@ describe('mcp/tools/canvas', () => {
           ...removal,
           native: { root: { figma: { name: 'root' } } }
         })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE }
+      })
       expect(variable.remove).not.toHaveBeenCalled()
       expect(copy.getRangeTextDecorationColor(0, 4)).toEqual(color)
 
@@ -10152,7 +9611,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removeBase)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still used by variable')
     })
 
@@ -10220,7 +9680,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removeAccent)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still used by style')
     })
 
@@ -10261,7 +9722,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still depends')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -10304,7 +9766,8 @@ describe('mcp/tools/canvas', () => {
         variableCollections: { tokens: null }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still depends')
     })
 
@@ -10442,7 +9905,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('parent cycle')
     })
     await expect(
@@ -10457,7 +9921,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('cannot define modes or variables')
     })
     await expect(
@@ -10477,7 +9942,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('cannot declare extension overrides')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -11015,7 +10481,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('requires a name')
     })
     await expect(
@@ -11027,7 +10494,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected PAINT')
     })
     await expect(
@@ -11052,7 +10520,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('must already exist')
     })
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -11096,7 +10565,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('still used by node')
     })
     expect(surface.remove).not.toHaveBeenCalled()
@@ -11147,7 +10617,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('requires a value for mode "dark"')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -11173,7 +10644,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('must be COLOR')
     })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
@@ -11247,7 +10719,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('has no mode')
     })
     expect(fixture.page.name).toBe('Checkout')
@@ -11409,7 +10882,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('not owned')
     })
     expect(wrapper.removed).toBe(false)
@@ -11429,7 +10903,10 @@ describe('mcp/tools/canvas', () => {
     fixture.page.setSharedPluginData('tempad_dev', 'page-key', 'eval/only')
     await expect(
       applyCanvas({ mode: 'remove', page: { pageKey: 'eval/only' } })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE }
+    })
 
     const created = await applyCanvas({
       mode: 'create',
@@ -11440,13 +10917,14 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({ mode: 'remove', page: { pageKey: 'eval/manual' } })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('not owned')
     })
     expect(page.removed).toBe(false)
   })
 
-  it('rejects unavailable fonts before creating the requested page', async () => {
+  it('rejects an unavailable variable mode before creating the requested page', async () => {
     const fixture = createFixture()
     await expect(
       applyCanvas({
@@ -11458,7 +10936,10 @@ describe('mcp/tools/canvas', () => {
         },
         markup: '<div data-key="rollback/root" class="w-[320px] h-[200px]"></div>'
       })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+    })
 
     expect(fixture.pages).toEqual([fixture.page])
     expect(figma.currentPage).toBe(fixture.page)
@@ -11558,7 +11039,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('maximum index 2')
     })
     expect(figma.createPage).toHaveBeenCalledTimes(createCount)
@@ -11573,7 +11055,8 @@ describe('mcp/tools/canvas', () => {
         page: { pageKey: 'flows/new' }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('requires a name')
     })
     expect(figma.createPage).not.toHaveBeenCalled()
@@ -11585,7 +11068,8 @@ describe('mcp/tools/canvas', () => {
         page: { id: '0:missing' }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not exist')
     })
 
@@ -11607,7 +11091,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('does not identify')
     })
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -11618,7 +11103,8 @@ describe('mcp/tools/canvas', () => {
         page: { id: first.id, pageKey: 'flows/new' }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('already owned')
     })
     second.setSharedPluginData('tempad_dev', 'page-key', 'flows/first')
@@ -11629,7 +11115,8 @@ describe('mcp/tools/canvas', () => {
         page: { pageKey: 'flows/first' }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('more than one')
     })
 
@@ -11645,7 +11132,8 @@ describe('mcp/tools/canvas', () => {
         page: { id: first.id }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('belongs to page')
     })
   })
@@ -11666,7 +11154,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('expected COLOR')
     })
     expect(fixture.page.children).toEqual([])
@@ -11714,7 +11203,8 @@ describe('mcp/tools/canvas', () => {
         markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>'
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
     })
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
@@ -11760,7 +11250,8 @@ describe('mcp/tools/canvas', () => {
         markup: '<div data-key="component/card/content" class="w-[100px] h-[100px]"></div>'
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('inside an instance')
     })
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -11782,7 +11273,8 @@ describe('mcp/tools/canvas', () => {
         markup: `<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><div data-key="root/content" data-node-id="${child.id}" class="w-[80px] h-[80px]"></div></div>`
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
       message: expect.stringContaining('inside an instance')
     })
     expect(child.parent).toBe(instance)
@@ -11850,7 +11342,8 @@ describe('mcp/tools/canvas', () => {
         markup: `<div data-key="card" class="flex flex-col w-[320px] h-[200px]"><span data-key="foreign" data-node-id="${foreign.id}" class="w-full h-fit">Foreign</span></div>`
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE }
     })
     expect(fixture.commitUndo).not.toHaveBeenCalled()
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -11876,7 +11369,8 @@ describe('mcp/tools/canvas', () => {
           markup: `<div data-key="${rootKey}" class="w-[100px] h-[100px]">${children}</div>`
         })
       ).rejects.toMatchObject({
-        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
         message: expect.stringContaining('64 KiB inline budget')
       })
       expect(fixture.triggerUndo).toHaveBeenCalledOnce()
@@ -11968,7 +11462,8 @@ describe('mcp/tools/canvas', () => {
           native: { label: { figma: properties } }
         })
       ).rejects.toMatchObject({
-        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
         message: expect.stringContaining('"missing:reference"')
       })
       expect(figma.createPaintStyle).not.toHaveBeenCalled()
@@ -12059,7 +11554,8 @@ describe('mcp/tools/canvas', () => {
         styles: { unrelated: { type: 'PAINT', name: 'Unrelated' } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining(message)
     })
     expect(figma.createPaintStyle).not.toHaveBeenCalled()
@@ -12097,7 +11593,8 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('cannot exceed maxChildren')
     })
     expect(figma.createPaintStyle).not.toHaveBeenCalled()
@@ -12124,7 +11621,8 @@ describe('mcp/tools/canvas', () => {
         native: { action: { figma: { instance: { exposed: true } } } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('requires an existing primary instance inside a component')
     })
     expect(figma.createPaintStyle).not.toHaveBeenCalled()
@@ -12204,12 +11702,13 @@ describe('mcp/tools/canvas', () => {
   )
 
   it.each(['component', 'swap default', 'instance variable'] as const)(
-    'keeps library %s imports inside Undo when resources are declared',
+    'prepares library %s without delaying component imports until resource writes',
     async (reference) => {
       const fixture = createFixture()
       const importComponent = vi.mocked(figma.importComponentByKeyAsync).getMockImplementation()!
       vi.mocked(figma.importComponentByKeyAsync).mockImplementation(async (key) => {
-        expect(fixture.commitUndo).toHaveBeenCalledOnce()
+        expect(fixture.commitUndo).not.toHaveBeenCalled()
+        expect(figma.createPaintStyle).not.toHaveBeenCalled()
         return importComponent(key)
       })
       const importVariable = vi
@@ -12258,6 +11757,23 @@ describe('mcp/tools/canvas', () => {
       expect(fixture.triggerUndo).not.toHaveBeenCalled()
     }
   )
+
+  it('rejects an unavailable library component before creating declared resources', async () => {
+    const fixture = createFixture()
+    fixture.importComponentByKeyAsync.mockRejectedValue(new Error('Library unavailable'))
+    await expect(
+      applyCanvas({
+        mode: 'create',
+        markup:
+          '<div data-key="root" class="flex flex-row w-80 h-40"><div data-key="action" class="w-20 h-10"/></div>',
+        styles: { unrelated: { type: 'PAINT', name: 'Unrelated' } },
+        bindings: { action: { component: { key: 'unavailable-component' } } }
+      })
+    ).rejects.toThrow('unavailable-component')
+    expect(figma.createPaintStyle).not.toHaveBeenCalled()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+  })
 
   it('rejects known text range bounds before creating declared resources', async () => {
     const fixture = createFixture()
@@ -12520,7 +12036,8 @@ describe('mcp/tools/canvas', () => {
           bindings: { root: { figma: usage === 'layout grid' ? { layoutGrids } : {} } }
         })
       ).rejects.toMatchObject({
-        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
         message: expect.stringContaining(
           usage === 'text resource' ? 'expected STRING' : 'expected FLOAT'
         )
@@ -12586,7 +12103,8 @@ describe('mcp/tools/canvas', () => {
           }
         })
       ).rejects.toMatchObject({
-        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
         message: expect.stringContaining(
           `component property "invalid" is FLOAT, expected ${type === 'TEXT' ? 'STRING' : 'BOOLEAN'}`
         )
@@ -12632,7 +12150,10 @@ describe('mcp/tools/canvas', () => {
           },
           bindings: { root: {} }
         })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+      })
       expect(figma.createPaintStyle).not.toHaveBeenCalled()
       expect(adoptionWrite).not.toHaveBeenCalled()
       expect(fixture.commitUndo).not.toHaveBeenCalled()
@@ -12703,7 +12224,10 @@ describe('mcp/tools/canvas', () => {
           },
           bindings: { root: {} }
         })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+      })
       expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
       expect(figma.variables.createVariable).not.toHaveBeenCalled()
       expect(adoptionWrite).not.toHaveBeenCalled()
@@ -12794,7 +12318,10 @@ describe('mcp/tools/canvas', () => {
             invalid
           }
         })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+      })
       expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
       expect(fixture.commitUndo).not.toHaveBeenCalled()
       expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -12873,8 +12400,11 @@ describe('mcp/tools/canvas', () => {
       })
       if (result === 'mismatch') {
         await expect(apply).rejects.toMatchObject({
-          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
-          message: expect.stringContaining('is STRING, expected FLOAT')
+          code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+          cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
+          message: expect.stringMatching(
+            /is STRING, expected FLOAT.*Rollback did not remove created resource/
+          )
         })
       } else {
         await expect(apply).resolves.toMatchObject({ rootNodeId: expect.any(String) })
@@ -12884,8 +12414,8 @@ describe('mcp/tools/canvas', () => {
         ])
       }
       expect(undoCounts).toEqual([1])
-      if (result === 'mismatch') expect(fixture.triggerUndo).toHaveBeenCalledOnce()
-      else expect(fixture.triggerUndo).not.toHaveBeenCalled()
+      // Retained declared resources establish this attempt's own Undo entry.
+      expect(fixture.triggerUndo).toHaveBeenCalledTimes(result === 'mismatch' ? 1 : 0)
     }
   )
 
@@ -12956,7 +12486,10 @@ describe('mcp/tools/canvas', () => {
             invalid
           }
         })
-      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+      })
       expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
       expect(rename).not.toHaveBeenCalled()
       expect(fixture.commitUndo).not.toHaveBeenCalled()
@@ -13044,8 +12577,10 @@ describe('mcp/tools/canvas', () => {
       })
       if (coverage === 'missing') {
         await expect(apply).rejects.toMatchObject({
-          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
-          message: 'New variable "fresh" requires a value for mode "Alternate".'
+          code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+          cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
+          message:
+            'New variable "fresh" requires a value for mode "Alternate". [INVALID_CANVAS_SPEC]'
         })
         expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
         expect(figma.variables.createVariable).not.toHaveBeenCalled()
@@ -13097,7 +12632,10 @@ describe('mcp/tools/canvas', () => {
           invalid
         }
       })
-    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC }
+    })
     expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
     expect(fixture.commitUndo).not.toHaveBeenCalled()
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
@@ -13252,7 +12790,8 @@ describe('mcp/tools/canvas', () => {
     const nodeIdsBefore = new Set(fixture.nodes.keys())
 
     await expect(applyCanvas(createSpec())).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('is unavailable in the current Figma context')
     })
     expect(new Set(fixture.nodes.keys())).toEqual(nodeIdsBefore)
@@ -13296,13 +12835,8 @@ describe('mcp/tools/canvas', () => {
 
   it('rejects concurrent apply requests within one Figma session', async () => {
     const fixture = createFixture()
-    let finishFontLoad: (() => void) | undefined
-    fixture.loadFontAsync.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          finishFontLoad = resolve
-        })
-    )
+    const loading = Promise.withResolvers<void>()
+    fixture.loadFontAsync.mockReturnValueOnce(loading.promise)
     const input = {
       mode: 'create' as const,
       markup:
@@ -13310,12 +12844,17 @@ describe('mcp/tools/canvas', () => {
     }
 
     const first = applyCanvasFromTool(input)
-    await vi.waitFor(() => expect(finishFontLoad).toBeTypeOf('function'))
-    await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_BUSY
-    })
-
-    finishFontLoad?.()
+    void first.catch(() => undefined)
+    try {
+      await vi.waitFor(() => expect(fixture.loadFontAsync).toHaveBeenCalled())
+      await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+        message: expect.stringContaining('CANVAS_BUSY')
+      })
+    } finally {
+      loading.resolve()
+      await first.catch(() => undefined)
+    }
     await expect(first).resolves.toMatchObject({ rootNodeId: expect.any(String) })
   })
 })

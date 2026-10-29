@@ -23,7 +23,7 @@ import {
 
 import type { GetCodeRuntimeOptions } from './tools/code'
 
-import { coerceToolErrorPayload, createCodedError } from './errors'
+import { canvasAbortedError, coerceToolErrorPayload, createCodedError } from './errors'
 import { readNodeBatch, resolveReadTargets, singleReadTarget } from './node-reads'
 import { handleApplyCanvas } from './tools/canvas'
 import { pageById, pageSnapshot, pagesByKey } from './tools/canvas/identity'
@@ -173,7 +173,13 @@ export async function runMcpTool(name: string, args: unknown): Promise<unknown> 
     throw new Error(`No handler registered for tool "${name}".`)
   }
   const handler = MCP_TOOL_HANDLERS[name] as (args?: unknown) => Promise<unknown>
-  return handler(MCP_TOOL_SCHEMAS[name].parse(args ?? {}))
+  let parsed: unknown
+  try {
+    parsed = MCP_TOOL_SCHEMAS[name].parse(args ?? {})
+  } catch (error) {
+    throw name === 'apply_canvas' ? canvasAbortedError(error) : error
+  }
+  return handler(parsed)
 }
 
 function exposeToolsOnWindow(): void {

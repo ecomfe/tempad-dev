@@ -40,16 +40,21 @@ const ASSET_MAX_CONCURRENT_DOWNLOADS = 128
 
 export interface AssetHttpServerOptions {
   accessToken?: string
+  legacyAccessToken?: string
+  port?: number
   maxAssetSizeBytes?: number
   maxAssetStoreBytes?: number
   maxConcurrentUploads?: number
   authorizeExtensionOrigin?: (origin: string) => boolean
+  admit?: () => boolean
+  onActivity?: () => void
 }
 
 export interface AssetHttpServer {
   start(): Promise<void>
   stop(): void
   getBaseUrl(legacy?: boolean): string
+  readonly pendingTransfers: number
 }
 
 export function createAssetHttpServer(
@@ -60,7 +65,7 @@ export function createAssetHttpServer(
   const accessToken = options.accessToken ?? createCapabilityToken()
   // Only unversioned connections receive this separate capability. Both endpoints
   // share origin checks, concurrency reservations, quotas, and the asset store.
-  const legacyAccessToken = createCapabilityToken()
+  const legacyAccessToken = options.legacyAccessToken ?? createCapabilityToken()
   const maxAssetSizeBytes = options.maxAssetSizeBytes ?? config.maxAssetSizeBytes
   const maxAssetStoreBytes = options.maxAssetStoreBytes ?? config.maxAssetStoreBytes
   const maxConcurrentUploads = options.maxConcurrentUploads ?? config.maxConcurrentAssetUploads
@@ -95,7 +100,7 @@ export function createAssetHttpServer(
       }
       server.once('error', onError)
       server.once('listening', onListening)
-      server.listen(0, LOOPBACK_HOST)
+      server.listen(options.port ?? 0, LOOPBACK_HOST)
     })
     log.info({ port }, 'Asset HTTP server ready.')
   }
@@ -125,12 +130,29 @@ export function createAssetHttpServer(
       )
     })
 
+    try {
+      routeRequest(req, res)
+    } catch (error) {
+      log.error({ error }, 'Failed to handle asset request.')
+      if (res.headersSent) res.destroy()
+      else sendError(res, 500, 'Internal Server Error')
+    }
+  }
+
+  function routeRequest(req: IncomingMessage, res: ServerResponse): void {
     if (!req.url) {
       sendError(res, 400, 'Missing URL')
       return
     }
 
-    const url = new URL(req.url, getBaseUrl())
+    let url: URL
+    const baseUrl = getBaseUrl()
+    try {
+      url = new URL(req.url, baseUrl)
+    } catch {
+      sendError(res, 400, 'Invalid URL')
+      return
+    }
     const segments = url.pathname.split('/').filter(Boolean)
     const legacy = secretsEqual(segments[0] ?? '', legacyAccessToken)
     if (
@@ -165,6 +187,11 @@ export function createAssetHttpServer(
     if (req.method === 'OPTIONS') {
       res.writeHead(204)
       res.end()
+      return
+    }
+
+    if (options.admit && !options.admit()) {
+      sendError(res, 503, 'Runtime recovery is in progress; request was not admitted.')
       return
     }
 
@@ -221,11 +248,13 @@ export function createAssetHttpServer(
     }
 
     activeDownloads += 1
+    options.onActivity?.()
     let released = false
     const release = () => {
       if (released) return
       released = true
       activeDownloads -= 1
+      options.onActivity?.()
     }
     res.once('finish', release)
     res.once('close', release)
@@ -241,19 +270,14 @@ export function createAssetHttpServer(
       'X-Content-Type-Options': 'nosniff'
     })
 
+    // Expiry cleanup can run before the asynchronous file open completes.
+    store.touch(hash)
     const stream = createReadStream(record.filePath)
-    stream.on('error', (error) => {
-      log.warn({ error, hash }, 'Failed to stream asset file.')
-      if (!res.headersSent) {
-        sendError(res, 500, 'Internal Server Error')
-      } else {
-        res.end()
+    pipeline(stream, res, (error) => {
+      if (error && (error as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+        log.warn({ error, hash }, 'Failed to stream asset file.')
       }
     })
-    stream.on('open', () => {
-      store.touch(hash)
-    })
-    stream.pipe(res)
   }
 
   function handleUpload(req: IncomingMessage, res: ServerResponse, hash: string): void {
@@ -282,6 +306,14 @@ export function createAssetHttpServer(
     if (themeable) metadata.themeable = true
     const assetMetadata = Object.keys(metadata).length ? metadata : undefined
 
+    const reuseExisting = (record: AssetRecord) => {
+      if (assetMetadata) record.metadata = { ...record.metadata, ...assetMetadata }
+      if (record.mimeType !== mimeType) record.mimeType = mimeType
+      record.lastAccess = Date.now()
+      store.upsert(record)
+      sendJson(res, 200, { message: 'Asset Already Exists' })
+    }
+
     const existing = store.get(hash)
     // A short hash is not sufficient evidence of identical contents. Always read
     // and verify legacy uploads, including retries and concurrent collisions.
@@ -296,17 +328,7 @@ export function createAssetHttpServer(
         // Previously returned localPath values stay valid across MIME metadata updates.
         // Drain request to ensure connection is clean
         req.resume()
-
-        if (assetMetadata) {
-          existing.metadata = {
-            ...existing.metadata,
-            ...assetMetadata
-          }
-        }
-        if (existing.mimeType !== mimeType) existing.mimeType = mimeType
-        existing.lastAccess = Date.now()
-        store.upsert(existing)
-        sendJson(res, 200, { message: 'Asset Already Exists' })
+        reuseExisting(existing)
         return
       }
     }
@@ -333,6 +355,7 @@ export function createAssetHttpServer(
     const hasher = createHash('sha256')
     let size = 0
     activeUploads += 1
+    options.onActivity?.()
     reservedUploadBytes += reservationBytes
 
     const cleanup = () => {
@@ -359,6 +382,7 @@ export function createAssetHttpServer(
 
     pipeline(req, monitor, writeStream, (err) => {
       activeUploads -= 1
+      options.onActivity?.()
       reservedUploadBytes -= reservationBytes
       if (err) {
         cleanup()
@@ -390,25 +414,29 @@ export function createAssetHttpServer(
       }
 
       try {
-        if (hash.length !== MCP_HASH_HEX_LENGTH) {
-          const previous = store.get(hash)
-          if (previous && existsSync(previous.filePath)) {
-            const previousHash = createHash('sha256')
-              .update(readFileSync(previous.filePath))
-              .digest('hex')
+        const previous = store.get(hash)
+        if (previous && existsSync(previous.filePath)) {
+          // Another upload may have committed this hash while this body streamed.
+          if (hash.length === MCP_HASH_HEX_LENGTH) {
             cleanup()
-            if (previousHash !== computedHash) {
-              sendError(res, 409, 'Legacy Asset Hash Collision; update the TemPad Dev extension')
-              return
-            }
-            store.upsert({
-              ...previous,
-              metadata: { ...previous.metadata, ...assetMetadata },
-              lastAccess: Date.now()
-            })
-            sendJson(res, 200, { message: 'Asset Already Exists' })
+            reuseExisting(previous)
             return
           }
+          const previousHash = createHash('sha256')
+            .update(readFileSync(previous.filePath))
+            .digest('hex')
+          cleanup()
+          if (previousHash !== computedHash) {
+            sendError(res, 409, 'Legacy Asset Hash Collision; update the TemPad Dev extension')
+            return
+          }
+          store.upsert({
+            ...previous,
+            metadata: { ...previous.metadata, ...assetMetadata },
+            lastAccess: Date.now()
+          })
+          sendJson(res, 200, { message: 'Asset Already Exists' })
+          return
         }
         renameSync(tmpPath, filePath)
       } catch (error) {
@@ -467,7 +495,10 @@ export function createAssetHttpServer(
   return {
     start,
     stop,
-    getBaseUrl
+    getBaseUrl,
+    get pendingTransfers() {
+      return activeDownloads + activeUploads
+    }
   }
 }
 

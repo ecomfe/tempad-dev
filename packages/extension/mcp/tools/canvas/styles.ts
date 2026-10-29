@@ -26,8 +26,10 @@ type StyleSelection = {
 export type CanvasStyleState = {
   byKey: Map<string, BaseStyle>
   cache: Map<string, BaseStyle>
+  createdStyleIds: Set<string>
   createdStyleKeys: Set<string>
   indexing?: Promise<void>
+  removedStyleIds: Set<string>
   removals: Array<{ key: string; style: BaseStyle }>
   resources: CanvasStyleResourceState[]
   selections?: StyleSelection[]
@@ -121,7 +123,9 @@ export function createStyleState(): CanvasStyleState {
   return {
     byKey: new Map(),
     cache: new Map(),
+    createdStyleIds: new Set(),
     createdStyleKeys: new Set(),
+    removedStyleIds: new Set(),
     removals: [],
     resources: []
   }
@@ -142,6 +146,7 @@ export async function prepareStyleResources(
     const style = selected ?? createStyle(spec.type)
     if (!selected) {
       mutations.count += 1
+      state.createdStyleIds.add(style.id)
       state.createdStyleKeys.add(key)
     }
     claimAuthoringKey(style, key, CANVAS_STYLE_KEY_NAME, 'Style', mutations)
@@ -165,7 +170,9 @@ export async function removeStyleResources(
     }
   }
   for (const { style } of state.removals) {
+    const id = style.id
     style.remove()
+    state.removedStyleIds.add(id)
     mutations.count += 1
   }
 }

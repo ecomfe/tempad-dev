@@ -1,59 +1,178 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { dirname, join } from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
-  commandIncludesExactPath,
   evaluateActiveExtensionRuntime,
   evaluateRuntimeProcesses,
   evaluateTempadPluginIdentity,
   extractDevelopmentBundleFingerprint,
+  listRuntimeProcesses,
   parseEnabledPlugins,
   parseProcessTable,
+  processRunsRuntimeEntry,
   resolveCodexExecutable,
-  resolveDefaultRuntimeDir
+  runPreflight
 } from '@/scripts/agent-authoring-runtime-preflight'
+
+const exec = vi.hoisted(() => vi.fn())
+vi.mock('node:child_process', () => ({
+  execFile: Object.assign(vi.fn(), { [Symbol.for('nodejs.util.promisify.custom')]: exec })
+}))
 
 const paths = {
   cli: '/repo/packages/mcp-server/dist/cli.mjs',
   hub: '/repo/packages/mcp-server/dist/hub.mjs'
 }
 
-function runtimeProcess(
-  path: string,
-  pid: number,
-  startedAtMs: number
-): { command: string; pid: number; ppid: number; startedAtMs: number } {
-  return { command: `/usr/bin/node ${path}`, pid, ppid: 1, startedAtMs }
+function runtimeProcess(path: string, pid: number, startedAtMs: number) {
+  return {
+    command: `/usr/bin/node ${path}`,
+    executable: '/usr/bin/node',
+    pid,
+    ppid: 1,
+    startedAtMs
+  }
 }
 
 describe('agent authoring runtime preflight', () => {
-  it.skipIf(process.platform === 'win32')(
-    'locates the same private Linux root as the Hub, retaining a safe legacy runtime',
-    () => {
-      const directory = mkdtempSync(join(tmpdir(), 'tempad-preflight-path-'))
-      const legacyRoot = join(directory, 'tempad-dev')
-      const isolated = join(directory, `tempad-dev-${process.getuid!()}`, 'run')
+  it('counts only the managed Hub role, not its shared-entry supervisor', () => {
+    const entry = '/private/runtime/package/dist/managed-runtime.mjs'
+    const edge = runtimeProcess(paths.cli, 1, 1)
+    const hub = {
+      ...runtimeProcess(entry, 2, 1),
+      command: `/usr/bin/node ${entry} --root /private/runtime --role hub`
+    }
+    const supervisor = {
+      ...runtimeProcess(entry, 3, 1),
+      command: `/usr/bin/node ${entry} --root /private/runtime --role supervisor`
+    }
+    expect(
+      evaluateRuntimeProcesses({ cli: paths.cli, hub: entry, managed: true }, [
+        edge,
+        hub,
+        supervisor
+      ])
+    ).toEqual({ cli: [edge], hub: [hub], issues: [] })
+  })
+  it.each([
+    { copiedManifest: false, symlinkCheckout: false, relativeRuntime: false },
+    { copiedManifest: true, symlinkCheckout: false, relativeRuntime: false },
+    { copiedManifest: false, symlinkCheckout: true, relativeRuntime: false },
+    { copiedManifest: false, symlinkCheckout: false, relativeRuntime: true }
+  ])(
+    'requires this checkout and an absolute runtime path (copied: $copiedManifest, symlink: $symlinkCheckout, relative: $relativeRuntime)',
+    async ({ copiedManifest, symlinkCheckout, relativeRuntime }) => {
+      const directory = mkdtempSync(join(tmpdir(), 'tempad-preflight-checkout-'))
+      const physicalCheckout = join(directory, 'checkout')
+      const checkout = symlinkCheckout ? join(directory, 'checkout-link') : physicalCheckout
+      const pluginRoot = join(checkout, '.dev/plugins/tempad-dev-dev')
+      const runtimeRoot = copiedManifest ? join(directory, 'old-checkout') : physicalCheckout
+      const cli = join(runtimeRoot, 'packages/mcp-server/dist/cli.mjs')
+      const hub = join(runtimeRoot, 'packages/mcp-server/dist/hub.mjs')
+      const runtimeDir = join(directory, 'run')
+      const appPath = join(directory, 'Host.app')
+      const fingerprint = 'a'.repeat(64)
+      const version = '0.1.2+codex.fixture'
+      const write = (path: string, text: string) => {
+        mkdirSync(dirname(path), { recursive: true })
+        writeFileSync(path, text)
+      }
+      const writeJson = (path: string, value: unknown) => write(path, JSON.stringify(value))
       try {
-        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(join(legacyRoot, 'run'))
-        expect(existsSync(legacyRoot)).toBe(false)
-        mkdirSync(legacyRoot, { mode: 0o700 })
-        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(join(legacyRoot, 'run'))
-        expect(resolveDefaultRuntimeDir(directory, 'linux', process.getuid!() + 1)).toBe(
-          join(directory, `tempad-dev-${process.getuid!() + 1}`, 'run')
+        mkdirSync(physicalCheckout)
+        if (symlinkCheckout) symlinkSync(physicalCheckout, checkout, 'junction')
+        write(cli, '')
+        write(hub, '')
+        write(
+          resolveCodexExecutable(appPath, 'darwin', () => false),
+          ''
         )
-        chmodSync(legacyRoot, 0o755)
-        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(isolated)
-        rmSync(legacyRoot, { recursive: true })
-        symlinkSync(directory, legacyRoot)
-        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(isolated)
-        expect(resolveDefaultRuntimeDir(directory, 'darwin')).toBe(join(legacyRoot, 'run'))
+        writeJson(join(pluginRoot, '.codex-plugin/plugin.json'), {
+          name: 'tempad-dev-dev',
+          version
+        })
+        writeJson(join(pluginRoot, '.mcp.json'), {
+          mcpServers: {
+            'tempad-dev-dev': {
+              command: 'node',
+              args: [cli],
+              env: {
+                TEMPAD_MCP_RUNTIME_DIR: relativeRuntime ? '../run' : runtimeDir,
+                TEMPAD_MCP_DEV_CHECKOUT: checkout
+              }
+            }
+          }
+        })
+        const { runtimeDirectories } =
+          await import('../../../../agent-plugin/src/clients/shared/runtime-profile.mjs')
+        const profileRuntime = runtimeDirectories({
+          TEMPAD_MCP_RUNTIME_DIR: runtimeDir,
+          TEMPAD_MCP_DEV_CHECKOUT: checkout
+        }).runtime
+        writeJson(join(profileRuntime, 'hub-runtime.json'), {
+          processId: 102,
+          activeExtension: {
+            connectedAt: '2026-10-01T00:00:00.000Z',
+            fingerprint,
+            id: 'extension-fixture',
+            version: '0.23.5'
+          }
+        })
+        write(
+          join(checkout, 'scripts/extension-runtime-fingerprint.mjs'),
+          `export const computeExtensionRuntimeFingerprint = () => '${fingerprint}'`
+        )
+        exec.mockImplementation(async (executable: string, args: string[]) => {
+          if (executable !== 'ps') {
+            return {
+              stdout: `tempad-dev-dev@tempad-dev-dev installed, enabled ${version} ${pluginRoot}`
+            }
+          }
+          return {
+            stdout: /,(?:comm|exe)=$/.test(args.at(-1) ?? '')
+              ? '101 1 Thu Oct 01 00:00:00 2026 /usr/bin/node\n102 1 Thu Oct 01 00:00:00 2026 /usr/bin/node'
+              : `101 1 Thu Oct 01 00:00:00 2026 node ${cli}\n102 1 Thu Oct 01 00:00:00 2026 node ${hub}`
+          }
+        })
+        const preflight = runPreflight({ appPath, checkout })
+        if (copiedManifest) {
+          await expect(preflight).rejects.toThrow('this checkout')
+          expect(exec).not.toHaveBeenCalled()
+        } else if (relativeRuntime) {
+          await expect(preflight).rejects.toThrow('must be an absolute path')
+          expect(exec).not.toHaveBeenCalled()
+        } else {
+          await expect(preflight).resolves.toMatchObject({ valid: true })
+        }
       } finally {
+        exec.mockReset()
         rmSync(directory, { recursive: true, force: true })
       }
     }
   )
+
+  it.each([
+    ['darwin', 'comm'],
+    ['linux', 'exe']
+  ] as const)('uses native executable paths on %s', async (platform, field) => {
+    const prefix = '101 1 Thu Oct 01 00:00:00 2026 '
+    exec.mockImplementation(async (_executable: string, args: string[]) => ({
+      stdout: prefix + (args.at(-1)?.endsWith(`,${field}=`) ? '/usr/bin/node' : `node ${paths.cli}`)
+    }))
+    try {
+      const processes = await listRuntimeProcesses(platform)
+      expect(evaluateRuntimeProcesses(paths, processes).cli.map(({ pid }) => pid)).toEqual([101])
+      expect(exec.mock.calls.map(([, args]) => args)).toEqual([
+        ['-axww', '-o', 'pid=,ppid=,lstart=,command='],
+        ['-axww', '-o', `pid=,ppid=,lstart=,${field}=`]
+      ])
+    } finally {
+      exec.mockReset()
+    }
+  })
+
   it('reads one unambiguous development bundle fingerprint', () => {
     const fingerprint = 'a'.repeat(64)
     expect(
@@ -86,20 +205,53 @@ describe('agent authoring runtime preflight', () => {
     }
   })
 
-  it('parses macOS process start times and matches only an exact bundle path token', () => {
+  it('parses matching process snapshots and matches only a direct exact entry', () => {
     const processes = parseProcessTable(
       [
         `50765 91415 Fri Aug 28 00:42:27 2026 /usr/bin/node ${paths.cli}`,
         `50766 91415 Fri Aug 28 00:42:28 2026 /usr/bin/node ${paths.cli}.backup`
+      ].join('\n'),
+      [
+        '50765 91415 Fri Aug 28 00:42:27 2026 /usr/bin/node',
+        '50766 91415 Fri Aug 28 00:42:28 2026 /usr/bin/node'
       ].join('\n')
     )
 
     expect(processes).toHaveLength(2)
     expect(processes[0]).toMatchObject({ pid: 50765, ppid: 91415 })
     expect(Number.isFinite(processes[0]?.startedAtMs)).toBe(true)
-    expect(commandIncludesExactPath(processes[0]!.command, paths.cli)).toBe(true)
-    expect(commandIncludesExactPath(processes[1]!.command, paths.cli)).toBe(false)
-    expect(commandIncludesExactPath(`/usr/bin/node "${paths.cli}"`, paths.cli)).toBe(true)
+    expect(processRunsRuntimeEntry(processes[0]!, paths.cli)).toBe(true)
+    expect(processRunsRuntimeEntry(processes[1]!, paths.cli)).toBe(false)
+    expect(
+      processRunsRuntimeEntry(
+        { ...processes[0]!, command: `/usr/bin/node "${paths.cli}"` },
+        paths.cli
+      )
+    ).toBe(true)
+  })
+
+  it('does not infer executable ownership from unmatched or replaced process rows', () => {
+    const commands = [1, 2, 3, 4].map(
+      (pid) => `${pid} 9 Fri Aug 28 00:42:27 2026 /usr/bin/node ${paths.cli}`
+    )
+    const processes = parseProcessTable(
+      commands.join('\n'),
+      [
+        '1 9 Fri Aug 28 00:42:28 2026 /usr/bin/node',
+        '2 10 Fri Aug 28 00:42:27 2026 /usr/bin/node',
+        '4 9 Fri Aug 28 00:42:27 2026 /usr/bin/node'
+      ].join('\n')
+    )
+    expect(processes.map(({ executable }) => executable)).toEqual([
+      null,
+      null,
+      null,
+      '/usr/bin/node'
+    ])
+    expect(evaluateRuntimeProcesses(paths, processes).cli.map(({ pid }) => pid)).toEqual([4])
+    expect(evaluateRuntimeProcesses(paths, processes.slice(0, 3)).issues).toContainEqual(
+      expect.objectContaining({ code: 'RUNTIME_ABSENT' })
+    )
   })
 
   it('accepts one Hub and one or more exact-checkout CLIs', () => {

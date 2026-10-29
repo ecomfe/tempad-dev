@@ -4,7 +4,7 @@ import { canonicalizeValue } from '@/utils/css'
 
 import { inferFontWeight, isCodeFont, resolveRunAttrs, resolveTokens } from './style'
 import {
-  NEWLINE_RE,
+  PARAGRAPH_BREAK_RE,
   REQUESTED_SEGMENT_FIELDS,
   type StyledTextSegmentSubset,
   type TextBlock,
@@ -44,11 +44,10 @@ function splitIntoLines(
   const lines: TextLine[] = []
 
   let currentRuns: TextRun[] = []
-  let currentSegmentForAttrs: StyledTextSegmentSubset | null = null
 
   for (const seg of segments) {
     const text = seg.characters
-    const parts = text.split(NEWLINE_RE)
+    const parts = text.split(PARAGRAPH_BREAK_RE)
 
     for (const [i, partText] of parts.entries()) {
       if (partText.length > 0) {
@@ -64,13 +63,14 @@ function splitIntoLines(
         currentRuns = []
       }
     }
-    currentSegmentForAttrs = seg
   }
 
-  if (currentRuns.length > 0 && currentSegmentForAttrs) {
+  // A terminal paragraph break still starts an empty paragraph or list item.
+  const lastSegment = segments.at(-1)
+  if ((currentRuns.length > 0 || lines.length > 0) && lastSegment) {
     lines.push({
       runs: optimizeRuns(currentRuns),
-      attrs: extractLineAttrs(currentSegmentForAttrs)
+      attrs: extractLineAttrs(lastSegment)
     })
   }
 
@@ -80,6 +80,13 @@ function splitIntoLines(
 function groupLinesIntoBlocks(lines: TextLine[]): TextBlock[] {
   const blocks: TextBlock[] = []
   if (!lines.length) return blocks
+  // Plain paragraphs can share compact p/br output. Native paragraph metrics
+  // need separate block boxes so indentation and spacing apply to each one.
+  const paragraphLayout = lines.some(
+    ({ attrs }) =>
+      attrs.listType === 'NONE' && (attrs.paragraphIndent !== 0 || attrs.paragraphSpacing !== 0)
+  )
+  let rootIndent = 0
 
   for (const line of lines) {
     const { listType } = line.attrs
@@ -91,13 +98,20 @@ function groupLinesIntoBlocks(lines: TextLine[]): TextBlock[] {
       : 'paragraph'
 
     const currentBlock = blocks.at(-1)
-    if (currentBlock?.type === blockType) {
+    if (
+      currentBlock &&
+      ((currentBlock.type === blockType && (isList || !paragraphLayout)) ||
+        (isList && currentBlock.type !== 'paragraph' && line.attrs.indentation > rootIndent))
+    ) {
       currentBlock.lines.push(line)
+      rootIndent = Math.min(rootIndent, line.attrs.indentation)
     } else {
+      rootIndent = line.attrs.indentation
       blocks.push({
         type: blockType,
         lines: [line],
-        attrs: line.attrs
+        attrs: line.attrs,
+        ...(paragraphLayout && !isList ? { paragraphLayout: true } : {})
       })
     }
   }
@@ -248,6 +262,7 @@ function extractLineAttrs(seg: StyledTextSegmentSubset): TextLine['attrs'] {
     listType: seg.listOptions?.type || 'NONE',
     indentation: seg.indentation || 0,
     listSpacing: seg.listOptions?.type !== 'NONE' ? seg.paragraphSpacing || 0 : 0,
+    paragraphIndent: seg.paragraphIndent || 0,
     paragraphSpacing: seg.paragraphSpacing || 0
   }
 }

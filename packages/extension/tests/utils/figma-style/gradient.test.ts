@@ -239,7 +239,20 @@ describe('figma/gradient resolveGradientFromPaints', () => {
     )
   })
 
-  it('returns direct CSS var fallback for near-opaque variable-bound stop color', () => {
+  it.each([1, 0.5])('applies gradient opacity %s once to a translucent bound stop', (opacity) => {
+    installFigmaMocks({ variables: { accent: { name: 'Half Red' } as Variable } })
+    const paint = createGradientPaint('GRADIENT_RADIAL', {
+      opacity,
+      stops: [createStop({ r: 1, g: 0, b: 0, a: 0.5 }, 0, 'accent')]
+    })
+    const color = 'var(--Half-Red, #FF000080)'
+
+    expect(resolveGradientFromPaints([paint])).toBe(
+      `radial-gradient(100% 100% at 0% 0%, ${opacity === 1 ? color : `color-mix(in srgb, ${color} 50%, transparent)`} 0%)`
+    )
+  })
+
+  it('returns direct CSS var fallback for an opaque variable-bound stop color', () => {
     installFigmaMocks({
       variables: {
         accent: { name: 'Primary Color' } as Variable
@@ -254,6 +267,24 @@ describe('figma/gradient resolveGradientFromPaints', () => {
       'radial-gradient(100% 100% at 0% 0%, var(--Primary-Color, #F00) 0%, #00F 100%)'
     )
   })
+
+  it.each([
+    [0.99, '99', '#0000FFFC'],
+    [0.995, '99.5', '#0000FFFE']
+  ] as const)(
+    'retains near-opaque paint opacity %s on variable and literal gradient stops',
+    (opacity, percentage, literal) => {
+      installFigmaMocks({ variables: { accent: { name: 'Primary Color' } as Variable } })
+      const paint = createGradientPaint('GRADIENT_LINEAR', {
+        opacity,
+        stops: [createStop({ r: 1, g: 0, b: 0 }, 0, 'accent'), createStop({ r: 0, g: 0, b: 1 }, 1)]
+      })
+
+      expect(resolveGradientFromPaints([paint])).toBe(
+        `linear-gradient(90deg, color-mix(in srgb, var(--Primary-Color, #F00) ${percentage}%, transparent) 0%, ${literal} 100%)`
+      )
+    }
+  )
 
   it('falls back to literal stop color when variable lookup throws', () => {
     installFigmaMocks({
@@ -528,13 +559,13 @@ describe('figma/gradient resolveBackgroundFillFromPaints', () => {
     expect(
       resolveBackgroundFillFromPaints([back, front], undefined, undefined, {
         background:
-          'radial-gradient(20% 30% at 10% 15%, red, red), radial-gradient(60% 70% at 80% 90%, blue, blue)'
+          'radial-gradient(20% 30% at 10% 15%, red 0%, red 100%), radial-gradient(60% 70% at 80% 90%, blue 0%, blue 100%)'
       })
     ).toEqual({
       kind: 'layers',
       value: [
-        'radial-gradient(20% 30% at 10% 15%, #F00 0%)',
-        'radial-gradient(60% 70% at 80% 90%, #00F 0%)'
+        'radial-gradient(20% 30% at 10% 15%, #F00 0%, #F00 100%)',
+        'radial-gradient(60% 70% at 80% 90%, #00F 0%, #00F 100%)'
       ]
     })
   })

@@ -24,15 +24,10 @@ model-authored prose or later Canvas arguments. The dedicated upload argument ca
 once; subsequent Canvas calls see only a content hash. Do not put raster bytes or large SVG
 documents in `apply_canvas`.
 
-Image generation may run in an isolated subagent when the host supports it and the Design in Figma
-delegation gate passes. The main agent fixes the art brief, remains the only Canvas writer, and owns
-placement and final judgment. This is an optional agent-orchestration optimization, not part of the
-TemPad protocol.
-
-Asset-medium selection remains an evidence decision. Creative latitude, Canvas editability, and
-delivery convenience do not establish a geometric or vector language. When several assets represent
-distinct content, the chosen existing, licensed, generated, or vector route must preserve the
-distinctions the composition depends on instead of substituting one reusable placeholder motif.
+This document owns asset transport, validation, and native ownership. The
+[Design in Figma skill](../../agent-plugin/src/skills/design-in-figma/SKILL.md) owns asset selection,
+provenance, delegation, and visual acceptance through its conditional references. Keep those
+task policies in the skill rather than duplicating them in the protocol design.
 
 This extends the existing declarative language rather than creating a second asset dialect.
 
@@ -105,13 +100,6 @@ type CanvasAssets = Record<
 
 Asset keys are call-scoped aliases. They deduplicate one source used by several nodes, but do not
 create a Figma design-system resource and do not need to remain stable across calls.
-
-The asset manifest is a delivery contract, not a medium selector. Before declaring a material
-asset, the agent records which user requirement, inspected evidence, or explicit brief decision
-establishes its subject and medium. A content-image role uses a sourced, generated, supplied, or
-current-file asset; availability of inline SVG does not justify replacing it with primitives or
-newly invented vector artwork. Agent-authored vectors require an independently established
-illustration, diagram, pattern, or decorative-geometry role.
 
 Allow at most 32 declarations and 64 KiB of inline SVG across one call. Every declaration must be
 referenced, every reference must exist and match the required type, and page-only or remove
@@ -255,52 +243,35 @@ Figma page requests assetHash
 
 The page never uses the Hub capability URL for inbound fetches. The broker accepts only an exact
 content hash, builds the URL from its validated Hub state, and cannot be used as an arbitrary URL
-proxy. Binary encoding exists only inside the extension bridge; it never enters an MCP tool call or
-result. The page still receives the existing capability URL solely to describe outbound assets
-already uploaded by `get_code` and `get_screenshot`.
+proxy. On this reverse path, binary encoding stays inside the extension bridge; `apply_canvas`
+carries only the manifest's hash. The dedicated `upload_asset` call is the bounded client-to-Hub
+data-URL path described below. The page still receives the existing capability URL solely to
+describe outbound assets already uploaded by `get_code` and `get_screenshot`.
 
-Cache resolved bytes and imported Figma image hashes by content hash for the active session.
+The page caches downloaded bytes by content hash until its bridge disconnects or is disabled;
+failed downloads are evicted. Imported Figma image hashes use a separate bounded cache and are
+checked with `getImageByHash` before reuse. A bridge reconnect does not invalidate native file
+handles. See [asset transport](../../packages/extension/mcp/assets.ts) and
+[media preparation](../../packages/extension/mcp/tools/canvas/media.ts) for cache ownership.
 
 ### Agent-generated images
-
-When custom focal imagery is appropriate and a generation capability is
-available, generation runs before layout instead of substituting hand-built
-Canvas geometry.
-
-Support three factual routes:
-
-1. A rights-established public HTTPS PNG/JPEG/GIF URL: use `imageUrl`.
-2. The generator returns a PNG/JPEG/GIF `data:` URL: compose its result directly into
-   `upload_asset`, then use the returned `assetHash`.
-3. Neither path exists: omit optional imagery or disclose the required gap; never synthesize an
-   image-role illustration from Figma primitives.
 
 `upload_asset` is Hub-only, content-addressed, idempotent, and bounded by the existing per-asset and
 aggregate quotas. It accepts no local path, remote URL, headers, credentials, SVG, or arbitrary MIME
 type. It validates base64 canonically, recomputes SHA-256, and stores through the existing loopback
 asset server. Its response contains only `assetHash`, MIME type, and size.
 
-When the host supports subagents and generation is separable, importable, verifiable, and worth its
-coordination cost, delegate nontrivial image generation:
-
-1. The main design agent sends a compact brief: layout role, subject, aspect ratio, palette/style,
-   important empty space, and negative constraints.
-2. The image subagent generates and iterates independently. The main agent programmatically uploads
-   its selected `data:` URL through `upload_asset`; a rights-established public result URL remains a
-   valid direct route.
-3. It returns only an importable `assetHash` or `imageUrl` plus MIME type, dimensions, and a short
-   description. It does not return bytes, candidate history, or its generation transcript.
-4. The main agent owns placement and crop, and verifies the final composition when pixels can
-   change the decision. It does not need to inspect intermediate candidates.
-
-Do not delegate exact project assets, icon-library SVGs, existing Figma images, direct URL imports,
-crop/placement decisions, or final acceptance. Do not spawn an image subagent when it cannot return
-an importable reference. Clients without subagents follow the same asset contract directly; TemPad
-neither exposes a subagent tool nor assumes one exists.
+Hosts compose generation and upload programmatically, passing the generated `data:` URL directly
+to `upload_asset` and using its returned hash in later Canvas calls. Hosts without that composition
+path can use a public image URL. Acquisition decisions and recovery belong to the skill's
+[images reference](../../agent-plugin/src/skills/design-in-figma/references/images.md).
+Optional delegation follows its
+[delegation reference](../../agent-plugin/src/skills/design-in-figma/references/delegation.md);
+TemPad does not expose or orchestrate subagents.
 
 Do not accept:
 
-- base64 or data URLs in `apply_canvas`, prose, or a copied/manual tool argument;
+- base64 or data URLs in `apply_canvas`;
 - arbitrary local file paths;
 - credentials, headers, cookies, or signed-request recipes;
 - a server-side “fetch any URL” endpoint.
@@ -339,14 +310,16 @@ SVG is code-like input even when Figma turns it into design layers. Validate bef
   frontend icon libraries without requiring a CSS parser;
 - no unresolved `currentColor`.
 
-Use the extension's existing XML parser (`svgson`) for structural checks and deterministic
-serialization. Do not build an SVG renderer or path parser. Figma remains the rendering and import
-authority.
+Use the [XML wrapper](../../packages/extension/mcp/tools/canvas/svg-xml.ts) around `svgson`
+to preserve entity, CDATA, whitespace, and attribute semantics through parsing and serialization.
+The sanitizer resolves namespaces and checks decoded CSS escapes for external references.
+Changing the import policy invalidates previous SVG digests. Do not build an SVG renderer or path
+parser. Figma remains the rendering and import authority.
 
 After `createNodeFromSvg`, reject and roll back if Figma produces:
 
 - zero or non-finite geometry;
-- more than 500 imported descendants;
+- more than 500 imported nodes, including the root;
 - a node outside the expected managed wrapper;
 - an import error.
 
@@ -361,10 +334,9 @@ SVG root. Store only bounded metadata on the wrapper:
 
 - source SHA-256;
 - resolved `currentColor`, if any;
-- import-policy version;
-- imported-child ownership marker.
+- import-policy version.
 
-The source itself is not stored in plugin data.
+The imported root carries its own ownership marker. The source itself is not stored in plugin data.
 
 Reconcile as follows:
 
@@ -420,10 +392,8 @@ Extend mandatory structural verification:
 - all existing paint fields still match.
 
 Do not export SVG or image bytes into the result. Return only normal mutation counts and bounded
-warnings. A composition containing a consequential visual asset checks one representative usage
-before propagation, then checks the final board and any materially distinct crop or treatment where
-a defect could hide. Mechanical text, token, prop, and hierarchy updates skip screenshots;
-corrections recheck only affected compositions.
+warnings. These structural checks do not prove visual fidelity; the authoring skill owns the
+required native and screenshot observations for the requested change.
 
 ## Context budget
 
@@ -434,30 +404,17 @@ The feature adds almost no always-on context:
 - one sentence in the tool description only if needed;
 - exact syntax stays in the Design in Figma skill's progressive visual-assets reference;
 - asset bytes move through the local binary bridge;
-- optional image generation and iteration can stay in an isolated task, with only a compact brief
-  and final asset descriptor reaching the main design context;
 - full validation errors are bounded and source-free;
 - apply results never repeat sources or previews.
 
-Subagents reduce generation-specific reasoning and visual exploration in the main task. The asset
-server separately keeps binary transport out of every model context. Neither mechanism eliminates
-the main agent's responsibility to specify the image's role or judge the final composition.
-
-Inline SVG is reserved for small frontend icons. A 32 KiB schema ceiling is a safety limit, not a
-recommended prompt budget; the skill should recommend Hub assets for anything beyond a compact icon
-or logo.
+The 32 KiB inline SVG ceiling is a safety limit, not a recommended prompt budget. Larger sources
+use Hub-backed assets; the authoring skill owns medium and source selection.
 
 ## Provenance and privacy
 
 TemPad imports exact caller-provided content; it does not search for assets, determine copyright
-status, or grant usage rights. The authoring workflow preserves enough source and rights evidence
-for the intended use. It requires item-level attribution or license records only when source terms,
-user or project policy, or the requested handoff makes them material. The skill should prefer
-project-approved, user-supplied, or permissively licensed sources and keep one icon family
-coherent. In a clean context it derives an
-icon profile from the product and composition, inspects fitting candidates from official sources,
-and compares materially distinct options only when the decision is consequential or the first fit
-rests on familiarity. It intentionally ships no named fallback list.
+status, or grant usage rights. The authoring skill owns source and rights evidence under the
+applicable user and project policy.
 
 Do not log SVG source, raster bytes, remote URL queries, capability URLs, or upload tokens. Logs may
 contain only asset key, content hash, MIME type, byte count, dimensions, and bounded failure code.

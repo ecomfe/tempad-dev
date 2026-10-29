@@ -1,4 +1,4 @@
-import type { BridgeToPageMessage, PageToBridgeMessage } from '@tempad-dev/shared'
+import type { BridgeToPageMessage, DesignTask, PageToBridgeMessage } from '@tempad-dev/shared'
 
 import {
   TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
@@ -9,8 +9,10 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { startMcpContentBridge } from '@/mcp/bridge/content'
+import { DesignReviews } from '@/mcp/broker/design-reviews'
 import {
   MCP_LOCAL_HOST_PERMISSION_ERROR,
+  MCP_PERMISSION_MESSAGE_SOURCE,
   MCP_PERMISSION_REQUEST_EVENT,
   createMcpPermissionMessage
 } from '@/mcp/permissions'
@@ -50,6 +52,7 @@ function installBrowser(
   vi.stubGlobal('browser', {
     runtime: {
       id: 'test-extension',
+      onMessage: { addListener: vi.fn(), removeListener: vi.fn() },
       connect: vi.fn(({ name }: { name: string }) => {
         expect(name).toBe(TEMPAD_MCP_SESSION_PORT_NAME)
         const port = createPort()
@@ -163,6 +166,47 @@ function stateMessage(): BridgeToPageMessage {
   }
 }
 
+const task: DesignTask = {
+  taskId: 'task-a',
+  title: 'Design',
+  target: { sessionId: 'session-1', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' },
+  status: 'active',
+  operation: null,
+  expiresAt: 1000,
+  revision: 1
+}
+
+function enableReview(): Extract<PageToBridgeMessage, { type: 'mcp.enable' }> {
+  return {
+    ...pageMessage('mcp.enable'),
+    type: 'mcp.enable',
+    document: { fileKey: 'file-a', fileName: 'Design', pageId: 'page-a', busy: false }
+  }
+}
+
+function taskState(value = task): BridgeToPageMessage {
+  return {
+    source: TEMPAD_MCP_BROWSER_SOURCE,
+    version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
+    type: 'mcp.designTaskState',
+    gatewayId: 'gateway-a',
+    task: value
+  }
+}
+
+function stopTask(taskId = task.taskId): PageToBridgeMessage {
+  return {
+    ...pageMessage('mcp.enable'),
+    type: 'mcp.designAction',
+    action: {
+      requestId: '00000000-0000-4000-8000-000000000001',
+      taskId,
+      epoch: 0,
+      action: 'stop'
+    }
+  }
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
@@ -217,28 +261,36 @@ describe('mcp/bridge/content', () => {
     }
   )
 
-  it('stops retrying and reports reload guidance when the extension context is invalidated', async () => {
-    vi.useFakeTimers()
-    const ports: Array<ReturnType<typeof createPort>> = []
-    installBrowser(ports)
-    const page = installWindow()
-    const invalidate = startMcpContentBridge()
-    page.sendPageMessage(pageMessage('mcp.enable'))
-    await flushMicrotasks()
-    invalidate()
-    await vi.advanceTimersByTimeAsync(5000)
-    expect(ports).toHaveLength(1)
-    expect(page.postMessage).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        type: 'mcp.state',
-        payload: expect.objectContaining({
-          status: 'connecting',
-          errorMessage: expect.stringContaining('Reload this Figma tab')
+  it.each([false, true])(
+    'disconnects and stops retrying when invalidated (listener cleanup fails=%s)',
+    async (cleanupFails) => {
+      vi.useFakeTimers()
+      const ports: Array<ReturnType<typeof createPort>> = []
+      installBrowser(ports)
+      const page = installWindow()
+      const invalidate = startMcpContentBridge()
+      page.sendPageMessage(pageMessage('mcp.enable'))
+      await flushMicrotasks()
+      if (cleanupFails)
+        vi.mocked(browser.runtime.onMessage.removeListener).mockImplementation(() => {
+          throw new Error('Extension context invalidated.')
         })
-      }),
-      TEMPAD_MCP_FIGMA_ORIGIN
-    )
-  })
+      invalidate()
+      expect(ports[0]!.port.disconnect).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(ports).toHaveLength(1)
+      expect(page.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: 'mcp.state',
+          payload: expect.objectContaining({
+            status: 'connecting',
+            errorMessage: expect.stringContaining('Reload this Figma tab')
+          })
+        }),
+        TEMPAD_MCP_FIGMA_ORIGIN
+      )
+    }
+  )
   it('forwards page messages and replays the last enable after reconnect', async () => {
     vi.useFakeTimers()
     const ports: Array<ReturnType<typeof createPort>> = []
@@ -257,6 +309,177 @@ describe('mcp/bridge/content', () => {
 
     expect(ports).toHaveLength(2)
     expect(ports[1]?.postMessage).toHaveBeenCalledWith(enable)
+  })
+
+  it.each(['owner', 'other-tab'])(
+    'recovers an unsaved Stop after worker replacement for the %s review',
+    async (claim) => {
+      vi.useFakeTimers()
+      const ports: Array<ReturnType<typeof createPort>> = []
+      const page = installWindow()
+      installBrowser(ports)
+      startMcpContentBridge()
+      page.sendPageMessage(enableReview())
+      await flushMicrotasks()
+      const current = {
+        ...task,
+        operation: 'writing' as const,
+        target: { ...task.target, sessionId: claim === 'owner' ? 'session-1' : 'other-tab' }
+      }
+      ports[0]!.receive(taskState(current))
+      const storage = {
+        get: async () => ({}),
+        set: vi.fn().mockRejectedValue(new Error('Storage full'))
+      }
+      const worker = new DesignReviews(storage)
+      const stopped = { ...current, status: 'cancelled' as const, operation: null }
+      page.sendPageMessage(stopTask())
+      await expect(worker.save(stopped)).rejects.toThrow('Storage full')
+      expect(worker.get('file-a')?.status).toBe('cancelled')
+      ports[0]!.receive(taskState({ ...current, revision: 2 }))
+      ports[0]!.disconnect()
+      await vi.advanceTimersByTimeAsync(1000)
+
+      const replay = ports[1]!.postMessage.mock.calls[0]![0] as ReturnType<typeof enableReview>
+      expect(replay.reviewTask).toMatchObject({
+        taskId: task.taskId,
+        status: 'cancelled',
+        operation: null
+      })
+      const replacement = new DesignReviews(storage)
+      await replacement.ready()
+      expect(replacement.get('file-a')).toBeUndefined()
+      await expect(replacement.restore(replay.reviewTask!)).rejects.toThrow('Storage full')
+      expect(replacement.get('file-a')).toMatchObject({ status: 'cancelled' })
+    }
+  )
+
+  it('caches Stop before reconnecting and does not let a stale task stop its replacement', async () => {
+    vi.useFakeTimers()
+    const ports: Array<ReturnType<typeof createPort>> = []
+    const page = installWindow()
+    installBrowser(ports)
+    startMcpContentBridge()
+    page.sendPageMessage(enableReview())
+    await flushMicrotasks()
+    ports[0]!.receive(taskState())
+    ports[0]!.disconnect()
+    page.sendPageMessage(stopTask())
+    await flushMicrotasks()
+    expect(ports[1]!.postMessage.mock.calls.map(([message]) => message)).toEqual([
+      expect.objectContaining({ reviewTask: { ...task, status: 'cancelled' } }),
+      stopTask()
+    ])
+    const next = { ...task, taskId: 'new-task', revision: 3 }
+    ports[1]!.receive(taskState(next))
+    page.sendPageMessage(stopTask())
+    // A replaced runtime port cannot overwrite the current task snapshot.
+    ports[0]!.receive(taskState({ ...task, status: 'cancelled', revision: 4 }))
+    ports[1]!.disconnect()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(ports[2]!.postMessage).toHaveBeenCalledWith({ ...enableReview(), reviewTask: next })
+  })
+
+  it('keeps Stop before Done when re-enabling with a stale snapshot', async () => {
+    vi.useFakeTimers()
+    const ports: Array<ReturnType<typeof createPort>> = []
+    const page = installWindow()
+    installBrowser(ports)
+    startMcpContentBridge()
+    page.sendPageMessage({ ...enableReview(), reviewTask: task })
+    await flushMicrotasks()
+    page.sendPageMessage(stopTask())
+    ports[0]!.receive({
+      source: TEMPAD_MCP_BROWSER_SOURCE,
+      version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
+      type: 'mcp.designReviewClosed',
+      taskId: task.taskId,
+      fileKey: task.target.fileKey
+    })
+    page.sendPageMessage({ ...enableReview(), reviewTask: task })
+    await flushMicrotasks()
+    ports[0]!.disconnect()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(ports[1]!.postMessage).toHaveBeenCalledWith({
+      ...enableReview(),
+      reviewTask: { ...task, status: 'cancelled', reviewClosed: true }
+    })
+  })
+
+  it("does not restore another tab's active review or invalid task state as this page's claim", async () => {
+    vi.useFakeTimers()
+    const ports: Array<ReturnType<typeof createPort>> = []
+    const page = installWindow()
+    installBrowser(ports)
+    startMcpContentBridge()
+    page.sendPageMessage(enableReview())
+    await flushMicrotasks()
+    ports[0]!.receive(taskState({ ...task, target: { ...task.target, sessionId: 'other-tab' } }))
+    ports[0]!.receive({ ...taskState(), task: { ...task, client: { kind: 'invalid' } } })
+    ports[0]!.disconnect()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(ports[1]!.postMessage).toHaveBeenCalledWith(enableReview())
+  })
+
+  it.each(['file', 'session', 'disable'])(
+    'does not carry a stopped review across a changed %s',
+    async (change) => {
+      vi.useFakeTimers()
+      const ports: Array<ReturnType<typeof createPort>> = []
+      const page = installWindow()
+      installBrowser(ports)
+      startMcpContentBridge()
+      page.sendPageMessage(enableReview())
+      await flushMicrotasks()
+      ports[0]!.receive(taskState())
+      page.sendPageMessage(stopTask())
+      if (change === 'file')
+        page.sendPageMessage({
+          ...enableReview(),
+          type: 'mcp.sessionInfo',
+          document: { ...enableReview().document!, fileKey: 'file-b' }
+        })
+      else {
+        if (change === 'disable') page.sendPageMessage(pageMessage('mcp.disable'))
+        page.sendPageMessage({
+          ...enableReview(),
+          sessionId: change === 'session' ? 'session-2' : 'session-1'
+        })
+      }
+      await flushMicrotasks()
+      // Neither foreign-file state nor an old session's Stop may claim the new scope.
+      ports[0]!.receive(taskState({ ...task, target: { ...task.target, fileKey: 'foreign' } }))
+      page.sendPageMessage(stopTask())
+      ports[0]!.disconnect()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(ports[1]!.postMessage.mock.calls[0]![0]).not.toHaveProperty('reviewTask')
+    }
+  )
+
+  it('shows reload guidance when the runtime object disappears during disconnect', async () => {
+    vi.useFakeTimers()
+    const ports: Array<ReturnType<typeof createPort>> = []
+    const page = installWindow()
+    const sendMessage = installBrowser(ports)
+    startMcpContentBridge()
+    page.sendPageMessage(pageMessage('mcp.enable'))
+    await flushMicrotasks()
+    Reflect.deleteProperty(browser, 'runtime')
+    expect(() => ports[0]!.disconnect()).not.toThrow()
+    expect(page.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: 'mcp.state',
+        payload: expect.objectContaining({
+          errorMessage: expect.stringContaining('Reload this Figma tab')
+        })
+      }),
+      TEMPAD_MCP_FIGMA_ORIGIN
+    )
+    await vi.advanceTimersByTimeAsync(5000)
+    page.sendPageMessage(pageMessage('mcp.enable'))
+    page.dispatchEvent(MCP_PERMISSION_REQUEST_EVENT)
+    expect(ports).toHaveLength(1)
+    expect(sendMessage).toHaveBeenCalledTimes(1)
   })
 
   it('forwards an initial draft load after permission checking and session registration', async () => {
@@ -443,6 +666,63 @@ describe('mcp/bridge/content', () => {
       createMcpPermissionMessage('mcp.permissions.request')
     )
     expect(ports).toHaveLength(1)
+  })
+
+  it.each(['enabled', 'disabled', 'invalidated'] as const)(
+    'rechecks an external permission change only for a live %s page',
+    async (state) => {
+      const ports: Array<ReturnType<typeof createPort>> = []
+      const send = installBrowser(ports, vi.fn().mockResolvedValue({ granted: false }))
+      const page = installWindow()
+      const dispose = startMcpContentBridge()
+      const changed = vi.mocked(browser.runtime.onMessage.addListener).mock.calls[0]![0]
+      const message = { source: MCP_PERMISSION_MESSAGE_SOURCE, type: 'mcp.permissions.changed' }
+      page.sendPageMessage(pageMessage('mcp.enable'))
+      await flushMicrotasks()
+      expect(ports).toHaveLength(0)
+      changed(message, { id: 'other-extension' }, vi.fn())
+      changed({ ...message, source: 'unknown' }, { id: 'test-extension' }, vi.fn())
+      expect(send).toHaveBeenCalledTimes(1)
+      if (state === 'disabled') page.sendPageMessage(pageMessage('mcp.disable'))
+      if (state === 'invalidated') dispose()
+      send.mockResolvedValue({ granted: true })
+      changed(message, { id: 'test-extension' }, vi.fn())
+      await flushMicrotasks()
+      expect(ports).toHaveLength(state === 'enabled' ? 1 : 0)
+      if (state === 'enabled') {
+        expect(send).toHaveBeenLastCalledWith(
+          createMcpPermissionMessage('mcp.permissions.contains')
+        )
+        expect(ports[0]!.postMessage).toHaveBeenCalledWith(pageMessage('mcp.enable'))
+      }
+      dispose()
+      expect(browser.runtime.onMessage.removeListener).toHaveBeenCalledWith(changed)
+    }
+  )
+
+  it('ignores an older denied check after an external permission grant', async () => {
+    const ports: Array<ReturnType<typeof createPort>> = []
+    const earlier = createDeferred<{ granted: boolean }>()
+    installBrowser(
+      ports,
+      vi.fn().mockReturnValueOnce(earlier.promise).mockResolvedValue({ granted: true })
+    )
+    const page = installWindow()
+    const dispose = startMcpContentBridge()
+    page.sendPageMessage(pageMessage('mcp.enable'))
+    const changed = vi.mocked(browser.runtime.onMessage.addListener).mock.calls[0]![0]
+    changed(
+      { source: MCP_PERMISSION_MESSAGE_SOURCE, type: 'mcp.permissions.changed' },
+      { id: 'test-extension' },
+      vi.fn()
+    )
+    await flushMicrotasks()
+    expect(ports).toHaveLength(1)
+    page.postMessage.mockClear()
+    earlier.resolve({ granted: false })
+    await flushMicrotasks()
+    expect(page.postMessage).not.toHaveBeenCalled()
+    dispose()
   })
 
   it('does not prompt while auto-enabling and reports missing local host permission', async () => {

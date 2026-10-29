@@ -28,6 +28,21 @@ import {
 } from '@/utils/css'
 
 describe('utils/css split and var helpers', () => {
+  it('replaces actual var functions without changing CSS literals or longer names', () => {
+    const literal = String.raw`"var(--quoted, red)" url("var(--url, blue)") /* var(--comment, red) */ myvar(--name, red)`
+    const transform = vi.fn(({ fallback }: { fallback?: string }) => fallback ?? 'none')
+    expect(
+      replaceVarFunctions(`${literal} var(--label, "a)b,c") var(--other, red)`, transform)
+    ).toBe(`${literal} "a)b,c" red`)
+    expect(transform).toHaveBeenCalledTimes(2)
+    expect(transform).toHaveBeenCalledWith({
+      full: 'var(--label, "a)b,c")',
+      name: '--label',
+      fallback: '"a)b,c"'
+    })
+    expect(extractVarNames(`${literal} var(--real)`)).toEqual(new Set(['--real']))
+  })
+
   it('splits by top-level comma with nested expressions and quotes', () => {
     const input = `a, rgb(1, 2, 3), "x, y", 'z,\\'w'`
     expect(splitByTopLevelComma(input)).toEqual(['a', 'rgb(1, 2, 3)', '"x, y"', "'z,\\'w'"])
@@ -68,6 +83,8 @@ describe('utils/css split and var helpers', () => {
 
 describe('utils/css parsing and normalization', () => {
   it('formats hex alpha values', () => {
+    expect(formatHexAlpha({ r: 0, g: 0, b: 1 }, 0.99)).toBe('#0000FFFC')
+    expect(formatHexAlpha({ r: 0, g: 0, b: 1 }, 0.995)).toBe('#0000FFFE')
     expect(formatHexAlpha({ r: 1, g: 0, b: 0 }, 1)).toBe('#F00')
     expect(formatHexAlpha({ r: 1, g: 0, b: 0 }, 0.5)).toBe('#FF000080')
     expect(formatHexAlpha({ r: 0.1, g: 0.2, b: 0.3 }, 1)).toBe('#1A334D')
@@ -100,6 +117,29 @@ describe('utils/css parsing and normalization', () => {
       size: '50%',
       repeat: 'repeat-x',
       position: 'left top'
+    })
+  })
+
+  it.each([
+    ['-2.08px -14.75px', '104.167% 145.833%', 'no-repeat'],
+    ['0% 0%', '20px 20px', 'repeat'],
+    ['left 10px top 20px', '16px auto', 'repeat-x']
+  ])('preserves image position %s and size %s', (position, size, repeat) => {
+    expect(parseBackgroundShorthand(`url("crop.png") ${position} / ${size} ${repeat}`)).toEqual({
+      image: 'url("crop.png")',
+      position,
+      size,
+      repeat
+    })
+  })
+
+  it('does not read geometry or repeat keywords from the image URL', () => {
+    expect(parseBackgroundShorthand('url("https://assets.test/20px repeat/40px.png")')).toEqual({
+      image: 'url("https://assets.test/20px repeat/40px.png")'
+    })
+    expect(parseBackgroundShorthand('url("tile.png") / 20px 30px')).toEqual({
+      image: 'url("tile.png")',
+      size: '20px 30px'
     })
   })
 
@@ -314,11 +354,7 @@ describe('utils/css parsing and normalization', () => {
     expect(multiBg.background).toContain('linear-gradient')
 
     const borderFallback = expandShorthands({ border: '1px solid' })
-    expect(borderFallback).toMatchObject({
-      'border-top-width': '1px',
-      'border-top-style': 'solid'
-    })
-    expect(borderFallback).not.toHaveProperty('border-top-color')
+    expect(borderFallback).toEqual({ border: '1px solid' })
   })
 
   it('covers shorthand fallback paths for background, grid and border parsing', () => {
@@ -366,6 +402,41 @@ describe('utils/css serializeCSS regression paths', () => {
     rootFontSize: 16,
     scale: 1
   }
+
+  it.each([undefined, 'reference', 'resolved', 'both'] as const)(
+    'keeps literal text and asset URLs unchanged in %s output',
+    (variableDisplay) => {
+      const content = '"var(--label, #abcd) @name $value /* literal */ 0px "'
+      const url = 'url("https://assets.test/$name/@name/#abcd")'
+      expect(
+        serializeCSS({ content, 'background-image': url }, { ...baseOptions, variableDisplay })
+      ).toBe(`content: ${content};\nbackground-image: ${url};`)
+      expect(normalizeStyleValue(content)).toBe(content)
+      expect(simplifyColorMixToRgba('"color-mix(in srgb, #fff 50%, transparent)"')).toBe(
+        '"color-mix(in srgb, #fff 50%, transparent)"'
+      )
+    }
+  )
+
+  it.each([false, true])(
+    'preserves custom property keys in evaluated JS styles (gradient: %s)',
+    (gradient) => {
+      const style = {
+        '--my-token': '12px',
+        width: 'var(--my-token)',
+        ...(gradient
+          ? {
+              'border-image': 'linear-gradient(red, blue) 1',
+              'border-width': '1px'
+            }
+          : {})
+      }
+      const code = serializeCSS(style, { ...baseOptions, toJS: true })
+      const output = new Function(`return (${code})`)()
+      expect(output['--my-token']).toBe('12px')
+      expect(output.width).toBe('var(--my-token)')
+    }
+  )
 
   it('serializes normal styles without gradient border', () => {
     const code = serializeCSS(

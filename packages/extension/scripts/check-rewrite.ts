@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url'
-import { chromium, type Response } from 'playwright'
+import { chromium, type Page, type Response } from 'playwright'
 
 import { GROUPS } from '@/rewrite/config'
 import { REWRITE_TARGET_REGEX } from '@/rewrite/rules'
@@ -27,7 +27,7 @@ export async function runCheck() {
   const scriptReads: Promise<{ url: string; content: string } | { error: unknown }>[] = []
 
   const browser = await chromium.launch()
-  const page = await browser.newPage()
+  let page: Page | undefined
   const captureScript = (response: Response) => {
     if (response.request().resourceType() !== 'script') return
     const url = response.url()
@@ -42,6 +42,7 @@ export async function runCheck() {
   }
 
   try {
+    page = await browser.newPage()
     page.on('response', captureScript)
 
     try {
@@ -174,7 +175,7 @@ export async function runCheck() {
     logger.log(reportLines.join('\n'))
     return !hasFailure
   } finally {
-    page.off('response', captureScript)
+    page?.off('response', captureScript)
     await browser.close()
   }
 }

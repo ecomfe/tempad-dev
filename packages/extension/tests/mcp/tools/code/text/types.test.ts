@@ -5,7 +5,7 @@ import {
   HOIST_ALLOWLIST,
   MARK_PRIORITY,
   MARK_WEIGHTS,
-  NEWLINE_RE,
+  PARAGRAPH_BREAK_RE,
   REQUESTED_SEGMENT_FIELDS,
   TYPO_FIELDS
 } from '@/mcp/tools/code/text/types'
@@ -69,6 +69,7 @@ describe('text/types constants', () => {
       'textDecorationColor',
       'textDecorationSkipInk',
       'paragraphSpacing',
+      'paragraphIndent',
       'indentation',
       'listOptions',
       'fills',
@@ -79,8 +80,8 @@ describe('text/types constants', () => {
     ])
   })
 
-  it('matches all supported line-break variants', () => {
+  it('matches hard paragraph separators and preserves soft line breaks', () => {
     const text = 'a\r\nb\nc\rd\u2028e\u2029f'
-    expect(text.split(NEWLINE_RE)).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
+    expect(text.split(PARAGRAPH_BREAK_RE)).toEqual(['a', 'b', 'c', 'd\u2028e', 'f'])
   })
 })

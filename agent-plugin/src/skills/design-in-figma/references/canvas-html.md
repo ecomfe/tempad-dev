@@ -68,10 +68,14 @@ reveals issues one at a time.
   unlinks that field.
 - A `span` contains only text and `<br>` or `<br/>` line breaks. Use
   `whitespace-pre-wrap` for literal newlines or repeated spaces. A plain `&` is
-  literal unless it forms a semicolon-terminated entity; supported entities
-  decode. Canvas typography does not inherit from a parent `div`: put font and
-  other text utilities on each `span`/TEXT node. Put flex/grid, gaps, padding,
-  borders, corners, and box shadows on a parent `div`.
+  literal unless it forms a semicolon-terminated entity. Numeric decimal/hex
+  entities and these named entities decode: `amp`, `apos`, `bull`, `copy`, `gt`,
+  `hellip`, `ldquo`, `lsquo`, `lt`, `mdash`, `middot`, `nbsp`, `ndash`, `quot`,
+  `rdquo`, `reg`, `rsquo`, `trade`. Other names remain literal; extension 1.0.0+
+  also reports an `unknown-html-entity` warning. Use the Unicode character or a
+  numeric entity instead. Canvas typography does not inherit from
+  a parent `div`: put font and other text utilities on each `span`/TEXT node.
+  Put flex/grid, gaps, padding, borders, corners, and box shadows on a parent `div`.
 - A component tag is childless, includes its returned `data-ref`, and accepts
   returned props plus the shared class, identity, variable, and style
   attributes.

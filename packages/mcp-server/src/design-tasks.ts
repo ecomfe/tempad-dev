@@ -1,19 +1,39 @@
 import type {
   AgentClient,
   AgentCapabilities,
+  ClientHook,
   DesignTask,
   DesignTaskTarget,
   FigmaSession,
   TempadMcpErrorCode
 } from '@tempad-dev/shared'
 
-import { MCP_DESIGN_TASK_LEASE_MS, RESUMABLE_DESIGN_TASK_STATUSES } from '@tempad-dev/shared'
+import {
+  ClientHookParamsSchema,
+  MCP_DESIGN_TASK_LEASE_MS,
+  RESUMABLE_DESIGN_TASK_STATUSES
+} from '@tempad-dev/shared'
 import { isDeepStrictEqual } from 'node:util'
 
-import type { DesignTaskSnapshot, DesignTaskStore } from './design-task-store'
+import type { HostContext } from './agent-clients/host-context'
+import type { ClaudeStopNotice, DesignTaskSnapshot, DesignTaskStore } from './design-task-store'
+import type { Execution } from './execution-state'
 import type { ExtensionConnection } from './types'
 
+import { codexStoreKey } from './agent-clients/host-context'
+import { nativeFeedback } from './agent-clients/types'
 import { HISTORY_RETENTION_MS } from './history-retention'
+import {
+  EXPIRED_HOOK_RESULT,
+  ExpiredHookError,
+  HOOK_RECEIPT_LIMIT,
+  LegacyHookCapacityError,
+  hookCutoff,
+  hookPressureCutoff,
+  hookRetentionCutoff,
+  hookSignature,
+  type HookReceipt
+} from './hook-receipts'
 import { extensionUpgradeRequired } from './legacy-extension'
 
 type TerminalStatus = Exclude<DesignTask['status'], 'active' | 'stopping'>
@@ -32,6 +52,8 @@ export type DesignTaskRecord = {
   resultNodeIds?: string[]
   browser?: BrowserIdentity & { tabId: number; documentId: string }
   retiredAt?: number
+  hostContext?: HostContext
+  claudeStopNotice?: ClaudeStopNotice
 }
 
 /** Only a Hub begin request establishes a client binding; browser migration leaves it empty. */
@@ -119,6 +141,12 @@ export class DesignTasks {
   private readonly records = new Map<string, DesignTaskRecord>()
   private readonly currentTaskIds = new Map<string, string>()
   private readonly operations = new Map<string, Operation>()
+  private readonly filesNeedingRead = new Map<string, number>()
+  private executions: Execution[] = []
+  private readonly hookReceipts = new Map<string, HookReceipt>()
+  private hookReceiptCutoff = 0
+  private applyingHook = false
+  private readGeneration = 0
   // Every retired file rejects stale unknown reviews; true also retains its Stop write fence.
   private readonly fileFences = new Map<string, boolean>()
   private readonly expiredRequests = new Map<string, Set<string>>()
@@ -126,6 +154,7 @@ export class DesignTasks {
   private readonly now: () => number
   private readonly leaseMs: number
   private revision = 0
+  private recoveryGeneration?: string
   private persistenceError?: unknown
 
   constructor(private readonly options: Options) {
@@ -133,7 +162,18 @@ export class DesignTasks {
     this.leaseMs = options.leaseMs ?? MCP_DESIGN_TASK_LEASE_MS
   }
 
-  retry(ownerId: string, requestId: string): DesignTaskRecord | undefined {
+  retry(
+    ownerId: string,
+    requestId: string,
+    recoveryGeneration?: string
+  ): DesignTaskRecord | undefined {
+    if (this.recoveryGeneration && recoveryGeneration !== this.recoveryGeneration)
+      throw Object.assign(
+        new Error(
+          `Task storage was recovered; old tasks cannot resume. Explicitly begin a fresh task with recoveryGeneration "${this.recoveryGeneration}" and a fresh requestId, then reread its target before writing.`
+        ),
+        { code: 'DESIGN_TASK_INACTIVE', recoveryGeneration: this.recoveryGeneration }
+      )
     this.sweep()
     if (this.expiredRequests.get(ownerId)?.has(requestId))
       fail(
@@ -153,10 +193,12 @@ export class DesignTasks {
     requestId: string,
     client?: AgentClient,
     capabilities?: AgentCapabilities,
-    browser?: BrowserIdentity
+    browser?: BrowserIdentity,
+    recoveryGeneration?: string,
+    hostContext?: HostContext
   ): DesignTaskRecord {
     this.assertStorageWritable(session.fileKey)
-    const retry = this.retry(ownerId, requestId)
+    const retry = this.retry(ownerId, requestId, recoveryGeneration)
     if (retry) {
       if (retry.task.title !== title) {
         fail('REQUEST_ID_CONFLICT', 'This begin requestId was already used with another title.')
@@ -172,6 +214,7 @@ export class DesignTasks {
       extensionId,
       requestId,
       ready: false,
+      ...(hostContext ? { hostContext } : {}),
       ...(browser && tabId !== undefined && documentId !== undefined
         ? { browser: { ...browser, tabId, documentId } }
         : {}),
@@ -181,6 +224,7 @@ export class DesignTasks {
         target,
         status: 'active',
         epoch: 0,
+        ...(this.recoveryGeneration ? { needsRead: true } : {}),
         ...(client ? { client } : {}),
         ...(capabilities ? { capabilities } : {}),
         operation: null,
@@ -242,26 +286,41 @@ export class DesignTasks {
   }
 
   /** Runtime identity may reconnect the same conversation, never a focused/last caller. */
-  attachClient(ownerId: string, client: AgentClient, capabilities?: AgentCapabilities): void {
-    if (!client.sessionId || ['other', 'unknown'].includes(client.kind)) return
+  attachClient(
+    ownerId: string,
+    client: AgentClient,
+    capabilities?: AgentCapabilities,
+    hostContext?: HostContext
+  ): string[] {
+    const mismatched: string[] = []
+    if (!client.sessionId || ['other', 'unknown'].includes(client.kind)) return mismatched
     for (const record of this.records.values()) {
       const verified = getVerifiedTaskClient(record)
       if (verified?.kind !== client.kind || verified.sessionId !== client.sessionId) continue
+      // Cancelled history remains readable; only an in-flight lease keeps its transport owner.
+      if (RUNNING_STATUSES.includes(record.task.status) && record.ownerId !== ownerId) continue
       if (
-        !RESUMABLE_DESIGN_TASK_STATUSES.includes(record.task.status) &&
-        record.ownerId !== ownerId
-      )
+        nativeFeedback(client) &&
+        record.hostContext &&
+        codexStoreKey(record.hostContext) !== codexStoreKey(hostContext)
+      ) {
+        mismatched.push(record.task.taskId)
         continue
+      }
       const ownerChanged = record.ownerId !== ownerId
       const changed =
-        ownerChanged || (capabilities && !isDeepStrictEqual(record.task.capabilities, capabilities))
+        ownerChanged ||
+        (hostContext && !isDeepStrictEqual(record.hostContext, hostContext)) ||
+        (capabilities && !isDeepStrictEqual(record.task.capabilities, capabilities))
       record.ownerId = ownerId
       if (ownerChanged && !this.expiredRequests.has(ownerId))
         this.expiredRequests.set(ownerId, new Set())
       record.task.client = client
+      if (hostContext) record.hostContext = hostContext
       if (capabilities) record.task.capabilities = capabilities
       if (changed) this.publish(record)
     }
+    return mismatched
   }
 
   assertEpoch(taskId: string, ownerId: string, epoch?: number): DesignTaskRecord {
@@ -323,6 +382,256 @@ export class DesignTasks {
     this.publish(record)
   }
 
+  requireFileRead(fileKey: string, requireDurable = false): number {
+    const previous = this.filesNeedingRead.get(fileKey)
+    const generation = ++this.readGeneration
+    this.filesNeedingRead.set(fileKey, generation)
+    this.persist()
+    if (requireDurable && this.persistenceError) {
+      if (previous === undefined) this.filesNeedingRead.delete(fileKey)
+      else this.filesNeedingRead.set(fileKey, previous)
+      fail(
+        'DESIGN_TASK_INACTIVE',
+        'Design task state could not be saved. No canvas write was dispatched. Restore storage before retrying.'
+      )
+    }
+    return generation
+  }
+
+  acknowledgeFileRead(fileKey: string, expectedGeneration?: number): void {
+    if (
+      this.executions.some(
+        (value) => value.session.fileKey === fileKey && value.abandonedAt === undefined
+      )
+    )
+      return
+    const generation = this.filesNeedingRead.get(fileKey)
+    if (
+      generation === undefined ||
+      (expectedGeneration !== undefined && expectedGeneration !== generation)
+    )
+      return
+    this.filesNeedingRead.delete(fileKey)
+    this.persist()
+    if (this.persistenceError) this.filesNeedingRead.set(fileKey, generation)
+  }
+
+  needsFileRead(fileKey: string): boolean {
+    return this.filesNeedingRead.has(fileKey)
+  }
+
+  executionState(): Execution[] {
+    return structuredClone(this.executions)
+  }
+
+  saveExecutions(executions: Execution[]): void {
+    const previous = this.executions
+    const previousReads = new Map(this.filesNeedingRead)
+    const previousById = new Map(previous.map((execution) => [execution.id, execution]))
+    this.executions = executions
+    for (const execution of executions) {
+      const prior = previousById.get(execution.id)
+      // Exclusion and its eventual read fence are one atomic snapshot.
+      if (
+        prior?.revision !== execution.revision &&
+        !this.filesNeedingRead.has(execution.session.fileKey)
+      )
+        this.filesNeedingRead.set(execution.session.fileKey, ++this.readGeneration)
+      if (
+        execution.abandonedAt === undefined ||
+        !execution.taskId ||
+        prior?.abandonedAt !== undefined
+      )
+        continue
+      const record = this.records.get(execution.taskId)
+      if (record && RUNNING_STATUSES.includes(record.task.status)) {
+        record.task.status = record.ending === 'cancelled' ? 'cancelled' : 'paused'
+        record.task.epoch = (record.task.epoch ?? 0) + 1
+        record.task.needsRead = true
+        record.ready = false
+        record.ending = undefined
+      }
+    }
+    this.persist()
+    if (this.persistenceError) {
+      this.executions = previous
+      this.filesNeedingRead.clear()
+      for (const [file, generation] of previousReads) this.filesNeedingRead.set(file, generation)
+      fail(
+        'DESIGN_TASK_INACTIVE',
+        'Design task state could not be saved. No canvas write was dispatched or execution block released. Restore storage before retrying.'
+      )
+    }
+  }
+
+  isOperationPending(requestId: string): boolean {
+    return this.operations.has(requestId)
+  }
+
+  get pendingOperationCount(): number {
+    return this.operations.size
+  }
+
+  pendingOperations() {
+    return [...this.operations].map(([id, operation]) => ({
+      id,
+      extensionId: operation.extensionId,
+      write: operation.write
+    }))
+  }
+
+  flush(): void {
+    this.persist()
+    if (this.options.store?.recoveryError || this.persistenceError)
+      throw new Error('Task state cannot be flushed; runtime switch is blocked.')
+  }
+
+  applyHook(
+    invocationId: string,
+    input: unknown,
+    apply: () => Record<string, unknown>,
+    retireExpired?: () => void
+  ): Record<string, unknown> {
+    this.compactHookReceipts(invocationId)
+    const signature = hookSignature(input)
+    const existing = this.hookReceipts.get(invocationId)
+    if (existing && existing.signature !== signature)
+      throw new Error('Lifecycle invocation ID was reused with different content.')
+    const parsed = ClientHookParamsSchema.safeParse(input)
+    let expired = false
+    if (parsed.success) {
+      try {
+        this.hookReceiptCutoff = hookCutoff(parsed.data, this.hookReceiptCutoff, this.now())
+      } catch (error) {
+        if (!(error instanceof ExpiredHookError) || !retireExpired) throw error
+        this.hookReceiptCutoff = error.cutoff
+        expired = true
+      }
+    }
+    if (existing && (!expired || existing.retired)) {
+      this.flush()
+      if (existing.error && !existing.retired)
+        throw new Error(`Lifecycle effect remains uncertain: ${existing.error}`)
+      return existing.result
+    }
+    if (!existing && !expired && parsed.success && parsed.data.version === 2) {
+      this.compactHookReceipts(invocationId, true)
+      hookCutoff(parsed.data, this.hookReceiptCutoff, this.now())
+    }
+    if (
+      !existing &&
+      parsed.success &&
+      parsed.data.version === 1 &&
+      [...this.hookReceipts.values()].filter((receipt) => receipt.issuedAt === undefined).length >=
+        HOOK_RECEIPT_LIMIT
+    )
+      throw new LegacyHookCapacityError()
+    if (
+      !existing &&
+      !expired &&
+      parsed.success &&
+      parsed.data.version === 2 &&
+      [...this.hookReceipts.values()].filter((receipt) => receipt.issuedAt !== undefined).length >=
+        HOOK_RECEIPT_LIMIT
+    )
+      throw new Error('Hook result history is waiting for uncertain lifecycle effects.')
+    if (
+      !existing &&
+      !expired &&
+      [...this.hookReceipts.values()].filter((receipt) => receipt.error && !receipt.retired)
+        .length >= HOOK_RECEIPT_LIMIT
+    )
+      throw new Error(
+        'Runtime hook receipt capacity reached. Preserve the runtime state for diagnosis.'
+      )
+    if (this.applyingHook) throw new Error('A lifecycle transaction is already in progress.')
+    const receipt: HookReceipt = existing ?? {
+      invocationId,
+      signature,
+      result: {},
+      recordedAt: this.now()
+    }
+    if (parsed.success && parsed.data.version === 2) receipt.issuedAt = parsed.data.issuedAt
+    this.applyingHook = true
+    try {
+      if (expired) {
+        // Retire uncertain lifecycle intent only with its session/task fences in
+        // the same snapshot. Never replay it or report that it was applied.
+        retireExpired!()
+        receipt.retired = 'expired'
+        receipt.result = EXPIRED_HOOK_RESULT
+      } else receipt.result = apply()
+      return receipt.result
+    } catch (error) {
+      receipt.error = String(error).slice(0, 1000)
+      throw error
+    } finally {
+      // A newly observed expired invocation is already fenced by the durable cutoff.
+      // Its idempotent retirement needs no new receipt slot, even at full capacity.
+      if (existing || !expired) this.hookReceipts.set(invocationId, receipt)
+      this.applyingHook = false
+      this.flush()
+    }
+  }
+
+  private compactHookReceipts(preserveId?: string, reserveResult = false): void {
+    this.hookReceiptCutoff = hookRetentionCutoff(this.hookReceiptCutoff, this.now())
+    const legacyCutoff = hookRetentionCutoff(0, this.now())
+    if (reserveResult) {
+      const completed: number[] = []
+      const unresolved: number[] = []
+      for (const receipt of this.hookReceipts.values())
+        if (receipt.issuedAt !== undefined)
+          (receipt.error && !receipt.retired ? unresolved : completed).push(receipt.issuedAt)
+      this.hookReceiptCutoff = hookPressureCutoff(this.hookReceiptCutoff, completed, unresolved)
+    }
+    for (const [id, receipt] of this.hookReceipts) {
+      if (receipt.error && !receipt.retired) continue
+      if (receipt.issuedAt !== undefined) {
+        if (id !== preserveId && receipt.issuedAt <= this.hookReceiptCutoff)
+          this.hookReceipts.delete(id)
+      } else if (!receipt.retired && receipt.recordedAt <= legacyCutoff) {
+        receipt.retired = 'expired'
+        receipt.result = EXPIRED_HOOK_RESULT
+      }
+    }
+  }
+
+  /** Called only by a fresh lifecycle hook; never restore a session's liveness from disk. */
+  takeClaudeStopNotice(input: ClientHook): { taskId?: string; staleTurn?: boolean } {
+    if (input.kind !== 'claude') return {}
+    let taskId: string | undefined
+    let changed = false
+    let staleTurn = false
+    for (const record of this.records.values()) {
+      const notice = record.claudeStopNotice
+      if (!notice || notice.sessionId !== input.sessionId) continue
+      if (
+        input.event !== 'UserPromptSubmit' &&
+        notice.turnId &&
+        input.turnId &&
+        notice.turnId !== input.turnId
+      ) {
+        staleTurn = true
+        continue
+      }
+      delete record.claudeStopNotice
+      changed = true
+      const client = getVerifiedTaskClient(record)
+      if (
+        (input.event === 'PreToolUse' || input.event === 'PostToolUse') &&
+        client?.kind === 'claude' &&
+        client.sessionId === input.sessionId &&
+        (record.task.status === 'cancelled' ||
+          (record.task.status === 'stopping' && record.ending === 'cancelled'))
+      )
+        taskId = record.task.taskId
+    }
+    // applyHook includes this retirement and its response receipt in the same durable save.
+    if (changed) this.persist()
+    return { ...(taskId ? { taskId } : {}), ...(!changed && staleTurn ? { staleTurn: true } : {}) }
+  }
+
   find(taskId: string): DesignTaskRecord | undefined {
     this.sweep()
     return this.records.get(taskId)
@@ -356,7 +665,17 @@ export class DesignTasks {
     return [...this.operations.values()].some((operation) => operation.target.fileKey === fileKey)
   }
 
-  private assertFileIdle(session: FigmaSession): void {
+  private assertFileIdle(session: FigmaSession, checkExecution = true): void {
+    const execution =
+      checkExecution &&
+      this.executions.find(
+        (value) => value.session.fileKey === session.fileKey && value.abandonedAt === undefined
+      )
+    if (execution)
+      fail(
+        'DESIGN_TASK_BUSY',
+        `An earlier operation may still be executing in this file. Reconnect the original Figma tab, or use --runtime-status and interactive --resolve-runtime-block ${execution.id} after stopping that execution environment. Restarting the Hub or reading the file does not release this block.`
+      )
     if (session.busy || this.hasPendingOperation(session.fileKey)) {
       fail(
         'DESIGN_TASK_BUSY',
@@ -368,15 +687,18 @@ export class DesignTasks {
   checkOperation(ownerId: string, session: FigmaSession, taskId?: string, write = false): void {
     this.sweep()
     if (write) this.assertStorageWritable(session.fileKey)
-    this.assertFileIdle(session)
+    this.assertFileIdle(session, write)
     const record = taskId ? this.owned(taskId, ownerId, true) : undefined
     if (record && (!record.ready || record.task.target.sessionId !== session.sessionId)) {
       fail('DESIGN_TARGET_CHANGED', 'The task is not bound to this Figma session.')
     }
     if (write && record?.task.needsRead) {
+      fail('DESIGN_TASK_INACTIVE', 'The resumed task has not confirmed its bound canvas state.')
+    }
+    if (write && this.filesNeedingRead.has(session.fileKey)) {
       fail(
         'DESIGN_TASK_INACTIVE',
-        'Read the bound canvas with get_structure or get_code after resuming before writing.'
+        'The previous write did not confirm its final canvas state. Do not replay the write.'
       )
     }
     const occupant = this.occupant(session.fileKey)
@@ -384,12 +706,18 @@ export class DesignTasks {
     if (
       write &&
       !taskId &&
-      (this.fileFences.get(session.fileKey) ||
+      (this.recoveryGeneration ||
+        this.fileFences.get(session.fileKey) ||
         [...this.records.values()].some(
           ({ task }) => task.target.fileKey === session.fileKey && task.status === 'cancelled'
         ))
     )
-      fail('DESIGN_TASK_INACTIVE', 'This file has a stopped task. Begin a new task before writing.')
+      fail(
+        'DESIGN_TASK_INACTIVE',
+        this.recoveryGeneration
+          ? 'Task storage was recovered. Begin a new task before writing.'
+          : 'This file has a stopped task. Begin a new task before writing.'
+      )
   }
 
   startOperation(
@@ -542,9 +870,26 @@ export class DesignTasks {
     this.persist()
   }
 
-  stop(taskId: string, outcome: TerminalStatus): DesignTask | undefined {
+  stop(
+    taskId: string,
+    outcome: TerminalStatus,
+    claudeStopNotice?: ClaudeStopNotice
+  ): DesignTask | undefined {
     const record = this.records.get(taskId)
-    if (!record || ENDED_STATUSES.includes(record.task.status)) return record?.task
+    if (!record || record.task.status === 'cancelled' || record.task.status === outcome)
+      return record?.task
+    if (
+      outcome === 'cancelled' &&
+      claudeStopNotice &&
+      getVerifiedTaskClient(record)?.kind === 'claude' &&
+      record.task.client?.sessionId === claudeStopNotice.sessionId
+    ) {
+      for (const previous of this.records.values())
+        if (previous.claudeStopNotice?.sessionId === claudeStopNotice.sessionId)
+          delete previous.claudeStopNotice
+      // The next publish saves the intent together with cancelled/stopping state.
+      record.claudeStopNotice = claudeStopNotice
+    }
     if (!RUNNING_STATUSES.includes(record.task.status)) {
       if (outcome === 'completed' || outcome === 'cancelled') this.finish(record, outcome)
       return record.task
@@ -678,6 +1023,14 @@ export class DesignTasks {
     const snapshot = this.options.store?.load()
     if (!snapshot) return
     this.revision = snapshot.revision
+    this.recoveryGeneration = snapshot.recoveryGeneration
+    this.executions = snapshot.executions ?? []
+    for (const receipt of snapshot.hookReceipts ?? [])
+      this.hookReceipts.set(receipt.invocationId, receipt)
+    this.hookReceiptCutoff = snapshot.hookReceiptCutoff ?? 0
+    this.compactHookReceipts()
+    for (const fileKey of snapshot.filesNeedingRead ?? [])
+      this.filesNeedingRead.set(fileKey, ++this.readGeneration)
     for (const [fileKey, stopped] of Object.entries(snapshot.fileFences ?? {}))
       this.fileFences.set(fileKey, stopped)
     for (const saved of snapshot.records) {
@@ -724,7 +1077,12 @@ export class DesignTasks {
       return
     if (!record) {
       // Migrate a tab saved before durable Hub records existed. Never replace a newer task.
-      if (this.current(session.fileKey) || this.fileFences.has(session.fileKey)) return
+      if (
+        this.recoveryGeneration ||
+        this.current(session.fileKey) ||
+        this.fileFences.has(session.fileKey)
+      )
+        return
       record = {
         task: {
           ...saved,
@@ -815,18 +1173,35 @@ export class DesignTasks {
   }
 
   private persist(): void {
-    if (!this.options.store) return
+    if (!this.options.store || this.applyingHook) return
     const snapshot: DesignTaskSnapshot = {
       revision: this.revision,
+      ...(this.hookReceipts.size ? { hookReceipts: [...this.hookReceipts.values()] } : {}),
+      ...(this.hookReceiptCutoff ? { hookReceiptCutoff: this.hookReceiptCutoff } : {}),
+      ...(this.executions.length ? { executions: this.executions } : {}),
+      ...(this.recoveryGeneration ? { recoveryGeneration: this.recoveryGeneration } : {}),
+      ...(this.filesNeedingRead.size
+        ? { filesNeedingRead: [...this.filesNeedingRead.keys()] }
+        : {}),
       current: Object.fromEntries(this.currentTaskIds),
       ...(this.fileFences.size ? { fileFences: Object.fromEntries(this.fileFences) } : {}),
       records: [...this.records.values()].map(
-        ({ task, requestId, browser, resultNodeIds, retiredAt }) => ({
+        ({
+          task,
+          requestId,
+          browser,
+          resultNodeIds,
+          retiredAt,
+          hostContext,
+          claudeStopNotice
+        }) => ({
           task: { ...task, capabilities: undefined, operation: null },
           requestId,
           browser,
           resultNodeIds,
-          retiredAt
+          retiredAt,
+          hostContext,
+          claudeStopNotice
         })
       )
     }
@@ -843,7 +1218,7 @@ export class DesignTasks {
     if (this.options.store?.blockedFiles?.has(fileKey))
       fail(
         'DESIGN_TASK_INACTIVE',
-        'This Figma file has an incompatible saved task. Its canvas writes remain blocked until that task record is recovered; other files are unaffected.'
+        'This Figma file has an incompatible saved task. If it was written by a newer Hub, upgrade TemPad Dev MCP and reconnect all clients. If the current version still rejects it, preserve the snapshot for diagnosis or restore a verified complete backup including the latest Stop fences. Do not reset readable task storage; other files are unaffected.'
       )
     if (this.options.store?.recoveryError || this.persistenceError)
       fail(

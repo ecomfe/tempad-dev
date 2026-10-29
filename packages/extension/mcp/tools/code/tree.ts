@@ -8,11 +8,16 @@ import { toDecimalPlace } from '@/utils/number'
 
 import type { AutoLayoutHint, DataHint, NodeSnapshot, TreeStats, VisibleTree } from './model'
 
+import { type GetCodeCacheContext, getChildOverflowCached } from './cache'
 import { getInferredAutoLayout } from './layout-parent'
 
 const NODE_WORK_BUDGET = 2000
 
-export function buildVisibleTree(roots: SceneNode[], checkpoint?: () => void): VisibleTree {
+export function buildVisibleTree(
+  roots: SceneNode[],
+  checkpoint?: () => void,
+  cache?: GetCodeCacheContext
+): VisibleTree {
   const depthLimit = suggestDepthLimit(roots, checkpoint, NODE_WORK_BUDGET)
   const stats: TreeStats = {
     totalNodes: 0,
@@ -96,7 +101,7 @@ export function buildVisibleTree(roots: SceneNode[], checkpoint?: () => void): V
   // Bound the snapshot before native layout inference can inspect physical descendants.
   for (const snapshot of nodes.values()) {
     checkpoint?.()
-    const autoLayoutHint = resolveAutoLayoutHint(snapshot.node, checkpoint)
+    const autoLayoutHint = resolveAutoLayoutHint(snapshot.node, checkpoint, cache)
     if (autoLayoutHint) {
       snapshot.autoLayoutHint = autoLayoutHint
       snapshot.dataHint = snapshot.dataHint ?? {}
@@ -126,12 +131,24 @@ function getRenderBounds(
 
 function resolveAutoLayoutHint(
   node: SceneNode,
-  checkpoint?: () => void
+  checkpoint?: () => void,
+  cache?: GetCodeCacheContext
 ): AutoLayoutHint | undefined {
   if ('layoutMode' in node && node.layoutMode && node.layoutMode !== 'NONE') {
     return undefined
   }
-  if (getInferredAutoLayout(node, undefined, checkpoint)) {
+  let clippedOverflow: boolean | undefined
+  if (
+    cache &&
+    'inferredAutoLayout' in node &&
+    'clipsContent' in node &&
+    node.clipsContent &&
+    node.layoutMode === 'NONE'
+  ) {
+    const overflow = getChildOverflowCached(node, cache, checkpoint)
+    clippedOverflow = overflow.x || overflow.y
+  }
+  if (getInferredAutoLayout(node, clippedOverflow, checkpoint)) {
     return 'inferred'
   }
   return undefined

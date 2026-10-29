@@ -9,8 +9,13 @@ import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 
+import {
+  checkoutProfile,
+  runtimeDirectories
+} from '../../../agent-plugin/src/clients/shared/runtime-profile.mjs'
 import { ClientHookRequestSchema, ClientHooks, type ClientHook } from '../src/agent-clients/hooks'
 import { ClientEventSchema } from '../src/agent-clients/identity'
+import { DesignTasks } from '../src/design-tasks'
 
 const hook = fileURLToPath(
   new URL('../../../agent-plugin/src/clients/shared/lifecycle.mjs', import.meta.url)
@@ -21,7 +26,8 @@ async function withHookHub(
     directory: string,
     hooks: ClientHooks,
     received: ClientHook[],
-    root: string
+    root: string,
+    tasks: DesignTasks
   ) => Promise<void>,
   linuxRoot?: 'private' | 'unsafe'
 ) {
@@ -36,7 +42,8 @@ async function withHookHub(
     )
     await mkdir(directory, { recursive: true, mode: 0o700 })
   }
-  const hooks = new ClientHooks()
+  const tasks = new DesignTasks({ createId: () => 'task-a' })
+  const hooks = new ClientHooks((input) => tasks.takeClaudeStopNotice(input))
   const received: ClientHook[] = []
   const clients = new Set<McpServer>()
   const server = createServer((socket) => {
@@ -44,7 +51,12 @@ async function withHookHub(
     clients.add(mcp)
     mcp.server.setRequestHandler(ClientHookRequestSchema, (request) => {
       received.push(request.params)
-      return hooks.handle(request.params)
+      return {
+        ...hooks.handle(request.params),
+        ...(request.params.version === 2
+          ? { receipt: { version: 2, invocationId: request.params.invocationId, state: 'applied' } }
+          : {})
+      }
     })
     void mcp.connect(new StdioServerTransport(socket, socket))
     socket.once('close', () => {
@@ -55,7 +67,7 @@ async function withHookHub(
   try {
     await new Promise<void>((resolve) => server.listen(join(directory, 'mcp.sock'), resolve))
     if (process.platform !== 'win32') await chmod(join(directory, 'mcp.sock'), 0o600)
-    await run(directory, hooks, received, root)
+    await run(directory, hooks, received, root, tasks)
   } finally {
     await Promise.all([...clients].map((client) => client.close()))
     await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -88,22 +100,307 @@ async function runHook(
   })
   let stdout = '',
     stderr = ''
-  child.stdout.on('data', (data) => {
-    stdout += String(data)
+  child.stdout.setEncoding('utf8').on('data', (data) => {
+    stdout += data
   })
-  child.stderr.on('data', (data) => {
-    stderr += String(data)
+  child.stderr.setEncoding('utf8').on('data', (data) => {
+    stderr += data
   })
   child.stdin.end(
     JSON.stringify({ hook_event_name: event, session_id: 'thread-a', turn_id: 'turn-a', ...extra })
   )
-  const code = await new Promise<number | null>((resolve) => child.once('exit', resolve))
+  const code = await new Promise<number | null>((resolve) => child.once('close', resolve))
   return { code, stdout, stderr }
 }
 
 // The installed Windows hook ignores runtime-directory overrides for its fixed pipe.
 // Only the in-memory protocol test is safe there; never probe the user's real Hub.
 describe('plugin hook transport', () => {
+  it.skipIf(process.platform === 'win32').each(['lost reply', 'accepted', 'legacy'] as const)(
+    'retries one invocation after %s without repeating its effect',
+    async (mode) => {
+      const directory = await mkdtemp(join(tmpdir(), 'th-retry-'))
+      const received: ClientHook[] = []
+      const applied = new Set<string>()
+      const server = createServer((socket) => {
+        socket.setEncoding('utf8')
+        let buffer = ''
+        socket.on('data', (chunk) => {
+          buffer += chunk
+          if (!buffer.endsWith('\n')) return
+          const input = ClientHookRequestSchema.parse(JSON.parse(buffer)).params
+          received.push(input)
+          if (mode === 'legacy' && input.version === 2) {
+            socket.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                error: { code: -32602, message: 'Invalid lifecycle hook parameters.' }
+              }) + '\n'
+            )
+            return
+          }
+          applied.add(input.invocationId)
+          if (mode === 'lost reply' && received.length === 1) {
+            socket.destroy()
+            return
+          }
+          socket.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              result:
+                input.version === 2
+                  ? {
+                      receipt: {
+                        version: 2,
+                        invocationId: input.invocationId,
+                        state: mode === 'accepted' && received.length === 1 ? 'accepted' : 'applied'
+                      }
+                    }
+                  : {}
+            }) + '\n'
+          )
+        })
+      })
+      try {
+        await new Promise<void>((resolve) => server.listen(join(directory, 'mcp.sock'), resolve))
+        await chmod(join(directory, 'mcp.sock'), 0o600)
+        expect(await runHook(directory, 'Stop', {}, 'claude')).toEqual({
+          code: 0,
+          stdout: '',
+          stderr: ''
+        })
+        expect(received).toHaveLength(2)
+        expect(new Set(received.map((input) => input.invocationId)).size).toBe(1)
+        expect(applied.size).toBe(1)
+        expect(received[0]).toMatchObject({ version: 2, profile: { kind: 'release' } })
+        expect(received[1]?.version).toBe(mode === 'legacy' ? 1 : 2)
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+        await rm(directory, { recursive: true, force: true })
+      }
+    }
+  )
+  it.skipIf(process.platform === 'win32')(
+    'uses the generated checkout and configured directory without MCP environment inheritance',
+    async () => {
+      const root = await mkdtemp('/tmp/th-profile-')
+      const checkout = join(root, 'checkout')
+      const fallbackDir = join(root, 'fallback')
+      const pluginRoot = join(root, 'plugin')
+      const descriptor = join(pluginRoot, 'clients/shared/runtime-profile.json')
+      const serverName = 'renamed-checkout-server'
+      const received: string[] = []
+      const servers = [createServer(), createServer()]
+      try {
+        await mkdir(join(checkout, 'packages/mcp-server/dist'), { recursive: true })
+        for (const name of ['cli.mjs', 'hub.mjs'])
+          await writeFile(join(checkout, 'packages/mcp-server/dist', name), '')
+        const profile = checkoutProfile(checkout)
+        await mkdir(join(pluginRoot, 'clients/shared'), { recursive: true })
+        await writeFile(descriptor, JSON.stringify({ checkout, id: profile.id, serverName }))
+        const config = {
+          mcpServers: {
+            [serverName]: {
+              command: 'node',
+              args: [join(checkout, 'packages/mcp-server/dist/cli.mjs')],
+              env: { TEMPAD_MCP_DEV_CHECKOUT: checkout, TEMPAD_MCP_RUNTIME_DIR: root }
+            }
+          }
+        }
+        const configPath = join(pluginRoot, '.mcp.json')
+        await writeFile(configPath, JSON.stringify(config))
+        const devDir = runtimeDirectories({
+          TEMPAD_MCP_RUNTIME_DIR: root,
+          TEMPAD_MCP_DEV_CHECKOUT: checkout
+        }).runtime
+        await mkdir(fallbackDir, { mode: 0o700 })
+        await mkdir(devDir, { mode: 0o700 })
+        for (const [index, directory] of [fallbackDir, devDir].entries()) {
+          const server = servers[index]!
+          server.on('connection', (socket) => {
+            socket.setEncoding('utf8')
+            let text = ''
+            socket.on('data', (data) => {
+              text += data
+              if (!text.endsWith('\n')) return
+              received.push(index ? 'checkout' : 'release')
+              socket.end(
+                JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: 1,
+                  result: {
+                    receipt: {
+                      version: 2,
+                      invocationId: JSON.parse(text).params.invocationId,
+                      state: 'applied'
+                    }
+                  }
+                }) + '\n'
+              )
+            })
+          })
+          await new Promise<void>((resolve) => server.listen(join(directory, 'mcp.sock'), resolve))
+          await chmod(join(directory, 'mcp.sock'), 0o600)
+        }
+        const invoke = async (path: string) => {
+          const child = spawn(process.execPath, [hook, 'claude', '--runtime-profile', path], {
+            env: {
+              ...process.env,
+              TEMPAD_MCP_DEV_CHECKOUT: undefined,
+              TEMPAD_MCP_RUNTIME_DIR: fallbackDir
+            },
+            stdio: ['pipe', 'ignore', 'pipe']
+          })
+          let stderr = ''
+          child.stderr.setEncoding('utf8').on('data', (data) => {
+            stderr += data
+          })
+          child.stdin.end(JSON.stringify({ hook_event_name: 'Stop', session_id: 'profile-test' }))
+          expect(await new Promise((resolve) => child.once('close', resolve))).toBe(0)
+          expect(stderr).toBe('')
+        }
+        await invoke(descriptor)
+        expect(received).toEqual(['checkout'])
+        config.mcpServers[serverName].env.TEMPAD_MCP_RUNTIME_DIR = '..'
+        await writeFile(configPath, JSON.stringify(config))
+        await invoke(descriptor)
+        expect(received).toEqual(['checkout'])
+        config.mcpServers[serverName].env.TEMPAD_MCP_RUNTIME_DIR = root
+        await writeFile(configPath, JSON.stringify(config))
+        await invoke(join(root, 'missing.json'))
+        await writeFile(descriptor, JSON.stringify({ checkout, id: '0'.repeat(16), serverName }))
+        await invoke(descriptor)
+        expect(received).toEqual(['checkout'])
+        await writeFile(descriptor, JSON.stringify({ checkout, id: profile.id }))
+        await invoke(descriptor)
+        expect(received).toEqual(['checkout'])
+        await writeFile(descriptor, JSON.stringify({ checkout, id: profile.id, serverName }))
+        config.mcpServers[serverName].env.TEMPAD_MCP_DEV_CHECKOUT = root
+        await writeFile(configPath, JSON.stringify(config))
+        await invoke(descriptor)
+        await rm(configPath)
+        await invoke(descriptor)
+        expect(received).toEqual(['checkout'])
+      } finally {
+        await Promise.all(
+          servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve())))
+        )
+        await rm(root, { recursive: true, force: true })
+      }
+    }
+  )
+
+  it.skipIf(process.platform === 'win32').each([
+    { name: 'a normal reply', prefix: '' },
+    {
+      name: 'unrelated frames before the reply',
+      prefix: 'not JSON\nnull\n42\n{}\n{"id":2,"error":{"message":"Other request"}}\n'
+    }
+  ])('preserves split UTF-8 with $name', async ({ prefix }) => {
+    const directory = await mkdtemp(join(tmpdir(), 'th-'))
+    const input = {
+      hook_event_name: 'PostToolUse',
+      session_id: 'thread-会话',
+      tool_name: 'mcp__tempad-dev__manage_design_task',
+      tool_input: { action: 'begin' },
+      tool_response: { structuredContent: { taskId: 'task-設計' } }
+    }
+    const output = {
+      hookSpecificOutput: {
+        hookEventName: input.hook_event_name,
+        additionalContext: 'Stop · 已停止 🛑'
+      }
+    }
+    const requestBytes = Buffer.from(JSON.stringify(input))
+    const requestSplit = requestBytes.indexOf(Buffer.from('会')) + 1
+    let received: ClientHook | undefined
+    let finishResponse: (() => void) | undefined
+    const sockets = new Set<import('node:net').Socket>()
+    const server = createServer((socket) => {
+      sockets.add(socket)
+      let buffer = ''
+      socket.setEncoding('utf8')
+      socket.on('data', (chunk) => {
+        buffer += chunk
+        if (!buffer.endsWith('\n')) return
+        const message = JSON.parse(buffer)
+        const request = ClientHookRequestSchema.parse(message)
+        received = request.params
+        const bytes = Buffer.from(
+          prefix +
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {
+                output,
+                receipt: { version: 2, invocationId: request.params.invocationId, state: 'applied' }
+              }
+            }) +
+            '\n'
+        )
+        const split = bytes.indexOf(Buffer.from('🛑')) + 1
+        finishResponse = () => socket.end(bytes.subarray(split))
+        socket.write(bytes.subarray(0, split))
+      })
+      socket.once('close', () => sockets.delete(socket))
+    })
+    let child: ReturnType<typeof spawn> | undefined
+    try {
+      await new Promise<void>((resolve) => server.listen(join(directory, 'mcp.sock'), resolve))
+      await chmod(join(directory, 'mcp.sock'), 0o600)
+      // Observe actual stream delivery before sending the rest. Separate writes alone can
+      // coalesce, hiding the split character; no timing delay or fake decoder is involved.
+      const observer = `
+          import { Socket } from 'node:net'
+          const emit = Socket.prototype.emit
+          Socket.prototype.emit = function(event, ...args) {
+            const result = Reflect.apply(emit, this, [event, ...args])
+            if (event === 'data') process.send(this === process.stdin ? 'stdin' : 'socket')
+            return result
+          }
+          process.channel.unref()
+        `
+      const hookProcess = spawn(
+        process.execPath,
+        ['--import', `data:text/javascript,${encodeURIComponent(observer)}`, hook, 'claude'],
+        {
+          env: { ...process.env, TEMPAD_MCP_RUNTIME_DIR: directory },
+          stdio: ['pipe', 'pipe', 'pipe', 'ipc']
+        }
+      )
+      child = hookProcess
+      let stdout = '',
+        stderr = ''
+      hookProcess.stdout!.setEncoding('utf8').on('data', (chunk) => (stdout += chunk))
+      hookProcess.stderr!.setEncoding('utf8').on('data', (chunk) => (stderr += chunk))
+      const chunks = new Set<unknown>()
+      hookProcess.on('message', (source) => {
+        if (chunks.has(source)) return
+        chunks.add(source)
+        if (source === 'stdin') hookProcess.stdin!.end(requestBytes.subarray(requestSplit))
+        if (source === 'socket') finishResponse?.()
+      })
+      const closed = new Promise<number | null>((resolve) => hookProcess.once('close', resolve))
+      hookProcess.stdin!.write(requestBytes.subarray(0, requestSplit))
+      expect(await closed).toBe(0)
+      expect(stderr).toBe('')
+      expect(chunks).toContain('stdin')
+      expect(chunks).toContain('socket')
+      expect.soft(received).toMatchObject({
+        sessionId: input.session_id,
+        taskId: input.tool_response.structuredContent.taskId
+      })
+      expect(JSON.parse(stdout)).toEqual(output)
+    } finally {
+      child?.kill()
+      for (const socket of sockets) socket.destroy()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it.skipIf(process.platform === 'win32')(
     'keeps the isolated Hub after legacy root changes and refuses ambiguous roots',
     async () => {
@@ -176,7 +473,7 @@ describe('plugin hook transport', () => {
         expect(await runHook(directory, 'Interrupt')).toEqual({ code: 0, stdout: '', stderr: '' })
         expect(received).toEqual([
           expect.objectContaining({
-            version: 1,
+            version: 2,
             event: 'Interrupt',
             kind: 'codex',
             sessionId: 'thread-a',
@@ -189,18 +486,27 @@ describe('plugin hook transport', () => {
     }
   )
 
-  it.skipIf(process.platform === 'win32').each(['codex', 'claude'] as const)(
-    'reports %s task binding and emits only the one-time Figma Stop notice',
-    async (kind) => {
-      await withHookHub(async (directory, hooks, received) => {
+  it.skipIf(process.platform === 'win32')(
+    'reports Claude task binding and emits only the one-time Figma Stop notice',
+    async () => {
+      const kind = 'claude'
+      await withHookHub(async (directory, _hooks, received, _root, tasks) => {
         await runHook(directory, 'UserPromptSubmit', {}, kind)
-        hooks.stop(
+        tasks.begin(
+          'owner',
+          'extension',
           {
-            client: { kind, name: kind, sessionId: 'thread-a' },
-            turnId: 'turn-a'
+            sessionId: 'figma',
+            fileKey: 'file',
+            fileName: 'Fixture',
+            pageId: 'page',
+            busy: false
           },
-          'task-a'
+          'Fixture',
+          'begin',
+          { kind, name: 'Claude Code', sessionId: 'thread-a' }
         )
+        tasks.stop('task-a', 'cancelled', { sessionId: 'thread-a', turnId: 'turn-a' })
         const result = await runHook(
           directory,
           'PostToolUse',
@@ -375,6 +681,18 @@ describe('plugin hook transport', () => {
           stdout: '',
           stderr: ''
         })
+      })
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'exits quietly when the Hub rejects the hook',
+    async () => {
+      await withHookHub(async (directory, hooks) => {
+        vi.spyOn(hooks, 'handle').mockImplementation(() => {
+          throw new Error('Unsupported hook')
+        })
+        expect(await runHook(directory, 'PreToolUse')).toEqual({ code: 0, stdout: '', stderr: '' })
       })
     }
   )

@@ -8,12 +8,20 @@ import {
   splitByTopLevelComma,
   stripFallback
 } from '@/utils/css'
-import { getCssPaintLayers, getPaintResolutionSize, isVisiblePaint } from '@/utils/figma-paint'
+import {
+  getBackgroundColorPaint,
+  getCssPaintLayers,
+  getPaintResolutionSize,
+  isRenderablePaint
+} from '@/utils/figma-paint'
 import {
   formatGradientStopColor as formatPaintGradientStopColor,
+  matchBackgroundPaintLayers,
+  preserveGradientGeometry,
   resolveBackgroundFillFromPaints,
   resolveGradientPaintCss
 } from '@/utils/figma-style/gradient'
+import { stripFigmaImageFallback } from '@/utils/figma-style/style-resolver'
 import { getVariableCssExpr } from '@/utils/figma-variables'
 
 import type { GetCodeCacheContext } from '../cache'
@@ -21,8 +29,7 @@ import type { StyleMap } from './types'
 
 import { getNodeSemanticsCached, getPaintStyleCached, getPaintsFromState } from '../cache'
 
-const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
-const GRADIENT_FN_RE = /(linear-gradient|radial-gradient|conic-gradient)\s*\(/i
+const BG_URL_RE = /url\(/i
 
 type PaintList = Paint[] | ReadonlyArray<Paint> | null | undefined
 
@@ -44,53 +51,57 @@ export function cleanFigmaSpecificStyles(
   const activeFillPaints = styleFillPaints ?? fills
   const gradientSize = getPaintResolutionSize(node)
   const readers = ctx?.readers ?? DEFAULT_READERS
-  const backgroundFill = resolveBackgroundFillFromPaints(activeFillPaints, gradientSize, readers, {
-    background: processed.background,
-    resolveGradientPaint: resolveGradientPaintValue,
-    resolveSolidPaint: resolveSolidPaintColor
-  })
+  const hasUrlBackground =
+    BG_URL_RE.test(processed.background ?? '') ||
+    BG_URL_RE.test(processed['background-image'] ?? '')
+  const backgroundFill = hasUrlBackground
+    ? null
+    : resolveBackgroundFillFromPaints(activeFillPaints, gradientSize, readers, {
+        background: processed.background,
+        resolveGradientPaint: resolveGradientPaintValue,
+        resolveSolidPaint: resolveSolidPaintColor
+      })
   const backgroundLayers =
     backgroundFill?.kind === 'layers' ? backgroundFill.value.join(', ') : null
-  const fallbackSolidColor = resolveVisibleSolidPaintColor(activeFillPaints, readers)
+  const fallbackPaint = activeFillPaints
+    ? hasUrlBackground
+      ? getBackgroundColorPaint(activeFillPaints)?.paint
+      : findVisibleSolidPaint(activeFillPaints)
+    : null
+  const fallbackSolidColor = fallbackPaint ? resolveSolidPaintColor(fallbackPaint, readers) : null
 
   if (processed.background) {
     const bgValue = processed.background
-    const normalized = stripFallback(preprocessCssValue(bgValue)).trim()
-
-    const gradient = resolveGradientWithOpacity(normalized, activeFillPaints, readers)
-    if (gradient) {
-      processed.background = gradient
-      return processed
+    const imageBackground = activeFillPaints ? stripFigmaImageFallback(bgValue) : bgValue
+    const removedFallback = imageBackground !== bgValue
+    if (removedFallback) {
+      processed.background = imageBackground
+      if (fallbackSolidColor) processed['background-color'] = fallbackSolidColor
     }
+    const normalized = stripFallback(preprocessCssValue(imageBackground)).trim()
 
-    if (backgroundLayers && (isVarOnly(normalized) || isSolidBackground(normalized))) {
-      processed.background = backgroundLayers
-      delete processed['background-color']
+    const layersWithOpacity = resolveGradientWithOpacity(normalized, activeFillPaints, readers)
+    if (layersWithOpacity) {
+      processed.background = layersWithOpacity
       return processed
     }
 
     if (isSolidBackground(normalized)) {
-      if (backgroundFill?.kind === 'color') {
-        processed['background-color'] = backgroundFill.value
-        delete processed.background
-      } else if (backgroundLayers) {
+      if (backgroundLayers) {
         processed.background = backgroundLayers
         delete processed['background-color']
-      } else {
-        processed['background-color'] = fallbackSolidColor ?? normalized
-        delete processed.background
+        return processed
       }
-    } else if (BG_URL_LIGHTGRAY_RE.test(bgValue) && activeFillPaints) {
-      const parsed = parseBackgroundShorthand(bgValue)
+      processed['background-color'] =
+        backgroundFill?.kind === 'color' ? backgroundFill.value : (fallbackSolidColor ?? normalized)
+      delete processed.background
+    } else if (removedFallback && splitByTopLevelComma(imageBackground).length === 1) {
+      const parsed = parseBackgroundShorthand(imageBackground)
 
       if (parsed.image) processed['background-image'] = parsed.image
       if (parsed.size) processed['background-size'] = parsed.size
       if (parsed.repeat) processed['background-repeat'] = parsed.repeat
       if (parsed.position) processed['background-position'] = parsed.position
-
-      if (fallbackSolidColor) {
-        processed['background-color'] = fallbackSolidColor
-      }
 
       delete processed.background
     }
@@ -141,15 +152,16 @@ function isGradientPaint(paint: Paint): paint is GradientPaint {
   return 'gradientStops' in paint && Array.isArray(paint.gradientStops)
 }
 
-function isVisibleLinearGradientPaint(paint: Paint): paint is GradientPaint {
-  return isVisiblePaint(paint) && paint.type === 'GRADIENT_LINEAR' && isGradientPaint(paint)
-}
-
 function findVisibleSolidPaint(paints: ReadonlyArray<Paint>): SolidPaint | null {
-  const solid = paints.find(
-    (paint): paint is SolidPaint => isVisiblePaint(paint) && isSolidPaint(paint)
+  const layers = getCssPaintLayers(paints)
+  const paint = layers[0]?.paint
+  if (!paint || !isSolidPaint(paint)) return null
+  if (
+    layers.length > 1 &&
+    ((paint.opacity ?? 1) < 1 || (paint.blendMode !== undefined && paint.blendMode !== 'NORMAL'))
   )
-  return solid ?? null
+    return null
+  return paint
 }
 
 function getFillStylePaints(
@@ -191,16 +203,6 @@ function resolveSolidPaintColor(
   return formatHexAlpha(paint.color, paint.opacity ?? 1)
 }
 
-function resolveVisibleSolidPaintColor(
-  paints: PaintList,
-  readers: FigmaLookupReaders = DEFAULT_READERS
-): string | null {
-  if (!paints || !Array.isArray(paints)) return null
-
-  const paint = findVisibleSolidPaint(paints)
-  return paint ? resolveSolidPaintColor(paint, readers) : null
-}
-
 function resolveGradientPaintValue(
   gradientPaint: GradientPaint,
   size?: PaintResolutionSize,
@@ -217,75 +219,27 @@ function resolveGradientWithOpacity(
   if (!value || !/gradient\(/i.test(value)) return null
   if (!fills) return null
 
-  const paints = getCssPaintLayers(fills)
-  const layers = splitByTopLevelComma(value)
+  const layers = matchBackgroundPaintLayers(value, fills)
   // Match complete CSS layers, including synthetic solid gradients and images.
   // A partial native CSS stack cannot safely be paired by paint index.
-  if (layers.length !== paints.length) return null
+  if (!layers) return null
   let changed = false
-  const rewritten = layers.map((layer, index) => {
-    if (!/^linear-gradient\(/i.test(layer.trim())) return layer
-    const fill = paints[index]!.paint
-    if (!isVisibleLinearGradientPaint(fill)) return layer
+  const rewritten = layers.flatMap(({ paint: fill, sources: group }) => {
+    if (!isRenderablePaint(fill) || !isGradientPaint(fill)) return group
 
     const fillOpacity = typeof fill.opacity === 'number' ? fill.opacity : 1
     const hasStopAlpha = fill.gradientStops.some((stop) => (stop.color?.a ?? 1) < 1)
-    if (fillOpacity >= 0.99 && !hasStopAlpha) return layer
+    if (fillOpacity >= 1 && !hasStopAlpha) return group
 
-    const parsed = parseGradient(layer)
-    if (!parsed) return layer
-
-    const angle = parsed.args[0]?.trim()
-    const hasAngle =
-      !!angle &&
-      (angle.endsWith('deg') ||
-        angle.endsWith('rad') ||
-        angle.endsWith('turn') ||
-        angle.startsWith('to '))
-    const stops = fill.gradientStops.map((stop) => {
-      const pct = formatPercent(stop.position)
-      const color = formatGradientStopColor(stop, fillOpacity, readers)
-      return `${color} ${pct}`
+    const resolved = resolveGradientPaintValue(fill, undefined, readers)
+    return group.map((layer) => {
+      const corrected = resolved ? preserveGradientGeometry(layer, resolved, fill.type) : null
+      if (!corrected) return layer
+      changed = true
+      return corrected
     })
-
-    const args = hasAngle ? [angle, ...stops] : stops
-    changed = true
-    return `${parsed.fn}(${args.join(', ')})`
   })
   return changed ? rewritten.join(', ') : null
-}
-
-function parseGradient(value: string): { fn: string; args: string[] } | null {
-  const match = value.match(GRADIENT_FN_RE)
-  if (!match || match.index == null) return null
-
-  const fn = match[1]
-  if (!fn) return null
-  const start = value.indexOf('(', match.index)
-  if (start < 0) return null
-
-  let depth = 0
-  let end = -1
-  for (let i = start; i < value.length; i += 1) {
-    const ch = value[i]
-    if (ch === '(') depth += 1
-    else if (ch === ')') {
-      depth -= 1
-      if (depth === 0) {
-        end = i
-        break
-      }
-    }
-  }
-  if (end < 0) return null
-
-  const inner = value.slice(start + 1, end)
-  return { fn, args: splitByTopLevelComma(inner) }
-}
-
-function formatPercent(pos: number): string {
-  const pct = Math.round(pos * 10000) / 100
-  return `${pct}%`
 }
 
 function formatGradientStopColor(
@@ -301,11 +255,6 @@ function isSolidBackground(value: string): boolean {
 
   const trimmed = value.trim()
   if (!trimmed) return false
-  if (/var\(\s*--[A-Za-z0-9_-]+\s*\)/i.test(trimmed)) return true
+  if (/^var\(\s*--[A-Za-z0-9_-]+\s*\)$/i.test(trimmed)) return true
   return canonicalizeColor(trimmed.toLowerCase()) !== null
-}
-
-function isVarOnly(value: string): boolean {
-  if (!value) return false
-  return /^var\(\s*--[A-Za-z0-9_-]+\s*\)$/i.test(value.trim())
 }

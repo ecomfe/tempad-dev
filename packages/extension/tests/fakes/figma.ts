@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { vi } from 'vitest'
 
 // This is a focused authoring fake, not a complete Plugin API implementation.
@@ -11,8 +12,10 @@ function assertSharedPluginDataNamespace(namespace: string): void {
   }
 }
 
-function withSharedPluginData<T extends object>(value: T): T & PluginDataMixin {
-  const shared = new Map<string, string>()
+function withSharedPluginData<T extends object>(
+  value: T,
+  shared = new Map<string, string>()
+): T & PluginDataMixin {
   return Object.assign(value, {
     getPluginData: vi.fn(() => ''),
     getPluginDataKeys: vi.fn(() => []),
@@ -20,7 +23,13 @@ function withSharedPluginData<T extends object>(value: T): T & PluginDataMixin {
       assertSharedPluginDataNamespace(namespace)
       return shared.get(`${namespace}:${key}`) ?? ''
     },
-    getSharedPluginDataKeys: vi.fn(() => []),
+    getSharedPluginDataKeys(namespace: string) {
+      assertSharedPluginDataNamespace(namespace)
+      const prefix = `${namespace}:`
+      return [...shared.keys()]
+        .filter((key) => key.startsWith(prefix))
+        .map((key) => key.slice(prefix.length))
+    },
     setPluginData: vi.fn(),
     setSharedPluginData(namespace: string, key: string, data: string) {
       assertSharedPluginDataNamespace(namespace)
@@ -479,14 +488,6 @@ export function createFixture({
       componentPropertyReferences: null,
       explicitVariableModes,
       exportAsync: vi.fn(() => Promise.resolve(new Uint8Array([1, 2, 3]))),
-      getSharedPluginData(namespace: string, key: string) {
-        assertSharedPluginDataNamespace(namespace)
-        return pluginData.get(`${namespace}:${key}`) ?? ''
-      },
-      setSharedPluginData(namespace: string, key: string, value: string) {
-        assertSharedPluginDataNamespace(namespace)
-        pluginData.set(`${namespace}:${key}`, value)
-      },
       clone() {
         // Only ordinary subtrees are modeled; reject unsupported descendants before
         // creating anything, rather than silently losing text/component/grid state.
@@ -690,6 +691,7 @@ export function createFixture({
         }
       })
     } as unknown as MutableNode
+    withSharedPluginData(node, pluginData)
 
     function normalizePaints(
       value: readonly Paint[],
@@ -731,6 +733,7 @@ export function createFixture({
         }
       },
       relativeTransform: {
+        configurable: true,
         get: () => relativeTransform,
         set: (value: Transform) => {
           relativeTransform = value.map((row) => [...row]) as Transform
@@ -1122,20 +1125,67 @@ export function createFixture({
       let textTruncation: TextNode['textTruncation'] = 'DISABLED'
       let maxLines: TextNode['maxLines'] = null
       let layoutSizingHorizontal = text.layoutSizingHorizontal
-      const rangeValues = new Map<string, unknown>()
-      const rangeKey = (start: number, end: number, field: string) => `${start}:${end}:${field}`
-      const rangeValue = <T>(start: number, end: number, field: string, fallback: T): T => {
-        const key = rangeKey(start, end, field)
-        return rangeValues.has(key) ? (rangeValues.get(key) as T) : fallback
+      let applyingTextStyle = false
+      const rangeValues = new Map<
+        string,
+        { start: number; end: number; field: string; value: unknown }
+      >()
+      const isCharacterMetric = (field: string) =>
+        ['fontSize', 'lineHeight', 'letterSpacing'].includes(field.replace('variable:', ''))
+      const rangeScope = (start: number, end: number, field: string) => {
+        if (
+          field.replace('variable:', '') === 'paragraphIndent' ||
+          field.replace('variable:', '') === 'paragraphSpacing' ||
+          field === 'listSpacing'
+        ) {
+          start = start === 0 ? 0 : characters.lastIndexOf('\n', start - 1) + 1
+          const newline = characters.indexOf('\n', end - 1)
+          end = newline === -1 ? characters.length : newline + 1
+        }
+        return { start, end }
+      }
+      const rangeValue = <T>(
+        start: number,
+        end: number,
+        field: string,
+        fallback: T
+      ): T | typeof MIXED => {
+        ;({ start, end } = rangeScope(start, end, field))
+        // Every supported property follows the same ordered range model. An
+        // exact query-key lookup loses overlapping writes and untouched text.
+        const values: unknown[] = Array(end - start).fill(fallback)
+        for (const range of rangeValues.values()) {
+          if (range.field !== field) continue
+          const from = Math.max(start, range.start)
+          const to = Math.min(end, range.end)
+          if (from < to) values.fill(range.value, from - start, to - start)
+        }
+        const value = values.length ? values[0] : fallback
+        return values.every((candidate) => isDeepStrictEqual(candidate, value))
+          ? (value as T)
+          : MIXED
       }
       const setRangeValue = (start: number, end: number, field: string, value: unknown) => {
-        rangeValues.set(rangeKey(start, end, field), value)
+        const scope = rangeScope(start, end, field)
+        const key = `${scope.start}:${scope.end}:${field}`
+        rangeValues.delete(key)
+        rangeValues.set(key, { ...scope, field, value })
       }
       const rangeGetter = <T>(field: string, fallback: () => T) =>
         vi.fn((start: number, end: number) => rangeValue(start, end, field, fallback()))
       const rangeSetter = <T>(field: string) =>
-        vi.fn((start: number, end: number, value: T) => setRangeValue(start, end, field, value))
+        vi.fn((start: number, end: number, value: T) => {
+          if (isCharacterMetric(field) && !applyingTextStyle && characters[end] === '\n') end++
+          setRangeValue(start, end, field, value)
+        })
+      const bindNode = vi.mocked(text.setBoundVariable).getMockImplementation()!
       Object.assign(node, {
+        setBoundVariable: vi.fn((field: string, variable: Variable | null) => {
+          bindNode(field as VariableBindableTextField, variable)
+          for (const [key, range] of rangeValues) {
+            if (range.field === `variable:${field}`) rangeValues.delete(key)
+          }
+        }),
         fontName: { family: 'Inter', style: 'Regular' },
         fontSize: 12,
         fontWeight: 400,
@@ -1181,7 +1231,17 @@ export function createFixture({
             leadingTrim: style.leadingTrim
           })
         }),
-        getRangeAllFontNames: vi.fn(() => [{ family: 'Inter', style: 'Regular' } as FontName]),
+        getRangeAllFontNames: vi.fn((start: number, end: number) => {
+          const fonts: FontName[] = []
+          for (let index = start; index < end; index++) {
+            const fontName = text.getRangeFontName(index, index + 1)
+            if (typeof fontName === 'symbol') {
+              throw new Error('Mock mixed fontName requires explicit range font values')
+            }
+            if (!fonts.some((font) => isDeepStrictEqual(font, fontName))) fonts.push(fontName)
+          }
+          return fonts
+        }),
         getRangeFontName: rangeGetter('fontName', () => text.fontName),
         setRangeFontName: rangeSetter<FontName>('fontName'),
         getRangeFontSize: rangeGetter('fontSize', () => text.fontSize),
@@ -1229,6 +1289,45 @@ export function createFixture({
         setRangeTextStyleIdAsync: vi.fn(async (start: number, end: number, styleId: string) => {
           if (styleId && styles.get(styleId)?.type !== 'TEXT') throw new Error('invalid text style')
           setRangeValue(start, end, 'textStyleId', styleId)
+          if (!styleId) return
+          const style = styles.get(styleId) as TextStyle
+          for (const field of [
+            'fontName',
+            'fontSize',
+            'lineHeight',
+            'letterSpacing',
+            'textCase',
+            'textDecoration',
+            'paragraphIndent',
+            'paragraphSpacing',
+            'listSpacing'
+          ] as const) {
+            setRangeValue(start, end, field, style[field])
+          }
+          text.leadingTrim = style.leadingTrim
+          text.hangingPunctuation = style.hangingPunctuation
+          text.hangingList = style.hangingList
+          for (const field of [
+            'fontFamily',
+            'fontStyle',
+            'fontWeight',
+            'fontSize',
+            'lineHeight',
+            'letterSpacing',
+            'paragraphIndent',
+            'paragraphSpacing'
+          ] as const) {
+            const alias = style.boundVariables?.[field]
+            const variable = alias ? await getVariableByIdAsync(alias.id) : null
+            // Direct metric binding extent is native-proven; TextStyle's
+            // implicit newline propagation is not. Preserve its authored scope.
+            applyingTextStyle = true
+            try {
+              text.setRangeBoundVariable(start, end, field, variable)
+            } finally {
+              applyingTextStyle = false
+            }
+          }
         }),
         getRangeFillStyleId: rangeGetter('fillStyleId', () => text.fillStyleId),
         setRangeFillStyleIdAsync: vi.fn(async (start: number, end: number, styleId: string) => {
@@ -1253,57 +1352,89 @@ export function createFixture({
         setRangeParagraphSpacing: rangeSetter<number>('paragraphSpacing'),
         getRangeHyperlink: rangeGetter('hyperlink', () => text.hyperlink),
         setRangeHyperlink: rangeSetter<HyperlinkTarget | null>('hyperlink'),
-        getStyledTextSegments: vi.fn((fields: string[]) => {
-          const ranges = new Set([...rangeValues.keys()].map((key) => key.split(':', 2).join(':')))
-          if (!ranges.size) ranges.add(`0:${characters.length}`)
-          return [...ranges].map((range) => {
-            const [start, end] = range.split(':').map(Number) as [number, number]
-            const segment: Record<string, unknown> = {
-              start,
-              end,
-              characters: characters.slice(start, end)
+        getStyledTextSegments: vi.fn((fields: string[], start = 0, end = characters.length) => {
+          const boundaries = new Set([start, end])
+          const variableFields = new Set<string>()
+          for (const range of rangeValues.values()) {
+            for (const boundary of [range.start, range.end]) {
+              if (boundary > start && boundary < end) boundaries.add(boundary)
             }
-            if (fields.includes('fontName'))
-              segment.fontName = rangeValue(start, end, 'fontName', text.fontName)
-            if (fields.includes('textStyleId'))
-              segment.textStyleId = rangeValue(start, end, 'textStyleId', text.textStyleId)
-            if (fields.includes('fills')) {
-              segment.fills = rangeValue(start, end, 'fills', text.fills)
+            if (range.field.startsWith('variable:')) {
+              variableFields.add(range.field.slice('variable:'.length))
             }
-            if (fields.includes('hyperlink')) {
-              segment.hyperlink = rangeValue(start, end, 'hyperlink', text.hyperlink)
-            }
-            if (fields.includes('textDecorationColor')) {
-              segment.textDecorationColor = rangeValue(
-                start,
-                end,
-                'textDecorationColor',
-                text.textDecorationColor
-              )
-            }
-            if (fields.includes('boundVariables')) {
-              const variables = { ...text.boundVariables } as Record<string, VariableAlias>
-              const prefix = `${start}:${end}:variable:`
-              for (const [key, value] of rangeValues) {
-                if (!key.startsWith(prefix) || !value) continue
-                variables[key.slice(prefix.length)] = value as VariableAlias
+          }
+          const offsets = [...boundaries].sort((left, right) => left - right)
+          const segments: Array<Record<string, unknown> & { end: number; characters: string }> = []
+          let previous: Record<string, unknown> | undefined
+          for (let index = 1; index < offsets.length; index++) {
+            const start = offsets[index - 1]!
+            const end = offsets[index]!
+            const values: Record<string, unknown> = {}
+            for (const field of fields) {
+              if (field === 'boundVariables') {
+                const variables: Record<string, unknown> = { ...text.boundVariables }
+                for (const property of variableFields) {
+                  const alias = rangeValue(
+                    start,
+                    end,
+                    `variable:${property}`,
+                    boundVariables[property] ?? null
+                  )
+                  if (alias) variables[property] = alias
+                  else delete variables[property]
+                }
+                values.boundVariables = variables
+              } else {
+                const fallback =
+                  field === 'listOptions'
+                    ? { type: 'NONE' }
+                    : field === 'indentation'
+                      ? 0
+                      : Reflect.get(text, field)
+                if (fallback !== undefined) values[field] = rangeValue(start, end, field, fallback)
               }
-              segment.boundVariables = variables
             }
-            return segment
-          })
+            const charactersInRange = characters.slice(start, end)
+            if (previous && isDeepStrictEqual(previous, values)) {
+              const previousSegment = segments[segments.length - 1]!
+              previousSegment.end = end
+              previousSegment.characters += charactersInRange
+            } else {
+              segments.push({ start, end, characters: charactersInRange, ...values })
+              previous = values
+            }
+          }
+          return segments
         }),
         getRangeBoundVariable: vi.fn((start: number, end: number, field: string) =>
-          rangeValue<VariableAlias | null>(start, end, `variable:${field}`, null)
+          rangeValue<VariableAlias | null>(
+            start,
+            end,
+            `variable:${field}`,
+            (boundVariables[field] as VariableAlias | undefined) ?? null
+          )
         ),
         setRangeBoundVariable: vi.fn(
-          (start: number, end: number, field: string, variable: Variable | null) =>
+          (start: number, end: number, field: string, variable: Variable | null) => {
+            if (!applyingTextStyle && isCharacterMetric(field) && characters[end] === '\n') end++
             setRangeValue(
               start,
               end,
               `variable:${field}`,
               variable ? { type: 'VARIABLE_ALIAS', id: variable.id } : null
             )
+            if (!variable) return
+            const value = variable.resolveForConsumer(text).value
+            if (field === 'fontFamily' || field === 'fontStyle') {
+              const current = text.getRangeFontName(start, end) as FontName
+              setRangeValue(start, end, 'fontName', {
+                ...current,
+                [field === 'fontFamily' ? 'family' : 'style']: value
+              })
+            } else if (field === 'lineHeight' || field === 'letterSpacing') {
+              setRangeValue(start, end, field, { unit: 'PIXELS', value })
+            } else if (field !== 'fontWeight') setRangeValue(start, end, field, value)
+          }
         )
       })
       Object.defineProperties(node, {
@@ -1583,7 +1714,11 @@ export function createFixture({
       {
         id: 'variable:range-size',
         key: 'range-size-key',
-        resolvedType: 'FLOAT'
+        resolvedType: 'FLOAT',
+        resolveForConsumer: (consumer: SceneNode) => ({
+          value: consumer.explicitVariableModes['collection:tokens'] === 'mode:dark' ? 22 : 18,
+          resolvedType: 'FLOAT'
+        })
       } as unknown as Variable
     ],
     [
@@ -1641,6 +1776,7 @@ export function createFixture({
     variableIds: []
   } as unknown as VariableCollection
   const variableCollectionsById = new Map([[variableCollection.id, variableCollection]])
+  const getVariableByIdAsync = vi.fn((id: string) => Promise.resolve(variablesById.get(id) ?? null))
   const localCollectionIds = new Set<string>()
   const localVariableIds = new Set<string>()
   const extendedModes = new Map<string, ExtendedVariableCollection>()
@@ -2126,7 +2262,7 @@ export function createFixture({
       getLocalVariableCollectionsAsync: vi.fn(() =>
         Promise.resolve([...localCollectionIds].map((id) => variableCollectionsById.get(id)!))
       ),
-      getVariableByIdAsync: vi.fn((id: string) => Promise.resolve(variablesById.get(id) ?? null)),
+      getVariableByIdAsync,
       getVariableCollectionByIdAsync: vi.fn((id: string) =>
         Promise.resolve(variableCollectionsById.get(id) ?? null)
       ),

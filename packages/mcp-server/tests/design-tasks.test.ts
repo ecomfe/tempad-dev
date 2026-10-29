@@ -93,7 +93,7 @@ describe('design task leases', () => {
     )
     f.tasks.confirm(task.taskId, 'caller-a')
     expect(() => f.tasks.checkOperation('caller-a', refreshedSession, task.taskId, true)).toThrow(
-      'Read the bound canvas'
+      'The resumed task has not confirmed'
     )
     f.tasks.checkOperation('caller-a', refreshedSession, task.taskId)
     f.tasks.acknowledgeRead(task.taskId, 'caller-a', 1)
@@ -250,6 +250,23 @@ describe('design task leases', () => {
     expect(() => f.tasks.owned(task.taskId, 'different-owner')).toThrow('another MCP caller')
   })
 
+  it.each(['active', 'stopping'] as const)(
+    'does not transfer a %s task to another transport for the same conversation',
+    (status) => {
+      const f = fixture()
+      const task = f.begin()
+      const client = { kind: 'codex' as const, name: 'Codex', sessionId: 'thread-a' }
+      task.client = client
+      if (status === 'stopping') {
+        f.call('pending-write', task.taskId)
+        f.tasks.stop(task.taskId, 'cancelled')
+      }
+      f.tasks.attachClient('different-owner', client)
+      expect(f.tasks.owned(task.taskId, 'caller-a').task.status).toBe(status)
+      expect(() => f.tasks.owned(task.taskId, 'different-owner')).toThrow('another MCP caller')
+    }
+  )
+
   it.each(['paused', 'completed'] as const)(
     'resumes the same %s task with a new lease and requires a fresh canvas read',
     (status) => {
@@ -263,7 +280,7 @@ describe('design task leases', () => {
       expect(record.task.epoch).toBe(1)
       expect(() => f.tasks.assertEpoch(task.taskId, 'caller-a', 0)).toThrow('Stale task lease')
       f.tasks.confirm(task.taskId, 'caller-a')
-      expect(() => f.call('old-write', task.taskId)).toThrow('Read the bound canvas')
+      expect(() => f.call('old-write', task.taskId)).toThrow('The resumed task has not confirmed')
       f.call('read', task.taskId, false)
       f.tasks.finishOperation('read', 'extension-a')
       f.tasks.acknowledgeRead(task.taskId, 'caller-a', 1)
@@ -298,7 +315,7 @@ describe('design task leases', () => {
       expect(resumed.task.epoch).toBe(epoch + 1)
       expect(() => f.tasks.assertEpoch(task.taskId, 'caller-a', epoch)).toThrow('Stale task lease')
       f.tasks.confirm(task.taskId, 'caller-a')
-      expect(() => f.call('write', task.taskId)).toThrow('Read the bound canvas')
+      expect(() => f.call('write', task.taskId)).toThrow('The resumed task has not confirmed')
       f.call('read', task.taskId, false)
       f.tasks.finishOperation('read', 'extension-a')
       f.tasks.acknowledgeRead(task.taskId, 'caller-a', epoch + 1)
@@ -622,6 +639,24 @@ describe('design task leases', () => {
     expect(() => f.call('late-write', task.taskId)).toThrow('cancelled')
   })
 
+  it('honors an offline Stop that arrives after the Hub completed the design pass', () => {
+    const f = fixture()
+    const task = f.begin('caller-a', originalDocument)
+    const offlineStop = { ...structuredClone(task), status: 'cancelled' as const }
+    f.tasks.stop(task.taskId, 'completed')
+    f.tasks.disconnectExtension('extension-a')
+
+    f.tasks.restoreReview(offlineStop, refreshedExtension(originalDocument), originalDocument)
+
+    expect(task.status).toBe('cancelled')
+    expect(() => f.tasks.resume(task.taskId, 'caller-a', 0, originalDocument)).toThrow(
+      'cannot resume'
+    )
+    expect(() => f.call('untagged-write', undefined, true, originalDocument)).toThrow(
+      'stopped task'
+    )
+  })
+
   it('lets explicit Stop end a lifecycle pause that is already draining', () => {
     const f = fixture()
     const task = f.begin()
@@ -665,6 +700,23 @@ describe('design task leases', () => {
     f.tasks.disconnectOwner('caller-a')
     expect(task.status).toBe('paused')
     expect(f.begin('caller-b').status).toBe('active')
+  })
+
+  it('keeps a lost taskless write unread across a fresh task without weakening Stop', () => {
+    const f = fixture()
+    f.tasks.requireFileRead(session.fileKey)
+    const task = f.begin()
+    expect(() => f.tasks.checkOperation('caller-a', session, task.taskId, true)).toThrow(
+      'previous write did not confirm'
+    )
+    f.tasks.checkOperation('caller-a', session, task.taskId)
+    f.tasks.acknowledgeFileRead(session.fileKey)
+    f.tasks.checkOperation('caller-a', session, task.taskId, true)
+    f.tasks.stop(task.taskId, 'cancelled')
+    f.tasks.acknowledgeFileRead(session.fileKey)
+    expect(() => f.tasks.checkOperation('caller-a', session, undefined, true)).toThrow(
+      'stopped task'
+    )
   })
 
   it('keeps disconnected execution fenced until a result or proven tab closure', () => {

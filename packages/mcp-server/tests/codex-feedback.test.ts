@@ -70,11 +70,12 @@ async function fixture() {
   }))
   const queue = new CodexNativeQueue(
     async () => [],
-    async () => null
+    async () => null,
+    { list: vi.fn(), add: vi.fn(), remove: vi.fn(), close: vi.fn() }
   )
   vi.spyOn(queue, 'admit').mockRejectedValue(new CodexQueueUnavailable('Queue unavailable'))
   const load = vi.fn<(id: string, signal: AbortSignal) => Promise<void>>().mockResolvedValue()
-  const native = new CodexAppFeedback(dir, open, 1, load, queue)
+  const native = new CodexAppFeedback(dir, { open, retryMs: 1, load, nativeQueue: queue })
   cleanups.push(async () => native.close())
   const controller = new AbortController()
   const validate = vi.fn()
@@ -151,7 +152,12 @@ describe('Codex feedback delivery', () => {
       feedbackCreatedAt: value.createdAt
     })
     f.native.close()
-    const restarted = new CodexAppFeedback(f.dir, f.open, 1, f.load, f.queue)
+    const restarted = new CodexAppFeedback(f.dir, {
+      open: f.open,
+      retryMs: 1,
+      load: f.load,
+      nativeQueue: f.queue
+    })
     cleanups.push(async () => restarted.close())
     now += HISTORY_RETENTION_MS
     await restarted.reconcileQueued(() => false)
@@ -295,7 +301,12 @@ describe('Codex feedback delivery', () => {
     f.native.close()
     // A successful read after restart proves the observed commit is no longer queued.
     read.mockResolvedValue([])
-    const restarted = new CodexAppFeedback(f.dir, f.open, 1, f.load, f.queue)
+    const restarted = new CodexAppFeedback(f.dir, {
+      open: f.open,
+      retryMs: 1,
+      load: f.load,
+      nativeQueue: f.queue
+    })
     cleanups.push(async () => restarted.close())
     await restarted.reconcileQueued(() => false)
     await restarted.reconcileQueued(() => false)
@@ -646,7 +657,7 @@ describe('Codex feedback delivery', () => {
     clients.close()
     const restarted = new DesignTasks({ createId: () => 'unused', now: () => 3000, store })
     restarted.restore()
-    const native = new CodexAppFeedback(f.dir, f.open, undefined, undefined, f.queue)
+    const native = new CodexAppFeedback(f.dir, { open: f.open, nativeQueue: f.queue })
     const retried = new AgentClients(restarted, native)
     cleanups.push(async () => retried.close())
     expect(
@@ -751,7 +762,7 @@ describe('Codex feedback delivery', () => {
       .mockRejectedValueOnce(new CodexIpcError('Connection lost', true))
     await expect(f.send(batch)).rejects.toThrow('Steer could not be confirmed')
     expect(f.dispatched).toHaveBeenCalledOnce()
-    const restarted = new CodexAppFeedback(f.dir, f.open, undefined, undefined, f.queue)
+    const restarted = new CodexAppFeedback(f.dir, { open: f.open, nativeQueue: f.queue })
     cleanups.push(async () => restarted.close())
     await expect(
       restarted.enqueue(binding, 'task-a', batch, f.controller.signal, f.validate, f.dispatched)
@@ -840,7 +851,7 @@ describe('Codex feedback delivery', () => {
       f.owner.mockResolvedValue('owner-a')
     })
     await f.send()
-    expect(f.load).toHaveBeenCalledExactlyOnceWith('thread-a', expect.any(AbortSignal))
+    expect(f.load).toHaveBeenCalledExactlyOnceWith('thread-a', expect.any(AbortSignal), undefined)
     expect(f.request).toHaveBeenCalledOnce()
     expect(await f.native.available(binding)).toBe(true)
   })
@@ -851,7 +862,7 @@ describe('Codex feedback delivery', () => {
       .mockRejectedValueOnce(new CodexIpcError('no-client-found'))
       .mockRejectedValueOnce(new CodexDiscoveryError())
     await f.send()
-    expect(f.load).toHaveBeenCalledExactlyOnceWith('thread-a', expect.any(AbortSignal))
+    expect(f.load).toHaveBeenCalledExactlyOnceWith('thread-a', expect.any(AbortSignal), undefined)
     expect(f.owner).toHaveBeenCalledTimes(3)
     for (const [, , timeoutMs] of f.owner.mock.calls.slice(1)) {
       expect(timeoutMs).toBeGreaterThan(0)
@@ -957,7 +968,7 @@ describe('Codex feedback delivery', () => {
         f.request.mockRejectedValueOnce(new CodexIpcError('Disconnected', true))
         await expect(f.send()).rejects.toThrow('could not be confirmed')
       } else await f.send()
-      const restarted = new CodexAppFeedback(f.dir, f.open, undefined, undefined, f.queue)
+      const restarted = new CodexAppFeedback(f.dir, { open: f.open, nativeQueue: f.queue })
       const retry = restarted.enqueue(
         binding,
         'new-lease-task',

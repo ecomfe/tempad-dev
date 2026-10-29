@@ -45,6 +45,7 @@ const stoppable = computed(
 const dismissBlocked = shallowRef(false)
 const feedbackComponent = shallowRef<InstanceType<typeof DesignTaskFeedback> | null>(null)
 const finishing = shallowRef(false)
+const cancelledCleanupFailed = shallowRef(false)
 const confirmationOpen = shallowRef(false)
 
 function requestStop() {
@@ -74,6 +75,7 @@ const dismissed = shallowRef(false)
 let exitTimer: ReturnType<typeof setTimeout> | undefined
 
 async function done(confirmed = false) {
+  if (finishing.value) return
   if (
     !confirmed &&
     props.task?.status === 'completed' &&
@@ -83,21 +85,25 @@ async function done(confirmed = false) {
     return
   }
   const taskId = props.task?.taskId
-  if (!taskId || stoppable.value || dismissBlocked.value || exitPhase.value || finishing.value)
-    return
+  if (!taskId || stoppable.value || dismissBlocked.value || exitPhase.value) return
   finishing.value = true
+  let cleared = false
   try {
     const completed = props.task?.status === 'completed'
     const close = completed && props.closeReview ? () => props.closeReview!(taskId) : undefined
     if (feedbackComponent.value) {
       if ((await feedbackComponent.value.prepareDismiss(close)) === false) return
     } else await close?.()
+    cleared = true
     if (props.task?.taskId !== taskId || stoppable.value || dismissBlocked.value) return
   } catch (error) {
     showError(error instanceof Error ? error.message : 'Could not close this review.')
     return
   } finally {
-    if (props.task?.taskId === taskId) finishing.value = false
+    if (props.task?.taskId === taskId) {
+      cancelledCleanupFailed.value = props.task.status === 'cancelled' && !cleared
+      finishing.value = false
+    }
   }
   const finish = () => {
     dismissed.value = true
@@ -123,6 +129,7 @@ watch(
       exitPhase.value = null
       dismissed.value = false
       finishing.value = false
+      cancelledCleanupFailed.value = false
       confirmationOpen.value = false
       retainedAnchor.value = null
     }
@@ -140,7 +147,9 @@ const visible = computed(
     !!props.task &&
     !dismissed.value &&
     sameFile.value &&
-    (active.value || (local.value && (props.task.status !== 'cancelled' || hasAnchor.value)))
+    (active.value ||
+      (local.value &&
+        (props.task.status !== 'cancelled' || hasAnchor.value || cancelledCleanupFailed.value)))
 )
 const executing = computed(() => active.value && !!props.task?.operation)
 const canLocate = computed(() => visible.value && local.value && hasAnchor.value)
@@ -208,7 +217,14 @@ onMounted(() => {
     async () => {
       // Let the feedback child report restored drafts and pending edits before closing.
       await nextTick()
-      if (props.task?.status === 'cancelled' && local.value && !dismissed.value) void done()
+      // A failed clear needs an explicit retry, not its own busy-state transition.
+      if (
+        props.task?.status === 'cancelled' &&
+        local.value &&
+        !dismissed.value &&
+        !cancelledCleanupFailed.value
+      )
+        void done()
     },
     { immediate: true, flush: 'post' }
   )
@@ -462,9 +478,15 @@ onScopeDispose(() => {
           aria-hidden="true"
         />
         <div class="tp-design-feedback-content" :inert="!!exitPhase">
-          <span v-if="hasAnchor" class="tp-design-anchor-label" role="status" aria-live="polite">
-            <span class="tp-design-label-text" :class="{ 'tp-design-shimmer': active }">{{
-              label
+          <span v-if="hasAnchor" class="tp-design-anchor-label">
+            <span
+              class="tp-design-label-text"
+              :class="{ 'tp-design-shimmer': active }"
+              aria-hidden="true"
+              >{{ label }}</span
+            >
+            <span class="tp-design-live-label" role="status" aria-live="polite">{{
+              panelLabel
             }}</span>
           </span>
           <DesignTaskFeedback
@@ -492,9 +514,10 @@ onScopeDispose(() => {
             Stop
           </Button>
           <Button
-            v-else-if="task.status === 'completed'"
+            v-else-if="task.status === 'completed' || cancelledCleanupFailed"
             class="tp-design-done"
-            :disabled="dismissBlocked || finishing || !!exitPhase"
+            :disabled="!finishing && (dismissBlocked || !!exitPhase)"
+            :aria-disabled="finishing || undefined"
             :data-tooltip="
               dismissBlocked ? 'Wait for comments to finish' : 'Finish task and clear comments'
             "
@@ -664,6 +687,14 @@ onScopeDispose(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 500;
+}
+.tp-design-live-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .tp-design-stop,
 .tp-design-done {

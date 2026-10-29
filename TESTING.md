@@ -29,6 +29,10 @@ Then run:
 Use this sequence as the default pre-PR verification. Also run `pnpm test:coverage` when changing
 pure utilities or coverage configuration, as detailed below. CI enforces the coverage floor.
 
+Push a validation branch under `ci/` to run the full Linux build and Windows runtime matrices
+without publishing `main`. Validation branches compare plugin payload versions against
+`origin/main`; ordinary main pushes retain their previous-commit baseline.
+
 ## Command reference
 
 Root:
@@ -42,6 +46,70 @@ Root:
     Hub-to-extension, extension-to-Hub, and formatted MCP fixture responses.
 - `pnpm agent-plugin:check-installer` (networked discovery smoke test with `plugins@1.3.4`;
   run after `pnpm agent-plugin:build`, without installing into a host)
+- `pnpm mcp:check-profiles` (builds and launches isolated real CLI/Hub processes; checks
+  shared release ownership, default and overridden directories, actual release/checkout WebSocket
+  ports, and independent shutdown). CI runs the same harness beside the bridge check.
+  Windows process-level isolation is unverified: the harness refuses Windows and Unix hook
+  fixtures are skipped there. Unit tests cover pipe naming by user and checkout and the unchanged
+  release pipe; runtime-directory overrides cannot isolate two Windows Hubs for the same checkout.
+- `pnpm mcp:check-host-context` (builds and exercises real CLI processes against a private fixture
+  Hub; checks both host launch orders, sanitized child environments, registration after reconnect,
+  and continued bridging after the original launcher exits). A real MCP SDK fixture also checks
+  that the pre-context Hub contract accepts new CLIs through initialization, identity, and tools.
+  CI runs it alongside profile isolation.
+  It refuses Windows for the same fixed-pipe constraint; it does not connect to installed hosts.
+  Native adapter and real Hub socket tests separately cover routing and persisted host contexts.
+- `pnpm mcp:check-runtime-prototype` builds a bundled-only prototype in a private runtime root,
+  using ephemeral WebSocket/HTTP ports and a synthetic extension. It checks two initialized
+  edges, supervisor crash recovery without replacing the Hub or replaying a write, admission
+  fencing, Stop, host-context isolation, legacy hook routing, and last-client shutdown. It
+  reports startup/recovery timings and process RSS. The installed CLI and live runtimes are
+  unchanged; this harness does not download or switch versions. Windows uses named pipes and
+  checks actual directory and pipe ACLs rather than Unix permission bits.
+- `pnpm mcp:check-runtime-switch` builds trusted local A/B fixtures from source in an ignored
+  directory, then exercises manual switching with two initialized SDK clients and a synthetic
+  extension. It checks draining, fixed asset endpoints, a disconnected write and late receipt,
+  crashes at all four journal phases, port conflicts, rollback retaining a later Stop, and
+  pending Claude Stop notices surviving both switching and rollback with durable hook retries.
+  New edges also attach during a delayed handoff and after real stale writer leases expire;
+  the fixture's initialization deadline exceeds the edge's 90-second recovery bound.
+  `TEMPAD_SWITCH_CASES` selects comma-separated cases for diagnosis; `TEMPAD_KEEP_PROTOTYPE=1`
+  retains isolated evidence. It never downloads or updates installed runtimes. CI runs the full
+  matrix on Linux and Windows with Node 22 and 24; native host behavior remains outside this harness.
+- Before runtime archive checks, run `pnpm mcp:prepare-release-dependencies` with network access.
+  It verifies and caches the exact frozen production dependency graph without package scripts;
+  use the same pnpm cache for the subsequent offline packaging step. A workspace install alone
+  may not cache all verification evidence required by the reduced production lockfile.
+- `pnpm mcp:check-runtime-updates` builds complete release archives from the frozen local store,
+  serves them from an isolated loopback registry, and exercises default release enrollment, staging and explicit
+  activation through real CLI/Hub processes. It checks mixed policies sharing one Hub, exact
+  pins, newest-compatible selection below the stable tag, tag rollback without downgrade,
+  exact-version requests without substitution, frozen presentation, incompatible epochs,
+  offline operation, corrupt caches, and zero
+  registry requests from checkout builds. A real metadata write failure must leave the supervisor
+  and MCP service alive without starting acquisition. After all owners exit, concurrent installed-release
+  launches upgrade both control and Hub across an epoch boundary without registry access or
+  allowing an older CLI to downgrade them. A separate simulated Codex namespace checks idle
+  automatic activation, generic MCP clients, verified Claude hooks, unverified Claude/off-policy deferral, continuous tool work, bounded request
+  waiting and measured admission pause. This is process evidence, not new native acceptance. CI runs this on
+  Node 22/24 on Linux and Windows; native host acceptance remains outside this fixture. No installed
+  runtime or public registry is used by the acquisition test.
+- `pnpm mcp:prepare-release --output <absolute-new.tgz> --verify-baseline` builds and verifies
+  the publishable dependency closure and checks the current stable npm baseline. See
+  [release policy](docs/releasing.md#runtime-release-policy) before refreshing the review hash.
+- `pnpm mcp:measure-runtime --output <new.json> --runs 5 [--lockfile <installation-lock>] <package-dir> [...]`
+  compares trusted, explicitly supplied local release artifacts in the given version order. It
+  performs MCP initialization/catalog reads through fresh CLI/Hub processes and records artifact
+  hashes, structural comparisons across release windows, startup/attach timing and RSS. It never
+  downloads packages or connects to installed hosts. TCP listeners are remapped to ephemeral
+  loopback ports and IPC listeners are confined to a temporary root; Windows is refused.
+  Preserve the resolved dependency lock alongside the report. Structural equality does not prove
+  guidance or behavior compatibility, and warm attachment is not uninterrupted session recovery.
+- `pnpm mcp:measure-hooks --hook <lifecycle.mjs> --output <new.json> --runs 30` measures an inspected
+  hook against an isolated synthetic receiver, including slow commit, lost reply, failed commit,
+  disconnect and exit before request arrival. It does not modify installed hooks or contact the
+  user's Hub. File/directory fsync and injected delay are not full-device flush, disk-pressure,
+  or installed-host adoption evidence. Keep measurement reports outside version control.
 - `pnpm --filter @tempad-dev/extension test:setup` (install extension browser runtime)
 - `pnpm --filter @tempad-dev/extension test:node` (extension node tests only)
 - `pnpm --filter @tempad-dev/extension test:browser` (extension browser tests only)
@@ -53,6 +121,64 @@ Root:
 - `pnpm agent-eval:skills <rollout.jsonl>` (fingerprint the presented skill catalog)
 - `pnpm agent-eval:log <start|finish|abandon|check|summary>` (retain the small amount
   of provenance needed to trust a live authoring run)
+
+### Windows runtime CI
+
+The [Windows runtime workflow](.github/workflows/windows-runtime.yml) runs the runtime unit
+tests and all three supervisor/switch/acquisition process harnesses on Node 22 and 24. It
+preserves LF source bytes for the reviewed manifest hash, asserts the selected Node version,
+and uploads per-step logs. Push a validation branch under `ci/` to run it without publishing
+`main`; it also runs for `main`, pull requests and manual dispatch.
+
+All Windows matrix jobs must pass on the candidate before release. These checks exercise real
+named pipes, ACLs, child processes, downloads, concurrent edges, in-flight requests, automatic
+activation, crashes and rollback. They do not establish installed Codex/Claude desktop behavior,
+and do not change the Windows limitations of the separate profile/host-context/bridge harnesses.
+
+### Native runtime switch acceptance
+
+Use the [authoring runbook](docs/testing/agent-authoring-evolution.md) for installed-host
+replacement, preflight and native calls. The following opt-in fixture tests the packaged
+release path without fetching or publishing a release. It requires macOS/Linux, a short new
+private directory, and unused release discovery ports; it never stops another port owner.
+
+```sh
+pnpm mcp:prepare-release-dependencies
+node packages/mcp-server/scripts/native-runtime-fixture.mjs --root /tmp/tp-native-example --prepare
+node packages/mcp-server/scripts/native-runtime-fixture.mjs --root /tmp/tp-native-example --serve --hold-candidate
+# In another terminal, use the canonical descriptor path printed by --prepare:
+pnpm agent-plugin:build --runtime-fixture /private/tmp/tp-native-example/runtime-fixture.json
+pnpm build:ext
+```
+
+Preparation deploys frozen dependencies offline and verifies complete immutable A/B archives.
+The fixture changes only package identity and the compiled registry origin to a fixed loopback
+server; normal discovery, bootstrap, staging, consent and handoff logic remain in use. Both
+packages are private and point publication at the fixture registry. Never publish these archives.
+The ignored dev plugin routes Codex, Claude and its hooks to the same private release-test
+namespace. It does not change any generated release target or the default checkout configuration.
+Use a release-profile extension for this fixture, not a checkout-profile build.
+
+After replacing the plugin and reloading the extension, require preflight and a native MCP read.
+`--hold-candidate` keeps the registry on the initial version while this baseline is established.
+Send `SIGUSR2` to the registry PID printed by `--serve` to expose the already-verified candidate;
+this does not restart either the host or registry. Invoke `--check-runtime-update` with the
+descriptor's environment to discover it immediately instead of waiting for the scheduled check.
+An off-policy observer can hold the candidate staged for inspection; close it before testing
+activation. Enrolled, initialized, wait-capable MCP clients can activate after five idle seconds.
+Record stable host/edge identities, changed Hub identity, native feedback/lifecycle/Stop and
+subsequent canvas work. Claude requires a verified session and receipt/retry-capable hooks;
+unverified sessions and legacy hooks must remain staged. The explicit update command remains
+available, but cannot override an attached off-policy observer or other compatibility blockers.
+The registry request log records only local acquisition. This establishes installed-host behavior
+for the local candidate; official-registry provenance and cross-version release compatibility
+remain separate checks. Do not count synthetic SDK clients as native-host acceptance.
+
+When finished, uninstall the fixture plugin and confirm its CLI/Hub/supervisor processes have
+stopped before shutting down the registry. Regenerate the ordinary plugin with
+`pnpm agent-plugin:build`, rebuild the extension with `TEMPAD_MCP_DEV_CHECKOUT="$PWD"`, and follow
+the same installation/preflight workflow to restore checkout development. Retain evidence outside
+version control. Never reuse a fixture root for different source bytes.
 
 Per package:
 

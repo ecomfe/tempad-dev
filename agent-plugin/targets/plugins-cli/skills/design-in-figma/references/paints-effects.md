@@ -35,9 +35,11 @@ Named scales such as `shadow-md` are theme references, not portable geometry:
 Never assume Tailwind defaults or create a token only to resolve a named class.
 `shadow-none`, `inset-shadow-none`, and `text-shadow-none` explicitly clear.
 
-Treat an outer shadow's rendered halo as part of the composition. Inspect the
-final PNG beyond the root edges; visible granular or noisy fringe, or a halo
-that dominates the captured bounds, is a defect even when the frame itself is
+Treat an outer shadow's rendered halo as part of the composition. Exact-node
+screenshots may crop to the node's bounds; inspect an enclosing composition with
+enough surrounding space to judge the halo. Its absence from a cropped PNG is
+not evidence that it is absent on canvas. Visible granular or noisy fringe, or a
+halo that dominates the composition, is a defect even when the frame itself is
 intact. Preserve intended depth by tightening blur, spread, or opacity or using
 smaller layered shadows, then recheck. Do not flatten established material
 treatment merely to hide the defect.

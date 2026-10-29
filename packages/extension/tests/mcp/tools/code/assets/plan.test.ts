@@ -196,6 +196,50 @@ describe('mcp/code/assets plan', () => {
     expect(result.skippedIds).toEqual(new Set())
   })
 
+  it.each(['INSTANCE', 'COMPONENT', 'COMPONENT_SET'] as const)(
+    'does not absorb a nested %s into its ancestor artwork',
+    (type) => {
+      const tree = {
+        order: ['outer', 'shell', 'component', 'icon', 'other'],
+        nodes: new Map([
+          ['outer', node('outer', { children: ['shell', 'other'] })],
+          ['shell', node('shell', { type: 'FRAME', children: ['component'] })],
+          ['component', node('component', { type, children: ['icon'] })],
+          ['icon', node('icon', { type: 'VECTOR', assetKind: 'vector' })],
+          ['other', node('other', { type: 'VECTOR', assetKind: 'vector' })]
+        ])
+      } as unknown as VisibleTree
+
+      expect(planAssets(tree)).toEqual({
+        vectorRoots: new Set(['icon', 'other']),
+        skippedIds: new Set()
+      })
+    }
+  )
+
+  it('preserves a nested design-component hint when planning ancestor assets', () => {
+    const tree = {
+      order: ['outer', 'hinted', 'icon'],
+      nodes: new Map([
+        ['outer', node('outer', { children: ['hinted'] })],
+        [
+          'hinted',
+          node('hinted', {
+            type: 'FRAME',
+            children: ['icon'],
+            dataHint: { 'data-hint-design-component': 'Icon' }
+          })
+        ],
+        ['icon', node('icon', { type: 'VECTOR', assetKind: 'vector' })]
+      ])
+    } as unknown as VisibleTree
+
+    expect(planAssets(tree)).toEqual({
+      vectorRoots: new Set(['icon']),
+      skippedIds: new Set()
+    })
+  })
+
   it('does not promote wrappers with component hints or own fills', () => {
     const tree = {
       order: ['component-shell', 'icon', 'button', 'bg', 'glyph'],

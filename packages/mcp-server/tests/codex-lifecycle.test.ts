@@ -217,7 +217,7 @@ describe('Codex native lifecycle', () => {
         }
       ]
     })
-    expect(f.changed.mock.calls).toEqual([['thread-a', undefined]])
+    expect(f.changed.mock.calls).toEqual([['thread-a', undefined, undefined]])
     expect(f.connection.broadcast).toHaveBeenCalledTimes(2)
     f.emit({ type: 'patches', baseRevision: 2, revision: 3, patches: [] })
     expect(f.connection.broadcast).toHaveBeenCalledTimes(2)
@@ -240,6 +240,29 @@ describe('Codex native lifecycle', () => {
       expect(
         f.changed.mock.calls.every(([, state]) => !state || state.turns[0].status === 'inProgress')
       ).toBe(true)
+    }
+  )
+
+  it.each(['disconnect', 'owner loss', 'version'] as const)(
+    'ignores trailing frames in the same batch after %s invalidates the subscription',
+    async (reason) => {
+      const f = await fixture()
+      f.snapshot()
+      f.changed.mockClear()
+      if (reason === 'disconnect') for (const listener of f.disconnects) listener()
+      else if (reason === 'owner loss')
+        f.emit(undefined, {
+          method: 'client-status-changed',
+          params: { clientId: 'owner', status: 'disconnected' }
+        })
+      else f.emit({}, { version: 999 })
+      f.snapshot(2, 'completed')
+
+      expect(f.lifecycle.state('thread-a')).toBeUndefined()
+      expect(f.changed.mock.calls).toEqual([['thread-a', undefined, undefined]])
+      await vi.waitFor(() => expect(f.open.mock.calls.length).toBeGreaterThan(1))
+      f.snapshot()
+      expect(f.lifecycle.state('thread-a')?.turns[0]?.status).toBe('inProgress')
     }
   )
 
@@ -279,7 +302,15 @@ describe('hook-free task lifecycle', () => {
     let taskCount = 0
     const tasks = new DesignTasks({
       createId: () => `task-${taskCount++ === 0 ? 'a' : 'b'}`,
-      now: () => 1000
+      now: () => 1000,
+      onReviewStop: ({ task }) => {
+        void clients.action({
+          requestId: 'restored-stop',
+          taskId: task.taskId,
+          epoch: task.epoch ?? 0,
+          action: 'stop'
+        })
+      }
     })
     const feedback = {
       available: vi.fn().mockResolvedValue(true),
@@ -317,7 +348,7 @@ describe('hook-free task lifecycle', () => {
 
   it('binds through MCP metadata, ignores old hooks, and pauses only the matching finished turn', async () => {
     const f = await taskFixture()
-    expect(f.native.watch).toHaveBeenCalledWith('thread-a')
+    expect(f.native.watch).toHaveBeenCalledWith('thread-a', undefined)
     f.clients.clientHook({
       version: 1,
       kind: 'codex',
@@ -352,7 +383,7 @@ describe('hook-free task lifecycle', () => {
         action: 'stop'
       })
       expect(f.record.task.status).toBe('cancelled')
-      expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-a')
+      expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-a', undefined)
       settle()
       const result = await pending
       expect(result.status).toBe('delivered')
@@ -360,6 +391,26 @@ describe('hook-free task lifecycle', () => {
       expect(() => f.tasks.resume('task-a', f.owner, 0, f.session)).toThrow('begin a new task')
     }
   )
+
+  it('interrupts the native turn once when a replacement worker restores Stop before Done', async () => {
+    const f = await taskFixture()
+    const stopped = { ...f.record.task, status: 'cancelled' as const, reviewClosed: true }
+    f.tasks.disconnectExtension('extension')
+    const replacement = {
+      id: 'replacement-worker',
+      origin: 'chrome-extension://tempad',
+      sessions: { browserId: 'browser', sessions: [f.session] }
+    } as Parameters<DesignTasks['restoreReview']>[1]
+
+    f.tasks.restoreReview(stopped, replacement, f.session)
+    await vi.waitFor(() =>
+      expect(f.native.interrupt).toHaveBeenCalledExactlyOnceWith('thread-a', 'turn-a', undefined)
+    )
+    expect(f.record.task).toMatchObject({ status: 'cancelled', reviewClosed: true })
+    expect(() => f.tasks.resume('task-a', f.owner, 0, f.session)).toThrow('closed')
+    f.tasks.restoreReview(stopped, replacement, f.session)
+    expect(f.native.interrupt).toHaveBeenCalledTimes(1)
+  })
 
   it('pauses the old lease at a turn boundary and tracks the next turn for Stop', async () => {
     const f = await taskFixture()
@@ -369,7 +420,30 @@ describe('hook-free task lifecycle', () => {
     ])
     expect(f.record.task.status).toBe('paused')
     await f.clients.action({ requestId: 'stop', taskId: 'task-a', epoch: 0, action: 'stop' })
-    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b')
+    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b', undefined)
+  })
+
+  it('permanently cancels a completed review without interrupting the next native turn', async () => {
+    const f = await taskFixture()
+    f.tasks.stop('task-a', 'completed')
+    f.update([
+      { turnId: 'turn-a', status: 'completed' },
+      { turnId: 'turn-b', status: 'inProgress' }
+    ])
+    const cancelFeedback = vi.spyOn(f.clients, 'cancelFeedback')
+    const accepted = vi.fn()
+    const action = { requestId: 'stop', taskId: 'task-a', epoch: 0, action: 'stop' as const }
+
+    const pending = f.clients.action(action, accepted)
+    expect(f.record.task.status).toBe('cancelled')
+    expect(accepted).toHaveBeenCalledOnce()
+    expect(cancelFeedback).toHaveBeenCalledExactlyOnceWith('task-a')
+    expect((await pending).status).toBe('delivered')
+    expect(() => f.tasks.resume('task-a', f.owner, 0, f.session)).toThrow('cannot resume')
+    await f.clients.action({ ...action, requestId: 'repeat-stop' }, accepted)
+    expect(cancelFeedback).toHaveBeenCalledOnce()
+    expect(accepted).toHaveBeenCalledOnce()
+    expect(f.native.interrupt).not.toHaveBeenCalled()
   })
 
   it('retains the native turn identity when a later MCP request only identifies the conversation', async () => {
@@ -382,7 +456,7 @@ describe('hook-free task lifecycle', () => {
       'x-codex-turn-metadata': { thread_id: 'thread-a' }
     })
     await f.clients.action({ requestId: 'stop', taskId: 'task-a', epoch: 0, action: 'stop' })
-    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b')
+    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b', undefined)
   })
 
   it('recovers the current native turn when the conversation reconnects without turn metadata', async () => {
@@ -397,7 +471,7 @@ describe('hook-free task lifecycle', () => {
       'x-codex-turn-metadata': { thread_id: 'thread-a' }
     })
     await f.clients.action({ requestId: 'stop', taskId: 'task-a', epoch: 0, action: 'stop' })
-    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b')
+    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b', undefined)
   })
 
   it.each([
@@ -447,7 +521,7 @@ describe('hook-free task lifecycle', () => {
       epoch: 0,
       action: 'stop'
     })
-    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-a')
+    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-a', undefined)
     expect(result.message).toContain('Codex turn interrupted')
     expect(f.record.task.status).toBe('cancelled')
   })
@@ -462,7 +536,7 @@ describe('hook-free task lifecycle', () => {
     f.native.state.mockReturnValue({ turns: [{ turnId: 'turn-b', status: 'inProgress' }] })
     expect((await f.clients.describe(f.record.ownerId)).capabilities.interrupt).toBe(true)
     await f.clients.action({ requestId: 'stop', taskId: 'task-a', epoch: 0, action: 'stop' })
-    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b')
+    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b', undefined)
   })
 
   it('keeps an exact metadata target across a state gap and never chases another turn', async () => {
@@ -476,7 +550,7 @@ describe('hook-free task lifecycle', () => {
       epoch: 0,
       action: 'stop'
     })
-    expect(f.native.interrupt).toHaveBeenCalledExactlyOnceWith('thread-a', 'turn-a')
+    expect(f.native.interrupt).toHaveBeenCalledExactlyOnceWith('thread-a', 'turn-a', undefined)
     expect(result.message).toContain('did not interrupt the expected turn')
     expect(log.info).toHaveBeenCalledWith(
       expect.objectContaining({ expectedTurnId: 'turn-a', interrupted: false }),
@@ -492,7 +566,7 @@ describe('hook-free task lifecycle', () => {
         { turnId: 'turn-b', status: 'inProgress' }
       ])
     )
-    expect(f.native.interrupt).toHaveBeenCalledExactlyOnceWith('thread-a', 'turn-a')
+    expect(f.native.interrupt).toHaveBeenCalledExactlyOnceWith('thread-a', 'turn-a', undefined)
     expect(f.record.task.status).toBe('cancelled')
   })
 

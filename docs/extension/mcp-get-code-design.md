@@ -23,7 +23,9 @@ For splittable roots, the extension limits tree construction and full generation
 shell with a separate 5-second limit. These extension limits are fixed; a shorter Hub override can
 still expire first. The fallback shares lookup and CSS-promise caches with the original attempt,
 and abort checks fence late results and prevent subsequent collection, export, and plugin batches.
-Synchronous checkpoints cover depth selection, tree traversal (including hidden siblings),
+A completed full or shell result wins if synchronous work finishes before its overdue timer runs;
+the deadline wrapper does not recheck elapsed time after success or discard completed output.
+Synchronous checkpoints cover depth selection, tree traversal (including hidden siblings), descendant-text budget preflight,
 candidate-variable scans, and collection between nodes and after text, CSS, style, and media reads.
 They also run within physical-child overflow scans, per-field text-variable reads, and nested
 binding/paint scans, including overflow work during semantic-cache population. Group flow and
@@ -34,6 +36,11 @@ Vector export checks the same deadline between candidates, after color analysis,
 export batch. Cached or immediately resolved reads cannot defer cancellation until collection or
 export finishes. Media and vector helpers also check after native byte reads or exports and before
 starting uploads, fallback exports, or the next fill; their fallback handlers preserve cancellation.
+Optional Tile dimensions share one second of dimension-wait time across each node's image fills;
+required byte reads and uploads do not consume that budget. Each shared dimension read has its
+own one-second timeout. A shorter node wait does not cache a premature failure for later roots
+or shell retries. An exhausted node wait budget still reuses settled cache entries without waiting
+for pending ones or starting new dimension reads. Stalled reads retain native CSS dimensions.
 An incomplete tree fails without a shell; a completed tree can use the
 fallback even when its last getter exhausts the full-generation budget. Checkpoints cannot interrupt
 a single native getter or cancel in-flight Figma API calls. Actual leaf and vector roots retain their full-only
@@ -60,7 +67,7 @@ A stalled root or unusable shell still fails.
 
 3. **Create request-scoped lookup context**
    - Create a `GetCodeCacheContext` near the existing variable cache.
-   - Build variable mappings only from nodes in the bounded visible tree (the root alone for early
+   - Collect variable IDs per node in the bounded visible tree (the root alone for early
      shells), using shared lookup readers without descending into the original subtrees.
    - Pass the same readers through text-segment rendering so bound-variable and style lookups
      discovered during scanning are reused rather than read again.
@@ -75,13 +82,13 @@ A stalled root or unusable shell still fails.
      - `getCSSAsync()` once per node (skipped nodes are excluded).
      - `getStyledTextSegments()` for text nodes.
      - Resolve fill/stroke style-backed CSS through shared lookup readers instead of issuing new ad hoc style/variable lookups per pass.
+     - Project supported variable-backed properties to canonical CSS references using that node's
+       bindings before preprocessing or asset URL replacement.
      - Preprocess styles (clean background, expand shorthands, merge inferred layout, infer resizing, apply overflow).
      - Apply positioning (auto layout absolute, constraints).
      - Replace image fills with uploaded assets.
 
-6. **Canonicalize MCP variable output and sanitize styles**
-   - Rewrite supported variable-backed output into canonical CSS variable IR.
-   - Capture variable usage candidates for token detection and resolution.
+6. **Sanitize projected styles**
    - Patch known layout issues (negative gap).
    - Ensure layout parents are `position: relative` when children are absolute.
 
@@ -102,12 +109,21 @@ A stalled root or unusable shell still fails.
 
 10. **Token pipeline**
 
-- Detect token references in output code.
+- Detect token references in the rendered component tree's styling values before serialization.
 - Apply plugin transforms to token names.
-- Rewrite code with transformed token names.
+- Rewrite class, style, and SVG presentation values with transformed token names. Preserve literal
+  children, labels, other non-style props, and quoted CSS strings and URLs. Native inline SVG uses
+  XML attributes as its styling boundary, preserving text and whitespace; literal XML text and CDATA
+  are escaped for the target template syntax. Explicit plugin `raw()`
+  content retains its authored code contract and is processed as code.
 - Build a single `tokens` definition map from exact used variable IDs and alias dependencies, preserving all modes and aliases regardless of `resolveTokens`.
 - When `resolveTokens` is true, resolve code through native `Variable.resolveForConsumer(node)` before final render. Pass the actual node for styles, text runs, and SVG presentation.
 - The resolve rerender applies to both collected node styles and themeable vector-placeholder root presentation styles so emitted vector color evidence stays in sync with token resolution.
+- The first render records its text-run style inputs after inheritance pruning and default resets.
+  Token resolution reuses those inputs without new native reads; unchanged node, vector, and text
+  styles retain the first rendered output, including failed-resolution diagnostics.
+- Serialize the transformed component tree. Apply fallback removal and resolved color simplification
+  at the same styling boundary so CSS-looking design text remains unchanged.
 
 11. **Build unresolved-literal diagnostics**
 
@@ -178,18 +194,23 @@ A stalled root or unusable shell still fails.
 - `mergeInferredAutoLayout`:
   - Inject inferred flex/padding/gap where applicable.
 - `inferResizingStyles`:
-  - Translate Figma layout sizing into `align-self` and size deletions.
+  - Translate fill/stretch into `align-self` and hug dimensions into `max-content`.
+    Deleting a hug dimension would let CSS block/flex auto sizing stretch it to the containing box.
 - `applyOverflowStyles`:
   - Add overflow rules based on clips/scroll.
 
 ### Sanitize (tree-level)
 
 - `patchNegativeGapStyles`
+  - Replace proven negative gap axes with flow-child margin/padding compensation.
+    Absolute/fixed children keep their offsets and do not count toward flow compensation.
+    Preserve other axis values and leave unknown shorthand arity intact.
 - `canonicalizeAutoLayoutStyles`
   - Only runs on proven single-child auto-layout containers.
-  - Resolves each axis as fixed/hug/fill/absolute/unknown.
-  - Removes only redundant size or padding expressions without changing the emitted flow model.
+  - Removes redundant symmetric padding only on fixed axes, keeping hug/fill dimensions and
+    the emitted flow model intact. Intrinsic sizing belongs to preprocessing.
 - `ensureRelativeForAbsoluteChildren`
+  - Make an unpositioned or explicitly static layout parent relative, preserving other positioning modes.
 
 ### Tailwind output
 
@@ -198,6 +219,18 @@ references, for example `w-(--size)` and `text-(length:--font-size)`. Type hints
 remain explicit where configured. Expressions and arbitrary properties retain
 their bracket syntax. Internal style values remain CSS `var(...)` expressions;
 token collection, renaming, and resolution use the same variable identities.
+
+Use the same arbitrary-property fallback for ordinary styles and generated
+pseudo-elements. A missing named utility must not silently discard a retained
+declaration, including the transform and origin that position normalized SVG
+assets. Test that boundary through serialized markup and browser rendering, not
+only the intermediate style map.
+
+Keep unexpanded background shorthands and their longhand overrides in one inline
+style object, with the shorthand first. This preserves quoted image URLs and
+override order without depending on Tailwind's source scanner or utility order.
+The shared utility converter uses `[background:...]` for retained shorthands,
+rather than the `bg-[...]` image/color utilities.
 
 ## Variable output semantics
 
@@ -247,7 +280,10 @@ token collection, renaming, and resolution use the same variable identities.
 - `packages/extension/utils/variable-output.ts` is the explicit output boundary:
   - UI codegen formats supported variable-backed properties with exact `WEB codeSyntax` when present.
   - MCP `get_code` formats the same supported properties as canonical CSS variable references.
-- String-based token rewrites remain a compatibility/backstop pass for legacy CSS output, alias bridging, and downstream transforms.
+- Per-node projection owns native CSS alias bridging; duplicate `codeSyntax` aliases cannot choose
+  a variable, while explicit field bindings retain their exact identity. Do not repeat this step
+  with candidates from the whole subtree: an unrelated literal can equal another node's syntax.
+  Downstream token transforms operate on CSS references, preserving strings and asset URLs.
 
 ## Request-scoped cache layer
 
@@ -264,6 +300,11 @@ token collection, renaming, and resolution use the same variable identities.
 
 ### Cached data
 
+- `rawCss`: native CSS promises shared by plugin preparation and MCP collection, including failed
+  reads. Each formatting path works on a copy and retains its own variable-output policy.
+- `pluginResponses`: completed raw plugin responses keyed by instance ID, including empty
+  responses. Overlapping roots and timeout shells reuse them within the call; each root selects
+  its language independently. Aborted or expired attempts cannot publish late responses into the cache.
 - `variables`: request-scoped `Variable | null` lookup map.
 - `tokens`: request-scoped collection/name lookups and raw native values keyed by consumer node ID and variable ID. Code reads traverse exact IDs and aliases without indexing all local variables. The names-only `get_token_defs` request creates its own fresh context and lazy full index.
 - `styles`: request-scoped `BaseStyle | null` lookup map.
@@ -349,9 +390,12 @@ The request context is threaded through:
 - Native video fills share one composited PNG preview per node and record their ordered unique
   current-file identities as `figmaVideoHashes`. Figma exposes the hash on each `VideoPaint` but no
   API for reading the original video bytes, so the descriptor does not present the preview as the
-  source video.
+  source video. When different nodes produce identical preview bytes, deduplication merges their
+  native image/video identities in first-seen order.
 - Vector-like nodes may be exported to SVG.
 - Vector containers can be converted to a single SVG when their subtree is vector-like and the container itself does not carry wrapper semantics such as its own fill/stroke/effects/clipping or design-component hints.
+  Component boundaries and hints inside that subtree also prevent ancestor promotion, keeping
+  the component structure available in the output.
 - Themeable vectors are single-color vectors that can safely use one contextual color channel.
   Full-bounds SVG exports are mapped from Figma's baked absolute coordinates into local coordinates
   using the inverse linear transform. Node geometry replaces integer-rounded export dimensions,
@@ -367,19 +411,22 @@ The request context is threaded through:
 - Placeholder SVG nodes receive external layout styles plus presentation color on the root markup when the vector is single-channel.
 - Themeable-vector eligibility and single-channel color detection reuse shared paint/effect semantics instead of maintaining separate vector-only interpretations.
 - Token paint channels compare variable IDs. A descendant token is promoted to the SVG root only when their effective mode maps match; otherwise preserve the native fixed-color asset, since cross-collection aliases can depend on any differing mode.
+  If fixed and themeable instances share identical SVG bytes, their shared descriptor omits
+  `themeable`; eligible instances still retain their own root presentation color.
 - The tool emits `<svg data-src="...">` placeholders by default for the current response. If asset upload fails after export, it falls back to inline SVG so the response still carries vector structure. Host apps may refactor to their own SVG policy, such as repo icon primitives, bundler/dev-server SVG transforms, inline SVG, or asset-backed SVG usage, as long as themeable vectors remain single-channel and fixed-color vectors keep their palette.
 - Placeholder SVG is emitted when export fails or is unavailable, using node width/height.
 - Vector-root descendants are not rendered; their CSS is not collected.
 
 ## Token pipeline (detailed)
 
-1. Build source index from variable IDs and codeSyntax.
+1. Build the source index from collected variable IDs and CSS variable aliases. Raw `codeSyntax`
+   literals are not token names: they can coincide with unrelated colors, lengths or classes.
 2. Strip fallbacks, then extract raw token names from code (boundary-aware). Include font-face
    bindings collected from the text actually emitted by this render.
 3. Apply plugin transforms to names.
 4. Rewrite code with transformed names (only if any rename occurs).
 5. Build a single definition map from the transform's final name-to-ID mapping (direct + alias-chain tokens), always preserving modes and aliases.
-6. Resolve code for each consuming node when `resolveTokens` is true. Native Figma resolution owns inherited modes and cross-collection alias traversal; known length properties override token-name heuristics, and serialized literals stay in native pixels until rendering applies the request's units and scale. Divide native opacity percentages by 100 only for that property. Unresolved opacity, font-weight and known length properties retain canonical references in dimensionally compatible `calc()` expressions, using final definition dimensions across modes and aliases. Font-weight length conversion divides by 100px then multiplies by 100; the reverse conversion for unitless definitions in length properties multiplies by 100px then divides by 100. Both avoid rounding a 1px factor during rem conversion. Preserve length units on zero definitions; mixed or unknown dimensions retain the reference with a consumer-specific `token-resolution` warning.
+6. Resolve code for each consuming node when `resolveTokens` is true. Native Figma resolution owns inherited modes and cross-collection alias traversal; known length properties override token-name heuristics, and serialized literals stay in native pixels until rendering applies the request's units and scale. Divide native opacity percentages by 100 only for that property. Unresolved opacity, font-weight and known length properties retain canonical references in dimensionally compatible `calc()` expressions, using final definition dimensions across modes and aliases. Font-weight length conversion divides by 100px then multiplies by 100; the reverse conversion for unitless definitions in length properties multiplies by 100px then divides by 100. Both avoid rounding a 1px factor during rem conversion. Length division emits a bounded `token-resolution` warning because it requires CSS typed arithmetic support; `resolveTokens:true` produces portable literals. Preserve length units on zero definitions; mixed or unknown dimensions retain the reference with a consumer-specific `token-resolution` warning.
 
 ### Pipeline guards
 
@@ -411,6 +458,10 @@ The request context is threaded through:
   lookups, full-range text bindings, and vector analysis across scanning, collection, and render.
 - Text-run token resolution reads only typography fields consumed by the rendered run; list and
   paragraph geometry continue to use the segment's native values.
+- Paragraph indentation and spacing use separate paragraph boxes when needed; spacing applies
+  between blocks, and soft line breaks stay inside their paragraph or list item. Indented ordinary
+  paragraphs repeat indentation after soft breaks without indenting automatic wrapped lines.
+  Ordinary text with zero paragraph geometry retains compact output.
 - Asset export is planned and executed once.
 - A descendant-text preflight can bypass descendant collection and all asset work when UTF-8 text
   alone proves the response cannot fit. Tests assert that it short-circuits before scanning the rest

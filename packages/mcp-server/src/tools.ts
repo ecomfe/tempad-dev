@@ -68,7 +68,6 @@ export type {
 type BaseToolMetadata<Name extends ToolName, Schema extends ZodType> = ToolSchema<Name> & {
   annotations: ToolAnnotations
   parameters: Schema
-  format?: (payload: ToolResultMap[Name]) => CallToolResult
 }
 
 type ExtensionToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMetadata<
@@ -76,6 +75,7 @@ type ExtensionToolMetadata<Name extends ToolName, Schema extends ZodType> = Base
   Schema
 > & {
   target: 'extension'
+  format: (payload: ToolResultMap[Name]) => CallToolResult
 }
 
 type HubToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMetadata<
@@ -131,7 +131,7 @@ const CONNECTIVITY_TROUBLESHOOTING_LINES = [
 const MULTI_SELECTION_TROUBLESHOOTING_LINE =
   'Tip: Select one or more visible nodes, or pass nodeIds (nodeId for a single node).'
 const VERIFICATION_TROUBLESHOOTING_LINE =
-  'Tip: TemPad rolls verification failures back. Correct the reported desired-state mismatch and retry the affected root while preserving unrelated design intent.'
+  'Tip: TemPad attempts to roll verification failures back. Check the reported rollback outcome and satisfy any readback requirement. Inspect the affected nodes and resources before choosing a bounded correction that preserves unrelated design intent. Do not repeat the failed write unchanged or use Undo without confirming which edit it would reverse.'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -239,8 +239,7 @@ export const TOOL_DEFS = [
     annotations: ASSET_WRITE_ANNOTATIONS,
     parameters: UploadAssetParametersSchema,
     target: 'hub',
-    outputSchema: UploadAssetResultSchema,
-    format: createUploadAssetToolResponse
+    outputSchema: UploadAssetResultSchema
   })
 ] as const
 
@@ -270,9 +269,18 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   const code = extractToolErrorCode(error)
   const codeLabel = code ? ` [${code}]` : ''
   const troubleshooting = buildTroubleshootingText(code, message)
+  const recovery =
+    toolName === 'manage_design_task' && code === TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_INACTIVE
+      ? ManageDesignTaskParametersSchema.shape.recoveryGeneration.safeParse(
+          getRecordProperty(error, 'recoveryGeneration')
+        )
+      : undefined
 
   return {
     isError: true,
+    ...(recovery?.success && recovery.data
+      ? { _meta: { code, message, recoveryGeneration: recovery.data } }
+      : {}),
     content: [
       {
         type: 'text' as const,
@@ -293,7 +301,12 @@ function buildTroubleshootingText(code: TempadMcpErrorCode | undefined, message:
     help.push(MULTI_SELECTION_TROUBLESHOOTING_LINE)
   }
 
-  if (code === TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC && /verification failed/i.test(message)) {
+  if (
+    (code === TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC ||
+      code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED ||
+      code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED) &&
+    /verification failed/i.test(message)
+  ) {
     help.push(VERIFICATION_TROUBLESHOOTING_LINE)
   }
 
@@ -431,21 +444,6 @@ function isStructureResult(payload: unknown): payload is ToolResultMap['get_stru
   return isRecord(payload) && Array.isArray(payload.roots)
 }
 
-export function coercePayloadToToolResponse(payload: unknown): CallToolResult {
-  if (isRecord(payload) && Array.isArray(payload.content)) {
-    return payload as CallToolResult
-  }
-
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)
-      }
-    ]
-  }
-}
-
 export function createUploadAssetToolResponse(payload: UploadAssetResult): CallToolResult {
   return toCallToolResult(buildUploadAssetToolResult(payload))
 }
@@ -490,7 +488,7 @@ function getBudgetRetryGuidance(toolName: ToolName): string {
     case 'set_design_anchor':
       return 'Retry the same task lifecycle request without changing its identity.'
     case 'apply_canvas':
-      return 'Submit a smaller desired subtree and retry.'
+      return 'The write may have completed. Read the original target before continuing; do not replay the write.'
     case 'get_code':
       return 'Reduce selection size or request a smaller nodeId subtree and retry.'
     case 'get_design_system':

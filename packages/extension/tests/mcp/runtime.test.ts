@@ -66,6 +66,7 @@ afterEach(() => {
   mocks.selection.value = []
   vi.clearAllMocks()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 describe('mcp/runtime', () => {
@@ -107,6 +108,21 @@ describe('mcp/runtime', () => {
     expect(tools).toEqual(runtime.WINDOW_TEMPAD_TOOL_HANDLERS)
   })
 
+  it.each([undefined, { existing: true }])(
+    'does not expose or alter window debug tools in production',
+    async (existing) => {
+      vi.stubEnv('DEV', false)
+      const page = existing ? { tempadTools: existing } : {}
+      vi.stubGlobal('window', page)
+      setFigmaGetNodeById(null)
+
+      await importRuntime()
+
+      expect(page).toEqual(existing ? { tempadTools: existing } : {})
+      expect((page as { tempadTools?: unknown }).tempadTools).toBe(existing)
+    }
+  )
+
   it('routes get_code to tool implementation with resolved node and options', async () => {
     const node = createSceneNode('node-1')
     setFigmaGetNodeById(node)
@@ -137,6 +153,22 @@ describe('mcp/runtime', () => {
 
     expect(mocks.runGetCode).toHaveBeenCalledWith([node], 'jsx', undefined, undefined, undefined)
     expect(result).toEqual({ blocks: [] })
+  })
+
+  it('distinguishes rejected canvas arguments from a handler failure', async () => {
+    const runtime = await importRuntime()
+    await expect(runtime.runMcpTool('apply_canvas', { mode: 'invalid' })).rejects.toMatchObject({
+      code: 'CANVAS_APPLY_ABORTED'
+    })
+    expect(mocks.runApplyCanvas).not.toHaveBeenCalled()
+
+    const error = Object.assign(new Error('A native operation failed'), {
+      code: 'INVALID_CANVAS_SPEC'
+    })
+    mocks.runApplyCanvas.mockRejectedValueOnce(error)
+    await expect(
+      runtime.runMcpTool('apply_canvas', { mode: 'create', markup: '<div/>' })
+    ).rejects.toBe(error)
   })
 
   it.each(['missing', 'toString'])(

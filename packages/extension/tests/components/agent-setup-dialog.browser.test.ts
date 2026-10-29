@@ -186,7 +186,7 @@ describe('AgentSetupDialog', () => {
     await page.getByRole('tab', { name: 'Gemini' }).click()
 
     expect(getCode(host)).toEqual([
-      'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest',
+      'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest --runtime-updates=stable',
       'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/figma-design-to-code',
       'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/design-in-figma'
     ])
@@ -203,7 +203,7 @@ describe('AgentSetupDialog', () => {
       mcp: {
         'tempad-dev': {
           type: 'local',
-          command: ['npx', '-y', '@tempad-dev/mcp@latest']
+          command: ['npx', '-y', '@tempad-dev/mcp@latest', '--runtime-updates=stable']
         }
       }
     })

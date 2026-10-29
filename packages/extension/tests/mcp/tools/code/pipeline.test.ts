@@ -57,6 +57,38 @@ function node(
 afterEach(() => vi.unstubAllGlobals())
 
 describe('get_code bounded tree recovery', () => {
+  it('retains a nested component hint instead of absorbing the instance into ancestor SVG', async () => {
+    vi.stubGlobal('__DEV__', false)
+    vi.stubGlobal('figma', {
+      mixed: Symbol('mixed'),
+      variables: { getVariableById: () => null, getVariableCollectionById: () => null },
+      getStyleById: () => null
+    })
+    const glyph = node('glyph', 'VECTOR', 0, 0)
+    const instance = node('status-icon', 'INSTANCE', 0, 0, [glyph])
+    Object.assign(instance, { componentProperties: {} })
+    const shell = node('shell', 'FRAME', 0, 0, [instance])
+    const root = node('root', 'GROUP', 0, 0, [shell])
+    for (const current of [root, shell, instance, glyph]) {
+      Object.assign(current, {
+        exportAsync: vi.fn(async () => {
+          throw new Error('Native export unavailable')
+        })
+      })
+      if ('children' in current) {
+        for (const child of current.children) Object.assign(child, { parent: current })
+      }
+    }
+
+    const result = await handleGetCode([root])
+
+    expect(result.code).toContain('data-hint-design-component="StatusIcon"')
+    expect(result.code).toContain('<svg')
+    expect(glyph.exportAsync).toHaveBeenCalledOnce()
+    expect(root.exportAsync).not.toHaveBeenCalled()
+    expect(shell.exportAsync).not.toHaveBeenCalled()
+  })
+
   it.each(['layered', 'wide'] as const)(
     'returns bounded root context for a %s tree',
     async (shape) => {
@@ -251,6 +283,88 @@ describe('get_code with native opacity bindings', () => {
 })
 
 describe('real collect to render pipeline', () => {
+  it('serializes hug dimensions as intrinsic Tailwind sizes through the public code handler', async () => {
+    vi.stubGlobal('__DEV__', false)
+    vi.stubGlobal('figma', {
+      mixed: Symbol('mixed'),
+      variables: { getVariableById: () => null, getVariableCollectionById: () => null },
+      getStyleById: () => null
+    })
+    const child = node('child', 'FRAME', 0, 0)
+    const root = node('root', 'FRAME', 0, 0, [child], {
+      display: 'flex',
+      width: '120px',
+      height: '60px',
+      padding: '10px'
+    })
+    Object.assign(root, {
+      width: 120,
+      height: 60,
+      absoluteBoundingBox: { x: 0, y: 0, width: 120, height: 60 },
+      absoluteRenderBounds: { x: 0, y: 0, width: 120, height: 60 },
+      layoutMode: 'HORIZONTAL',
+      layoutSizingHorizontal: 'HUG',
+      layoutSizingVertical: 'HUG'
+    })
+    Object.assign(child, { parent: root })
+
+    const result = await handleGetCode([root])
+
+    expect(result.code).toContain('w-max')
+    expect(result.code).toContain('h-max')
+    expect(result.code).not.toContain('w-[120px]')
+    expect(result.code).not.toContain('h-[60px]')
+  })
+
+  it('preserves cross-gap tokens and absolute offsets while exporting overlapping flow items', async () => {
+    vi.stubGlobal('figma', {
+      mixed: Symbol('mixed'),
+      variables: { getVariableById: () => null },
+      getStyleById: () => null
+    })
+    const children = ['a', 'b', 'absolute'].map((id) => node(id, 'FRAME', 5, 7))
+    const root = node('root', 'FRAME', 0, 0, children, {
+      display: 'flex',
+      'row-gap': 'var(--cross-gap)',
+      'column-gap': '-10px'
+    })
+    Object.assign(root, { layoutMode: 'HORIZONTAL' })
+    for (const child of children) {
+      Object.assign(child, {
+        parent: root,
+        layoutPositioning: child.id === 'absolute' ? 'ABSOLUTE' : 'AUTO'
+      })
+    }
+    const config = { cssUnit: 'px', scale: 1, rootFontSize: 16 } as const
+    const tree = buildVisibleTree([root])
+    const cache = createGetCodeCacheContext()
+    const collected = await collectNodeData(tree, config, new Map(), cache)
+    sanitizeStyles(tree, collected.styles, new Set(), cache)
+
+    expect(collected.styles.get('root')).toMatchObject({
+      'row-gap': 'var(--cross-gap)',
+      'column-gap': '0px',
+      'padding-left': '10px'
+    })
+    expect(collected.styles.get('absolute')).toMatchObject({
+      position: 'absolute',
+      left: '5px',
+      top: '7px'
+    })
+    expect(collected.styles.get('absolute')).not.toHaveProperty('margin-left')
+    for (const id of ['a', 'b']) expect(collected.styles.get(id)?.['margin-left']).toBe('-10px')
+    const rendered = await renderTree(root.id, tree, {
+      ...collected,
+      nodes: new Map([...tree.nodes].map(([id, snapshot]) => [id, snapshot.node])),
+      layout: new Map(),
+      svgs: new Map(),
+      config,
+      preferredLang: 'jsx'
+    })
+    if (!rendered || typeof rendered === 'string') throw new Error('Expected component tree')
+    expect(stringifyComponent(rendered, { lang: 'jsx' })).toContain('--cross-gap')
+  })
+
   it.each([false, true])(
     'preserves interleaved native stacking with reverse=%s',
     async (reverse) => {
@@ -403,9 +517,9 @@ describe('real collect to render pipeline', () => {
       const rendered = await renderTree('root', tree, ctx)
       if (!rendered || typeof rendered === 'string') throw new Error('Expected component tree')
       const processed = await processTokens({
-        code: stringifyComponent(rendered, { lang: 'jsx' }),
+        component: rendered,
+        serialize: (component) => stringifyComponent(component, 'jsx'),
         variableIds: new Set(['o']),
-        usedCandidateIds: new Set(),
         variableCache: cache,
         styles: collected.styles,
         textSegments: collected.textSegments,
@@ -562,9 +676,9 @@ describe('real collect to render pipeline', () => {
       if (!rendered || typeof rendered === 'string') throw new Error('Expected component tree')
       const code = stringifyComponent(rendered, { lang: 'jsx' })
       const processed = await processTokens({
-        code,
+        component: rendered,
+        serialize: (component) => stringifyComponent(component, 'jsx'),
         variableIds: new Set(['bound']),
-        usedCandidateIds: new Set(),
         variableCache: cache,
         styles: collected.styles,
         textSegments: collected.textSegments,
@@ -649,11 +763,11 @@ describe('real collect to render pipeline', () => {
       const code = stringifyComponent(rendered, { lang: 'jsx' })
       if (resolveTokens) {
         expect(code).toContain('opacity-[0.5]')
-        expect(code).toContain(`gap-[${value}]`)
+        expect(code).toContain(`[gap:${value}]`)
         expect(code).not.toContain('var(--shared)')
       } else {
         expect(code).toContain(`opacity-[calc(var(--shared)_/_${denominator})]`)
-        expect(code).toContain('gap-')
+        expect(code).toContain('[gap:var(--shared)]')
         expect(code).toContain('var(--shared)')
       }
       expect(Number.parseFloat(value) / Number.parseFloat(denominator)).toBe(0.5)

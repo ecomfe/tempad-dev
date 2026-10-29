@@ -9,6 +9,7 @@ export function preflightGetCodeBudget(
     maxResultBytes: number
     pluginEnabled: boolean
     unbounded: boolean
+    checkpoint?: () => void
   }
 ): { kind: 'full' } | { kind: 'shell'; scannedDescendants: number } {
   const root = tree.nodes.get(rootId)
@@ -25,6 +26,7 @@ export function preflightGetCodeBudget(
   let textBytes = 0
   let scannedDescendants = 0
   for (const id of tree.order) {
+    options.checkpoint?.()
     if (id === rootId) continue
     scannedDescendants += 1
     const node = tree.nodes.get(id)?.node

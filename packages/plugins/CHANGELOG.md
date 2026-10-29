@@ -1,10 +1,13 @@
 # Changelog
 
-## 0.6.3
+## 1.0.0
 
-- Fixed `h()` treating props with a `name` field as a child component. Missing or null props
-  now become an empty object.
-- Clarified predicate examples for `queryAll` and `queryOne`.
+- Fixed `findAll()` failing on large subtrees and avoided repeatedly copying accumulated results.
+- Fixed `h()` misreading props with a `name` field or discarding explicit children when props
+  resemble a component. Missing or null props now become an empty object.
+- Made queries with global or sticky regular expressions consistent across nodes and repeated calls,
+  without changing the caller's regular-expression state.
+- Corrected predicate examples for `queryAll` and `queryOne`.
 
 ## 0.6.2
 

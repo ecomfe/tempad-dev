@@ -20,11 +20,21 @@ const EXTENSION_RUNTIME_ENTRIES = [
   'packages/extension/utils',
   'packages/extension/worker',
   'packages/extension/package.json',
+  'packages/extension/tsconfig.json',
   'packages/extension/types.d.ts',
   'packages/extension/wxt.config.ts',
+  // Workspace dependencies resolve to authored sources rather than generated dist files.
+  'packages/plugins/package.json',
+  'packages/plugins/src',
+  'packages/plugins/tsconfig.json',
   'packages/shared/package.json',
   'packages/shared/src',
-  'scripts/extension-runtime-fingerprint.mjs'
+  'packages/shared/tsconfig.json',
+  'tsconfig.base.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+  'scripts/extension-runtime-fingerprint.mjs',
+  'agent-plugin/src/clients/shared/runtime-profile.mjs'
 ]
 
 export function listExtensionRuntimeSources(repositoryRoot) {

@@ -44,6 +44,8 @@ export async function queryAvailableFonts(
     const row = rows[index]!
     if (typeof row === 'string') result.families!.push(row)
     else result.fonts!.push(row)
+    if (index + 1 < rows.length) result.nextCursor = index + 1
+    else delete result.nextCursor
     if (utf8Bytes(result) > TARGET_BYTES) {
       if (typeof row === 'string') result.families!.pop()
       else result.fonts!.pop()

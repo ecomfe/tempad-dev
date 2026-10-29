@@ -32,10 +32,30 @@ native references needed for the intended change.
 ## Recover locally
 
 Read the entire mutation result. For a rejected payload, correct all reported
-issues together without changing the design to fit the error. A verification
-failure is rolled back by TemPad; do not assume a partial successful edit.
-For an unknown transport outcome, read the exact target before retrying a create
-or removal so an uncertain response does not become a duplicate mutation.
+issues together without changing the design to fit the error. An execution failure
+requires inspecting its reported outcome before retrying. TemPad attempts rollback
+after a failed write. Only an explicit no-write outcome (`CANVAS_APPLY_ABORTED` or
+`EXTENSION_DELIVERY_FAILED`) skips file readback. Other diagnostics can originate
+inside a mutation, especially with older extensions. Follow the returned readback
+requirement: rollback checks cover only part of native state.
+Automatic Undo can be skipped when this attempt has no confirmed remaining change.
+Do not suggest manual Undo in that case: it could remove an earlier successful edit.
+
+A timeout, lost result, or unverified rollback leaves the canvas outcome uncertain.
+Do not replay the write. Wait for a pending operation to settle; reload a stuck
+runtime only when the tool calls for it. Then read the affected surviving node with
+`get_structure` or `get_code`, carrying the current task and epoch. If the node was
+removed, use `get_structure` with its exact page ID. An empty page snapshot counts;
+empty selection, failed-node-only results, screenshots, and resource catalogs do not
+satisfy readback. Inspect the returned state before deciding on a repair or retry.
+If the failed request also changed local variables or styles, inspect those affected
+resources with `get_design_system`; a canvas read alone does not verify their state.
+If it cannot establish a safe next change, ask the user to inspect the canvas.
+
+Readback is also required after task resume or reconnection. A file's unknown-write
+requirement survives Hub restarts, Stop, and a fresh task; none of those replaces the
+read. A notice that readback is still required means the last read did not establish
+usable canvas state. Stop cancellation remains in force independently of readback.
 
 Repair warnings where they occur. Replace a whole root only when an observed
 structural defect requires it and the complete intended content can be

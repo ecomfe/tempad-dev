@@ -8,6 +8,25 @@ import {
 } from '../../src/mcp/protocol'
 
 describe('mcp/protocol', () => {
+  it('validates the optional terminal receipt negotiation and dedicated completion envelopes', () => {
+    const receipt = { generation: 'hub', receiptId: 'receipt' }
+    const completion = { type: 'toolCompletion', id: 'request', ...receipt }
+    expect(parseMessageFromExtension(JSON.stringify(completion))).toEqual(completion)
+    expect(parseMessageFromExtension(JSON.stringify({ ...completion, payload: {} }))).toBeNull()
+    expect(parseMessageFromExtension(JSON.stringify({ ...completion, receiptId: '' }))).toBeNull()
+    const ack = { ...completion, type: 'toolCompletionAck', accepted: true }
+    expect(parseMessageToExtension(JSON.stringify(ack))).toEqual(ack)
+    const hello = {
+      type: 'runtimeHello',
+      extensionVersion: '0.23.0',
+      extensionRuntimeFingerprint: 'a'.repeat(64),
+      terminalReceipts: true
+    }
+    expect(parseMessageFromExtension(JSON.stringify(hello))).toEqual(hello)
+    expect(
+      parseMessageFromExtension(JSON.stringify({ ...hello, terminalReceipts: false }))
+    ).toBeNull()
+  })
   it('accepts an explicit extension protocol and preserves omission from released peers', () => {
     const hello = {
       type: 'runtimeHello',

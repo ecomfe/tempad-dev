@@ -453,7 +453,7 @@ function assertStaticMarkupLegality(
 function textContent(value: string, preserve: boolean, lineBreakOffsets: number[]): string {
   const normalize = preserve
     ? (segment: string) => segment
-    : (segment: string) => segment.replace(/[\t\n\f\r ]+/g, ' ').trim()
+    : (segment: string) => segment.replace(/[\t\n\f\r ]+/g, ' ').replace(/^ | $/g, '')
   if (!lineBreakOffsets.length) return normalize(value)
 
   let start = 0
@@ -1078,6 +1078,8 @@ function fillStrokeAppearance(
   }
 }
 
+const errorsWithSourceClasses = new WeakSet<Error>()
+
 function compileElement(
   element: CanvasMarkupElement,
   state: CompileState,
@@ -1089,8 +1091,10 @@ function compileElement(
   try {
     return compileElementUnchecked(element, state, depth, parent, gridPlacement, insideComponent)
   } catch (error) {
-    if (error instanceof Error)
+    if (error instanceof Error && !errorsWithSourceClasses.has(error)) {
       error.message = sourceClassMessage(element.sourceClasses, error.message)
+      errorsWithSourceClasses.add(error)
+    }
     throw error
   }
 }
@@ -1870,7 +1874,9 @@ function compileElementUnchecked(
       insideComponent || type === 'COMPONENT' || type === 'COMPONENT_SET' || type === 'SLOT'
     if (placement && liveGrid) {
       const childKeys = new Set(element.children.map((child) => child.attributes['data-key']))
-      const childIds = new Set(element.children.map((child) => child.attributes['data-node-id']))
+      const childIds = new Set(
+        element.children.map((child) => child.attributes['data-node-id']?.trim())
+      )
       for (const child of liveGrid.children) {
         if (
           (child.key && (childKeys.has(child.key) || state.removedKeys.has(child.key))) ||
@@ -1953,6 +1959,18 @@ export function parseCanvasMarkup(
       : { variableCollections: input.variableCollections }),
     ...(input.styles === undefined ? {} : { styles: input.styles }),
     ...(input.assets === undefined ? {} : { assets: input.assets }),
+    ...(parsedElement.hasUnknownEntities
+      ? {
+          warnings: [
+            {
+              code: 'unknown-html-entity',
+              message:
+                'Unknown named HTML entities were kept as literal text. Use Unicode characters or numeric character references for the intended glyphs.',
+              key: root.key
+            }
+          ]
+        }
+      : {}),
     root
   }
 }

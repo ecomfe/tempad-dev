@@ -13,7 +13,7 @@ import {
   parseBoxValues
 } from '@/utils/css'
 import { isRenderablePaint } from '@/utils/figma-paint'
-import { cssToClassNames, nestedCssToClassNames } from '@/utils/tailwind'
+import { nestedCssToClassNames } from '@/utils/tailwind'
 
 import type { GetCodeCacheContext } from '../cache'
 import type { StyleMap, StyleStep } from './types'
@@ -148,11 +148,7 @@ export function buildLayoutStyles(
 export function styleToClassNames(style: StyleMap, config: CodegenConfig): string[] {
   const normalizedStyle = canonicalizeUniformVisibleBorderColor(normalizeStyleValues(style, config))
   const resolved = resolveGradientBorderClasses(normalizedStyle)
-  if (!resolved) {
-    return cssToClassNames(normalizedStyle)
-  }
-
-  return nestedCssToClassNames(resolved.style)
+  return nestedCssToClassNames(resolved?.style ?? normalizedStyle)
 }
 
 function canonicalizeUniformVisibleBorderColor(style: StyleMap): StyleMap {
@@ -249,8 +245,8 @@ function getBorderWidth(style: StyleMap): string | null {
 
   const borderWidth = style['border-width']
   if (borderWidth) {
-    const [t, r, b, l] = parseBoxValues(normalizeStyleValue(borderWidth))
-    if (t === r && r === b && b === l) return t
+    const widths = parseBoxValues(normalizeStyleValue(borderWidth))
+    if (widths && widths.every((width) => width === widths[0])) return widths[0]
   }
 
   if (style.border) {

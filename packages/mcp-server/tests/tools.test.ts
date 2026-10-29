@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   TOOL_DEFS,
-  coercePayloadToToolResponse,
   createApplyCanvasToolResponse,
   createCodeToolResponse,
   createDesignSystemToolResponse,
@@ -164,12 +163,34 @@ describe('tools response helpers', () => {
     expect(getStructure?.description).toContain('exact page id/key')
     expect(getStructure?.description).toContain('page-query roots are page-relative')
     expect(designSystem?.parameters.parse({})).toEqual({})
-    expect(
-      applyCanvas?.parameters.parse({
-        mode: 'create',
-        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>'
-      })
-    ).not.toHaveProperty('catalogId')
+    const input = {
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+      native: {
+        root: {
+          figma: {
+            effects: [
+              {
+                type: 'NOISE',
+                noiseType: 'MONOTONE',
+                color: { r: 0, g: 0, b: 0, a: 1 },
+                noiseSize: 2,
+                noiseSizeVector: { x: 2, y: 3 },
+                density: 0.5
+              },
+              {
+                type: 'TEXTURE',
+                noiseSize: 1,
+                noiseSizeVector: { x: 1, y: 2 },
+                radius: 4,
+                clipToShape: true
+              }
+            ]
+          }
+        }
+      }
+    }
+    expect(applyCanvas?.parameters.parse(input)).toEqual(input)
   })
 
   it('declares read and write behavior for every tool', () => {
@@ -436,35 +457,20 @@ describe('tools response helpers', () => {
     expect(result.content).toHaveLength(2)
   })
 
-  it('formats inline budget errors with retry guidance', () => {
+  it('formats inline budget errors with recovery guidance', () => {
     const result = createInlineBudgetExceededToolResponse('get_token_defs', 70000)
     expect(result.isError).toBe(true)
     expect(textContent(result.content[0])).toContain('64 KiB inline budget')
     expect(textContent(result.content[0])).toContain('split them into smaller batches')
 
-    expect(
-      textContent(createInlineBudgetExceededToolResponse('apply_canvas', 70000).content[0])
-    ).toContain('smaller desired subtree')
+    const writeError = textContent(
+      createInlineBudgetExceededToolResponse('apply_canvas', 70000).content[0]
+    )
+    expect(writeError).toContain('Read the original target')
+    expect(writeError).toContain('do not replay the write')
     expect(
       textContent(createInlineBudgetExceededToolResponse('get_design_system', 70000).content[0])
     ).toContain('catalog cursor')
-  })
-
-  it('coerces payloads to MCP CallToolResult', () => {
-    const passthrough = { content: [{ type: 'text' as const, text: 'ok' }] }
-    expect(coercePayloadToToolResponse(passthrough)).toBe(passthrough)
-
-    expect(coercePayloadToToolResponse('plain')).toEqual({
-      content: [{ type: 'text', text: 'plain' }]
-    })
-
-    expect(coercePayloadToToolResponse({ a: 1 })).toEqual({
-      content: [{ type: 'text', text: '{\n  "a": 1\n}' }]
-    })
-
-    expect(coercePayloadToToolResponse(undefined)).toEqual({
-      content: [{ type: 'text', text: undefined }]
-    })
   })
 
   it('formats tool errors with troubleshooting hints', () => {
@@ -523,11 +529,26 @@ describe('tools response helpers', () => {
       message: 'Verification failed for "root": direct effect 0 does not match.'
     })
     expect(textContent(verificationError.content[0])).toContain(
-      'TemPad rolls verification failures back'
+      'TemPad attempts to roll verification failures back'
     )
+    expect(textContent(verificationError.content[0])).toContain('preserves unrelated design intent')
     expect(textContent(verificationError.content[0])).toContain(
-      'preserving unrelated design intent'
+      'Do not repeat the failed write unchanged'
     )
+    expect(textContent(verificationError.content[0])).not.toContain('before retrying')
+    for (const code of [
+      TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED
+    ]) {
+      expect(
+        textContent(
+          createToolErrorResponse('apply_canvas', {
+            code,
+            message: 'Verification failed: geometry does not match.'
+          }).content[0]
+        )
+      ).toContain('Check the reported rollback outcome')
+    }
 
     const unknownError = createToolErrorResponse('get_assets', 42)
     expect(unknownError.isError).toBe(true)
@@ -568,6 +589,32 @@ describe('tools response helpers', () => {
     const stringError = createToolErrorResponse('get_assets', 'asset server url is not configured')
     expect(textContent(stringError.content[0])).toContain('asset server url is not configured')
     expect(textContent(stringError.content[0])).toContain('Troubleshooting:')
+  })
+
+  it('exposes only valid recovery generation metadata on task recovery errors', () => {
+    const recoveryGeneration = '00000000-0000-4000-8000-000000000001'
+    const error = {
+      code: TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_INACTIVE,
+      message: 'Task storage was recovered.',
+      recoveryGeneration
+    }
+    expect(createToolErrorResponse('manage_design_task', error)).toMatchObject({
+      isError: true,
+      _meta: error
+    })
+    expect(createToolErrorResponse('manage_design_task', error).structuredContent).toBeUndefined()
+    for (const value of [undefined, 'not-a-uuid', 42]) {
+      expect(
+        createToolErrorResponse('manage_design_task', { ...error, recoveryGeneration: value })._meta
+      ).toBeUndefined()
+    }
+    expect(createToolErrorResponse('get_code', error)._meta).toBeUndefined()
+    expect(
+      createToolErrorResponse('manage_design_task', {
+        ...error,
+        code: TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_BUSY
+      })._meta
+    ).toBeUndefined()
   })
 
   it('throws when payload shape is invalid', () => {

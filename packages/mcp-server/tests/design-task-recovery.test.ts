@@ -57,6 +57,67 @@ function fixture() {
 }
 
 describe('durable design reviews', () => {
+  it('retains taskless read requirements across restart until a successful read', () => {
+    const f = fixture()
+    f.tasks.requireFileRead(session.fileKey)
+    const restored = f.restart()
+    expect(() => restored.checkOperation('new-owner', session, undefined, true)).toThrow(
+      'previous write did not confirm'
+    )
+    restored.acknowledgeFileRead(session.fileKey)
+    expect(() => f.restart().checkOperation('new-owner', session, undefined, true)).not.toThrow()
+  })
+
+  it('retains a read requirement in memory and storage when clearing it cannot be saved', () => {
+    const f = fixture()
+    f.tasks.requireFileRead(session.fileKey)
+    const save = f.store.save
+    f.store.save = () => {
+      throw new Error('Disk full')
+    }
+    f.tasks.acknowledgeFileRead(session.fileKey)
+    f.store.save = save
+    expect(() => f.tasks.checkOperation('owner', session, undefined, true)).toThrow(
+      'previous write did not confirm'
+    )
+    expect(() => f.restart().checkOperation('owner', session, undefined, true)).toThrow(
+      'previous write did not confirm'
+    )
+  })
+
+  it('does not let an old completion clear a newer read requirement', () => {
+    const f = fixture()
+    const generation = f.tasks.requireFileRead(session.fileKey)
+    f.tasks.requireFileRead(session.fileKey)
+    f.tasks.acknowledgeFileRead(session.fileKey, generation)
+    expect(() => f.restart().checkOperation('owner', session, undefined, true)).toThrow(
+      'previous write did not confirm'
+    )
+    f.tasks.acknowledgeFileRead(session.fileKey)
+    expect(() => f.restart().checkOperation('owner', session, undefined, true)).not.toThrow()
+  })
+
+  it.each([false, true])(
+    'restores the previous marker after a rejected save: existing=%s',
+    (existing) => {
+      const f = fixture()
+      const generation = existing ? f.tasks.requireFileRead(session.fileKey) : undefined
+      vi.spyOn(f.store, 'save').mockImplementationOnce(() => {
+        throw new Error('Disk full')
+      })
+      expect(() => f.tasks.requireFileRead(session.fileKey, true)).toThrow(
+        'No canvas write was dispatched'
+      )
+      // The next sweep retries storage. A rejected dispatch must not create a
+      // phantom read requirement or replace the generation of an existing one.
+      f.tasks.sweep()
+      expect(f.store.load()?.filesNeedingRead ?? []).toEqual(existing ? [session.fileKey] : [])
+      if (existing) f.tasks.acknowledgeFileRead(session.fileKey, generation)
+      expect(() => f.tasks.checkOperation('owner', session, undefined, true)).not.toThrow()
+      expect(() => f.restart().checkOperation('owner', session, undefined, true)).not.toThrow()
+    }
+  )
+
   it('writes result roots only when their ordered last-20 snapshot changes', () => {
     const f = fixture()
     const record = f.begin()
@@ -267,16 +328,78 @@ describe('durable design reviews', () => {
         'another MCP caller'
       )
       restored.attachClient('fresh-transport', client)
-      if (status !== 'cancelled') {
-        expect(() => restored.assertEpoch(saved.task.taskId, 'fresh-transport', 0)).toThrow(
-          'Stale task lease'
-        )
-        expect(() =>
-          restored.checkOperation('fresh-transport', session, saved.task.taskId, true)
-        ).toThrow()
-      }
+      expect(() => restored.assertEpoch(saved.task.taskId, 'fresh-transport', 0)).toThrow(
+        'Stale task lease'
+      )
+      expect(() =>
+        restored.checkOperation('fresh-transport', session, saved.task.taskId, true)
+      ).toThrow()
     }
   )
+
+  it.each(['codex-app', 'claude'] as const)(
+    'lets the verified %s conversation read cancelled history after restart without reviving it',
+    (kind) => {
+      const f = fixture()
+      const record = f.begin()
+      const original = { ...client, kind }
+      record.task.client = original
+      f.tasks.stop(record.task.taskId, 'cancelled')
+
+      const restored = f.restart()
+      restored.attachClient('fresh-transport', original)
+      const saved = restored.owned(record.task.taskId, 'fresh-transport')
+      expect(saved.task).toMatchObject({ status: 'cancelled', epoch: 1, operation: null })
+      expect(restored.retry('fresh-transport', record.requestId)).toBe(saved)
+      expect(() => restored.resume(saved.task.taskId, 'fresh-transport', 1, session)).toThrow(
+        'cannot resume'
+      )
+      expect(() =>
+        restored.checkOperation('fresh-transport', session, saved.task.taskId, true)
+      ).toThrow('cancelled')
+      expect(() => restored.checkOperation('fresh-transport', session, undefined, true)).toThrow(
+        'stopped task'
+      )
+      expect(f.restart().find(saved.task.taskId)?.task.status).toBe('cancelled')
+    }
+  )
+
+  it('keeps cancelled history isolated by conversation, Codex storage, and verified Hub binding', () => {
+    const f = fixture()
+    const record = f.begin()
+    const context = {
+      version: 1 as const,
+      home: '/home',
+      tempDir: '/tmp',
+      codexHome: '/home/.codex',
+      codexSqliteHome: '/home/.codex'
+    }
+    record.hostContext = context
+    f.tasks.stop(record.task.taskId, 'cancelled')
+    const restored = f.restart()
+    restored.attachClient(
+      'wrong-conversation',
+      { ...client, sessionId: 'other' },
+      undefined,
+      context
+    )
+    for (const foreignContext of [undefined, { ...context, codexSqliteHome: '/other' }]) {
+      expect(restored.attachClient('wrong-store', client, undefined, foreignContext)).toEqual([
+        record.task.taskId
+      ])
+      expect(() => restored.owned(record.task.taskId, 'wrong-store')).toThrow('another MCP caller')
+    }
+    expect(() => restored.owned(record.task.taskId, 'wrong-conversation')).toThrow(
+      'another MCP caller'
+    )
+    restored.attachClient('original-store', client, undefined, { ...context, tempDir: '/new-tmp' })
+    expect(restored.owned(record.task.taskId, 'original-store').task.status).toBe('cancelled')
+
+    const migrated = new DesignTasks({ createId: () => 'unused', now: () => 1000 })
+    migrated.restoreReview(record.task, extension(), session)
+    migrated.attachClient('unverified', client, undefined, context)
+    expect(() => migrated.owned(record.task.taskId, 'unverified')).toThrow('another MCP caller')
+  })
 
   it('keeps ordinary exact-tab refresh recovery and its read fence', () => {
     const f = fixture()
@@ -328,7 +451,7 @@ describe('durable design reviews', () => {
     tasks.confirm(record.task.taskId, 'fresh-transport')
     expect(() =>
       tasks.checkOperation('fresh-transport', refreshed, record.task.taskId, true)
-    ).toThrow('Read the bound canvas')
+    ).toThrow('The resumed task has not confirmed')
     tasks.checkOperation('fresh-transport', refreshed, record.task.taskId, false)
     tasks.acknowledgeRead(record.task.taskId, 'fresh-transport', epoch + 1)
     expect(() =>
@@ -402,6 +525,25 @@ describe('durable design reviews', () => {
       session
     )
     expect(f2.restart().find(stopped.task.taskId)?.task.status).toBe('cancelled')
+  })
+
+  it('persists an offline Stop even if completion reached the Hub first', () => {
+    const f = fixture()
+    const record = f.begin()
+    const offlineStop = { ...structuredClone(record.task), status: 'cancelled' as const }
+    f.tasks.stop(record.task.taskId, 'completed')
+    f.tasks.disconnectExtension('original-extension')
+    f.tasks.restoreReview(offlineStop, extension(), session)
+
+    const restarted = f.restart()
+    const restored = restarted.find(record.task.taskId)!
+    expect(restored.task.status).toBe('cancelled')
+    expect(() =>
+      restarted.resume(restored.task.taskId, restored.ownerId, restored.task.epoch!, session)
+    ).toThrow('cannot resume')
+    expect(() => restarted.checkOperation('new-owner', session, undefined, true)).toThrow(
+      'stopped task'
+    )
   })
 
   it('persists a legacy offline Done before the first Hub restart', () => {

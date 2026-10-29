@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { lstat } from 'node:fs/promises'
 import { connect, type Socket } from 'node:net'
-import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+
+import type { HostContext } from './host-context'
 
 type Message = Record<string, unknown>
 const WINDOWS_PIPE = String.raw`\\.\pipe\codex-ipc`
@@ -23,13 +24,13 @@ export class CodexDiscoveryError extends CodexIpcError {
   }
 }
 
-export function codexSocketPaths(env: NodeJS.ProcessEnv = process.env): string[] {
+export function codexSocketPaths(context: HostContext): string[] {
   if (process.platform === 'win32') return [WINDOWS_PIPE]
   if (!process.getuid) return []
   const uid = process.getuid()
   return [
-    join(env.CODEX_HOME || join(homedir(), '.codex'), 'ipc', 'ipc.sock'),
-    join(tmpdir(), 'codex-ipc', uid ? `ipc-${uid}.sock` : 'ipc.sock')
+    join(context.codexHome, 'ipc', 'ipc.sock'),
+    join(context.tempDir, 'codex-ipc', uid ? `ipc-${uid}.sock` : 'ipc.sock')
   ]
 }
 
@@ -127,7 +128,7 @@ export class CodexIpc {
     })
   }
 
-  static async open(paths = codexSocketPaths()): Promise<CodexIpc> {
+  static async open(paths: string[]): Promise<CodexIpc> {
     for (const path of paths) {
       if (!(await trustedSocket(path))) continue
       let client: CodexIpc | undefined
@@ -194,7 +195,9 @@ export class CodexIpc {
           typeof message.error === 'string'
             ? message.error
             : 'Codex IPC returned an incompatible response.',
-          message.resultType === 'success'
+          message.resultType !== 'error' ||
+            typeof message.error !== 'string' ||
+            message.error === 'request-timeout'
         )
       )
   }

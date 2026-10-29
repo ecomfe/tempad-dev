@@ -1,22 +1,25 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { CallToolResultSchema, ResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import {
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
   type DesignTask,
   type ToolCallMessage
 } from '@tempad-dev/shared'
+import { randomUUID } from 'node:crypto'
 import { EventEmitter, once } from 'node:events'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer as createHttpServer } from 'node:http'
 import { connect, createServer, type Server, type Socket } from 'node:net'
 import lockfile from 'proper-lockfile'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { WebSocketServer } from 'ws'
+import { WebSocket, WebSocketServer } from 'ws'
 
 const fixture = await vi.hoisted(async () => {
-  const { mkdtempSync } = await import('node:fs')
+  const { mkdtempSync, realpathSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { basename, join } = await import('node:path')
-  const directory = mkdtempSync(join(tmpdir(), 'tempad-hub-test-'))
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'tempad-hub-test-')))
   return {
     directory,
     socketPath:
@@ -37,6 +40,7 @@ vi.mock('../src/shared', async () => {
   return {
     ASSET_DIR: `${fixture.directory}/assets`,
     RUNTIME_DIR: fixture.directory,
+    RUNTIME_PROFILE: { kind: 'release' },
     SOCK_PATH: fixture.socketPath,
     HUB_LOCK_PATH: `${fixture.directory}/hub.lock`,
     HUB_LOCK_STALE_MS: 10000,
@@ -69,11 +73,23 @@ vi.mock('../src/asset-store', async (load) => {
 })
 
 import { CodexAppFeedback } from '../src/agent-clients/codex-feedback'
+import { CodexAppLifecycle } from '../src/agent-clients/codex-lifecycle'
+import { captureHostContext, type HostContext } from '../src/agent-clients/host-context'
 import { AgentClients } from '../src/agent-clients/registry'
 import { createAssetHttpServer } from '../src/asset-http-server'
 import { createAssetStore } from '../src/asset-store'
+import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
+import { writeDurableJson } from '../src/durable-json'
 import { removeHubRuntimeIdentityIfOwned, writeHubRuntimeIdentity } from '../src/runtime-identity'
+import { LeaseSchema } from '../src/runtime-prototype/hub-control'
+import {
+  ControlPeer,
+  RuntimeDataTransport,
+  SocketTransport
+} from '../src/runtime-prototype/protocol'
+import { readEndpoints } from '../src/runtime-prototype/state'
+import { runRuntimeRecovery } from '../src/runtime-recovery'
 import { log, resolveStateDir } from '../src/shared'
 import { startExtensionWebSocketServer } from '../src/websocket-server'
 
@@ -84,8 +100,15 @@ const assetStart = vi.fn<() => Promise<void>>()
 const assetStop = vi.fn()
 let websocket: WebSocketServer
 const consumerSockets: Socket[] = []
+const structure = {
+  roots: [{ id: '1:1', name: 'Root', type: 'FRAME', x: 0, y: 0, width: 100, height: 100 }]
+}
 
-async function connectConsumer(clientEventFirst = false, clientName = 'isolated-test') {
+async function connectConsumer(
+  clientEventFirst = false,
+  clientName = 'isolated-test',
+  context?: HostContext
+) {
   const socket = connect(fixture.socketPath)
   consumerSockets.push(socket)
   await once(socket, 'connect')
@@ -115,6 +138,7 @@ async function connectConsumer(clientEventFirst = false, clientName = 'isolated-
     await vi.waitFor(() => expect(replies.has(id)).toBe(true), { interval: 1 })
     return replies.get(id)!
   }
+  if (context) send({ method: 'notifications/tempad/host-context', params: context })
   if (clientEventFirst)
     send({
       method: 'notifications/tempad/client-event',
@@ -134,15 +158,21 @@ async function connectConsumer(clientEventFirst = false, clientName = 'isolated-
   return { socket, send, reply, replies, bindingUpdates }
 }
 
-function connectExtension() {
+function connectExtension(terminalReceipts = false) {
   const calls: ToolCallMessage[] = []
   const peer = Object.assign(new EventEmitter(), {
     protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+    readyState: WebSocket.OPEN as number,
     send: vi.fn((data: string) => {
       const message = JSON.parse(data)
       if (message.type === 'toolCall') calls.push(message)
     }),
-    close: vi.fn()
+    close: vi.fn(() => {
+      peer.readyState = WebSocket.CLOSING
+    })
+  })
+  peer.once('close', () => {
+    peer.readyState = WebSocket.CLOSED
   })
   const send = (message: object) =>
     peer.emit('message', Buffer.from(JSON.stringify(message)), false)
@@ -151,7 +181,8 @@ function connectExtension() {
     type: 'runtimeHello',
     protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
     extensionVersion: '0.23.4',
-    extensionRuntimeFingerprint: 'a'.repeat(64)
+    extensionRuntimeFingerprint: 'a'.repeat(64),
+    ...(terminalReceipts ? { terminalReceipts: true } : {})
   })
   const publishSession = (sessionId = 'session', documentId = 'document') =>
     send({
@@ -183,7 +214,7 @@ function connectExtension() {
     await vi.waitFor(() => expect(calls.length).toBeGreaterThan(index), { interval: 1 })
     return calls[index]!
   }
-  return { calls, call, send, publishSession }
+  return { calls, call, send, publishSession, peer }
 }
 
 async function loadRuntime() {
@@ -196,6 +227,248 @@ async function loadRuntime() {
   previousBeforeExit = process.listeners('beforeExit')
   return runtime
 }
+
+it('keeps a hot handoff pinned when an unrelated listener occupies its HTTP port', async () => {
+  const other = createHttpServer()
+  other.listen(0, '127.0.0.1')
+  await once(other, 'listening')
+  const endpoints = {
+    wsPort: 6220,
+    httpPort: (other.address() as { port: number }).port,
+    accessToken: 'a'.repeat(32),
+    legacyAccessToken: 'b'.repeat(32)
+  }
+  const path = `${fixture.directory}/endpoints.json`
+  writeDurableJson(path, endpoints)
+  const actual = await vi.importActual<typeof import('../src/asset-http-server')>(
+    '../src/asset-http-server'
+  )
+  vi.mocked(createAssetHttpServer).mockImplementation(actual.createAssetHttpServer)
+  vi.spyOn(process, 'exit').mockImplementation(() => {
+    throw new Error('Startup stopped')
+  })
+  try {
+    const { startHub } = await loadRuntime()
+    await expect(
+      startHub({ prototype: { root: fixture.directory, secret: 'isolated', paused: true } })
+    ).rejects.toThrow('Startup stopped')
+    expect(createAssetHttpServer).toHaveBeenCalledOnce()
+    expect(readEndpoints(fixture.directory)).toEqual(endpoints)
+    expect(startExtensionWebSocketServer).not.toHaveBeenCalled()
+  } finally {
+    await stopRuntime()
+    await new Promise<void>((resolve) => other.close(() => resolve()))
+    rmSync(path, { force: true })
+  }
+})
+
+it('includes pending native actions and transfers in the runtime drain boundary', async () => {
+  const native = vi.spyOn(AgentClients.prototype, 'hasPendingActions', 'get').mockReturnValue(false)
+  const { startHub } = await loadRuntime()
+  await startHub({ prototype: { secret: 'isolated' } })
+  const socket = connect(fixture.socketPath)
+  consumerSockets.push(socket)
+  await once(socket, 'connect')
+  const peer = new ControlPeer()
+  await peer.connect(new SocketTransport(socket))
+  try {
+    await peer.request(
+      { method: 'tempad/runtime-acquire', params: { secret: 'isolated', versions: [2] } },
+      LeaseSchema
+    )
+    const inspect = () => peer.request({ method: 'tempad/runtime-inspect' }, ResultSchema)
+    expect(await inspect()).toMatchObject({
+      drained: true,
+      blockers: [],
+      shutdown: {
+        storesOwned: true,
+        shuttingDown: false,
+        consumers: 0,
+        recoveryConnections: 0,
+        retained: false,
+        pendingConnections: 0,
+        waitingForFirstConsumer: true,
+        pendingOperations: 0,
+        pendingReceipts: 0,
+        nativeActions: false,
+        designBindings: 0,
+        assetTransfers: 0
+      }
+    })
+    native.mockReturnValue(true)
+    const pending = await inspect()
+    expect(pending).toMatchObject({
+      drained: false,
+      blockers: ['native feedback or queue removal'],
+      shutdown: { nativeActions: true }
+    })
+    expect(Number(pending.deadline)).toBeGreaterThan(Date.now() + 300000)
+    await peer.request({ method: 'tempad/runtime-gate', params: { closed: true } }, ResultSchema)
+    await expect(
+      peer.request({ method: 'tempad/runtime-stop', params: { pausedSessions: [] } }, ResultSchema)
+    ).rejects.toThrow('not drained')
+    native.mockReturnValue(false)
+    const assets = vi.mocked(createAssetHttpServer).mock.results.at(-1)!.value
+    Object.assign(assets, { pendingTransfers: 1 })
+    expect(await inspect()).toMatchObject({
+      drained: false,
+      blockers: ['asset transfers'],
+      shutdown: { assetTransfers: 1 }
+    })
+    Object.assign(assets, { pendingTransfers: 0 })
+    expect(await inspect()).toMatchObject({ drained: true })
+    await peer.request(
+      { method: 'tempad/runtime-retain', params: { retained: true } },
+      ResultSchema
+    )
+    expect(await inspect()).toMatchObject({ shutdown: { retained: true } })
+    await peer.request(
+      { method: 'tempad/runtime-retain', params: { retained: false } },
+      ResultSchema
+    )
+  } finally {
+    await peer.close()
+  }
+})
+
+it('requires initialized clients for automatic switches and records activity between inspections', async () => {
+  let now = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  const { startHub } = await loadRuntime()
+  await startHub({ prototype: { secret: 'isolated' } })
+  const socket = connect(fixture.socketPath)
+  consumerSockets.push(socket)
+  await once(socket, 'connect')
+  const peer = new ControlPeer()
+  await peer.connect(new SocketTransport(socket))
+  const clients: Client[] = []
+  try {
+    const grant = await peer.request(
+      { method: 'tempad/runtime-acquire', params: { secret: 'isolated', versions: [2] } },
+      LeaseSchema
+    )
+    const inspect = () => peer.request({ method: 'tempad/runtime-inspect' }, ResultSchema)
+    const attach = async (name: string) => {
+      const sessionId = randomUUID()
+      const token = randomUUID()
+      await peer.request(
+        {
+          method: 'tempad/runtime-register',
+          params: { sessionId, token, context: captureHostContext({}), versions: [2] }
+        },
+        ResultSchema
+      )
+      expect(await inspect()).toMatchObject({ shutdown: { pendingConnections: 1 } })
+      const data = connect(fixture.socketPath)
+      consumerSockets.push(data)
+      await once(data, 'connect')
+      const attached = once(data, 'data')
+      data.write(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tempad/runtime-attach',
+          params: { sessionId, token }
+        }) + '\n'
+      )
+      await attached
+      expect(await inspect()).toMatchObject({
+        shutdown: {
+          pendingConnections: 0,
+          consumers: clients.filter((client) => client.transport).length + 1,
+          waitingForFirstConsumer: false
+        }
+      })
+      expect((await inspect()).autoBlockers).not.toEqual([])
+      const client = new Client({ name, version: '1' })
+      clients.push(client)
+      await client.connect(
+        new RuntimeDataTransport(new SocketTransport(data), {
+          generation: () => grant.generation,
+          admit: () => true,
+          role: 'edge'
+        })
+      )
+      return client
+    }
+    expect((await inspect()).autoBlockers).not.toEqual([])
+    const codex = await attach('codex-mcp-client')
+    now = 6000
+    expect(await inspect()).toMatchObject({ drained: true, autoBlockers: [], idleForMs: 6000 })
+    // A complete call between two inspections still restarts the quiet interval.
+    await codex.callTool({ name: 'list_design_sessions', arguments: {} })
+    expect(await inspect()).toMatchObject({ drained: true, autoBlockers: [], idleForMs: 0 })
+    now = 7000
+    const assetOptions = vi.mocked(createAssetHttpServer).mock.calls.at(-1)![1]!
+    assetOptions.onActivity?.()
+    now = 7500
+    expect((await inspect()).idleForMs).toBe(500)
+    // Reading status and changing the gate do not themselves count as activity.
+    await peer.request({ method: 'tempad/runtime-gate', params: { closed: true } }, ResultSchema)
+    expect((await inspect()).idleForMs).toBe(500)
+    await peer.request({ method: 'tempad/runtime-gate', params: { closed: false } }, ResultSchema)
+
+    const unknown = await attach('unknown-host')
+    expect((await inspect()).autoBlockers).toEqual([])
+    await unknown.close()
+    await vi.waitFor(async () => expect((await inspect()).autoBlockers).toEqual([]))
+    const claude = await attach('claude-code')
+    expect(await inspect()).toMatchObject({ drained: true })
+    expect((await inspect()).autoBlockers).not.toEqual([])
+    await claude.notification({
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'claude', sessionId: 'verified-session' }
+    })
+    const hook = {
+      version: 1,
+      kind: 'claude',
+      sessionId: 'verified-session',
+      event: 'PreToolUse',
+      invocationId: randomUUID()
+    }
+    await peer.request(
+      {
+        method: 'tempad/runtime-hook',
+        params: { input: hook, admittedHubId: grant.hubId }
+      },
+      ResultSchema
+    )
+    await claude.callTool({ name: 'list_design_sessions', arguments: {} })
+    expect((await inspect()).blockers).toContain('Claude binding without receipt/retry hooks')
+    expect((await inspect()).autoBlockers).not.toEqual([])
+    await peer.request(
+      {
+        method: 'tempad/runtime-hook',
+        params: {
+          input: {
+            ...hook,
+            version: 2,
+            invocationId: randomUUID(),
+            issuedAt: Date.now(),
+            profile: { kind: 'release' }
+          },
+          admittedHubId: grant.hubId
+        }
+      },
+      ResultSchema
+    )
+    expect(await inspect()).toMatchObject({ drained: true, autoBlockers: [] })
+    await claude.close()
+    await vi.waitFor(async () => expect((await inspect()).autoBlockers).toEqual([]))
+    // An inherited Codex environment cannot overrule a pending Claude identity.
+    await codex.notification({
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'claude', sessionId: 'unverified-session' }
+    })
+    await codex.ping()
+    expect((await inspect()).autoBlockers).toContain(
+      'Claude connection requires verified receipt/retry hooks'
+    )
+  } finally {
+    await Promise.all(clients.map((client) => client.close()))
+    await peer.close()
+  }
+})
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -213,6 +486,7 @@ beforeEach(() => {
   vi.mocked(createAssetHttpServer).mockReturnValue({
     start: assetStart,
     stop: assetStop,
+    pendingTransfers: 0,
     getBaseUrl: () => 'http://127.0.0.1:0'
   } as ReturnType<typeof createAssetHttpServer>)
   websocket = new WebSocketServer({ noServer: true })
@@ -223,7 +497,7 @@ beforeEach(() => {
   })
 })
 
-afterEach(async () => {
+async function stopRuntime() {
   for (const socket of consumerSockets.splice(0)) socket.destroy()
   // Also stop a successfully started Hub when an assertion fails before the test's
   // explicit shutdown, so lock ownership and listeners cannot leak into the next test.
@@ -250,12 +524,15 @@ afterEach(async () => {
       if (!previousSignals.get(signal)?.includes(listener)) process.removeListener(signal, listener)
     }
   }
-  netServer ??= vi.mocked(createServer).mock.results.find((result) => result.type === 'return')
-    ?.value as Server | undefined
+  netServer ??= vi.mocked(createServer).mock.results.at(-1)?.value as Server | undefined
   if (netServer?.listening) await new Promise<void>((resolve) => netServer!.close(() => resolve()))
   netServer = undefined
   if (!vi.mocked(websocket.close).mock.calls.length) websocket.close()
   vi.clearAllTimers()
+}
+
+afterEach(async () => {
+  await stopRuntime()
   vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
@@ -264,6 +541,92 @@ afterEach(async () => {
 afterAll(() => rmSync(fixture.directory, { recursive: true, force: true }))
 
 describe('Hub runtime module', () => {
+  it('rejects raw hooks on the managed Hub endpoint before lifecycle effects', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub({ prototype: { secret: 'isolated' } })
+    const hook = vi.spyOn(AgentClients.prototype, 'clientHook')
+    const socket = connect(fixture.socketPath)
+    consumerSockets.push(socket)
+    await once(socket, 'connect')
+    const closed = once(socket, 'close')
+    socket.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tempad/client-hook',
+        params: {
+          version: 1,
+          kind: 'claude',
+          sessionId: 'session',
+          event: 'UserPromptSubmit',
+          invocationId: '00000000-0000-4000-8000-000000000001'
+        }
+      }) + '\n'
+    )
+    await closed
+    expect(hook).not.toHaveBeenCalled()
+    expect(assetStop).not.toHaveBeenCalled()
+  })
+
+  it('receives private CLI contexts before initialize and persists only the task owner context', async () => {
+    const context = captureHostContext({
+      HOME: `${fixture.directory}/host-a`,
+      TMPDIR: fixture.directory
+    })
+    const other = captureHostContext({
+      HOME: `${fixture.directory}/host-b`,
+      TMPDIR: fixture.directory
+    })
+    const available = vi.spyOn(CodexAppFeedback.prototype, 'available').mockResolvedValue(true)
+    vi.spyOn(CodexAppLifecycle.prototype, 'watch').mockImplementation(() => {})
+    const attach = vi.spyOn(DesignTasks.prototype, 'attachClient')
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const first = await connectConsumer(true, 'codex', context)
+    const second = await connectConsumer(true, 'codex', other)
+    const _meta = { 'x-codex-turn-metadata': { thread_id: 'same-thread', turn_id: 'turn' } }
+    first.send({
+      id: 1,
+      method: 'tools/call',
+      params: {
+        name: 'manage_design_task',
+        arguments: {
+          action: 'begin',
+          title: 'Context',
+          requestId: '00000000-0000-4000-8000-000000000004'
+        },
+        _meta
+      }
+    })
+    const binding = await extension.call(0)
+    extension.send({ type: 'toolResult', id: binding.id, payload: binding.payload.args })
+    const result = await first.reply(1)
+    expect(result.result?.isError).not.toBe(true)
+    expect(available).toHaveBeenCalledWith(expect.objectContaining({ hostContext: context }))
+    // Host filesystem paths never cross the public MCP or extension contract.
+    expect(JSON.stringify(result)).not.toContain(context.home)
+    expect(JSON.stringify(binding)).not.toContain(context.home)
+    first.socket.destroy()
+    await once(first.socket, 'close')
+    second.send({
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'list_design_sessions', arguments: {}, _meta }
+    })
+    expect((await second.reply(1)).result?.isError).not.toBe(true)
+    expect(attach).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ sessionId: 'same-thread' }),
+      undefined,
+      other
+    )
+    expect(
+      new DesignTaskStore(`${fixture.directory}/state/design-tasks.json`).load()?.records[0]
+        ?.hostContext
+    ).toEqual(context)
+  })
+
   it('deduplicates a shared state and asset directory', async () => {
     vi.mocked(resolveStateDir).mockReturnValue(`${fixture.directory}/assets`)
     const { startHub } = await loadRuntime()
@@ -376,6 +739,64 @@ describe('Hub runtime module', () => {
       expect(assetStop).not.toHaveBeenCalled()
     }
   )
+
+  it('buffers a fragmented first frame once and preserves split UTF-8 and following frames', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const server = vi.mocked(createServer).mock.results.at(-1)!.value as Server
+    const accepted = once(server, 'connection')
+    const socket = connect(fixture.socketPath)
+    consumerSockets.push(socket)
+    const [incoming] = (await accepted) as [Socket]
+    const replies: { id: number; result?: unknown }[] = []
+    let received = ''
+    socket.on('data', (chunk) => {
+      received += String(chunk)
+      let newline: number
+      while ((newline = received.indexOf('\n')) !== -1) {
+        replies.push(JSON.parse(received.slice(0, newline)))
+        received = received.slice(newline + 1)
+      }
+    })
+    const frames = Buffer.from(
+      [
+        {
+          jsonrpc: '2.0',
+          id: 0,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: { name: '审阅', version: '1' }
+          }
+        },
+        { jsonrpc: '2.0', id: 1, method: 'ping' }
+      ]
+        .map((frame) => JSON.stringify(frame) + '\n')
+        .join('')
+    )
+    const split = frames.indexOf('审') + 1
+    const fragments = [
+      ...Array.from({ length: 64 }, () => Buffer.alloc(1024, 32)),
+      frames.subarray(0, split),
+      frames.subarray(split)
+    ]
+    const concat = vi.spyOn(Buffer, 'concat')
+    // Deliver deterministic fragments at the real socket boundary; TCP/pipe
+    // coalescing must not decide whether repeated-copy regressions are covered.
+    for (const fragment of fragments) incoming.emit('data', fragment)
+    const copied = concat.mock.calls.reduce(
+      (sum, [buffers]) => sum + buffers.reduce((bytes, buffer) => bytes + buffer.length, 0),
+      0
+    )
+    concat.mockRestore()
+    expect(copied).toBeLessThanOrEqual(
+      fragments.reduce((bytes, buffer) => bytes + buffer.length, 0)
+    )
+    await vi.waitFor(() => expect(replies.map(({ id }) => id)).toEqual([0, 1]))
+    expect(replies.every((reply) => reply.result !== undefined)).toBe(true)
+    expect(log.info).toHaveBeenCalledWith('Consumer connected. Total: 1')
+  })
 
   it('rejects invalid hook parameters before lifecycle effects and does not allow hook transport promotion', async () => {
     const { startHub } = await loadRuntime()
@@ -558,6 +979,73 @@ describe('Hub runtime module', () => {
     }
   )
 
+  it('requires a recovered generation acknowledgment through the public begin tool', async () => {
+    const generation = '00000000-0000-4000-8000-000000000001'
+    mkdirSync(`${fixture.directory}/state`, { recursive: true })
+    writeFileSync(
+      `${fixture.directory}/state/design-tasks.json`,
+      JSON.stringify({
+        revision: 0,
+        current: {},
+        records: [{ recoveryGeneration: generation }]
+      })
+    )
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    const args = {
+      action: 'begin',
+      title: 'Fresh after recovery',
+      requestId: '00000000-0000-4000-8000-000000000002'
+    }
+    const send = (id: number, arguments_: object) =>
+      consumer.send({
+        id,
+        method: 'tools/call',
+        params: { name: 'manage_design_task', arguments: arguments_ }
+      })
+    send(1, args)
+    expect(await consumer.reply(1)).toMatchObject({
+      result: {
+        isError: true,
+        content: [{ text: expect.stringContaining(generation) }],
+        _meta: { code: 'DESIGN_TASK_INACTIVE', recoveryGeneration: generation }
+      }
+    })
+    expect(extension.calls).toHaveLength(0)
+    const fresh = {
+      ...args,
+      requestId: '00000000-0000-4000-8000-000000000003',
+      recoveryGeneration: generation
+    }
+    send(2, fresh)
+    await vi.waitFor(() => expect(extension.calls.length || consumer.replies.has(2)).toBeTruthy(), {
+      interval: 1
+    })
+    expect(extension.calls).toHaveLength(1)
+    const binding = extension.calls[0]!
+    expect(binding.payload.args).toMatchObject({ status: 'active', needsRead: true })
+    extension.send({ type: 'toolResult', id: binding.id, payload: binding.payload.args })
+    expect((await consumer.reply(2)).result?.isError).not.toBe(true)
+    for (const [id, recoveryGeneration] of [
+      [3, undefined],
+      [4, '00000000-0000-4000-8000-000000000004']
+    ] as const) {
+      send(id, { ...fresh, recoveryGeneration })
+      expect(await consumer.reply(id)).toMatchObject({
+        result: {
+          isError: true,
+          content: [{ text: expect.stringContaining(generation) }],
+          _meta: { recoveryGeneration: generation }
+        }
+      })
+    }
+    send(5, fresh)
+    expect((await consumer.reply(5)).result).toEqual((await consumer.reply(2)).result)
+    expect(extension.calls).toHaveLength(1)
+  })
+
   it('distinguishes begin content conflicts without changing the original task or its Stop fence', async () => {
     const { startHub } = await loadRuntime()
     await startHub()
@@ -651,14 +1139,27 @@ describe('Hub runtime module', () => {
     send(4, 'apply_canvas', write)
     const blocked = await consumer.reply(4)
     expect(blocked.result?.isError).toBe(true)
-    expect(JSON.stringify(blocked)).toContain('Read the bound canvas')
+    expect(JSON.stringify(blocked)).toContain('The resumed task has not confirmed')
+    expect(JSON.stringify(blocked).match(/get_structure/g)).toHaveLength(2)
+    expect(JSON.stringify(blocked).match(/Canvas writes still require readback/g)).toHaveLength(1)
     expect(extension.calls).toHaveLength(2)
+    for (const [index, outcome] of [
+      { payload: { roots: [] } },
+      { error: { code: 'NODE_NOT_VISIBLE', message: 'Node was removed.' } }
+    ].entries()) {
+      send(50 + index, 'get_structure', { taskId: task.taskId, taskEpoch: 1 })
+      const emptyRead = await extension.call(2 + index)
+      extension.send({ type: 'toolResult', id: emptyRead.id, ...outcome })
+      expect(JSON.stringify(await consumer.reply(50 + index))).toContain(
+        'Canvas writes still require readback'
+      )
+    }
     send(5, 'get_structure', { taskId: task.taskId, taskEpoch: 1 })
-    const read = await extension.call(2)
-    extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+    const read = await extension.call(4)
+    extension.send({ type: 'toolResult', id: read.id, payload: structure })
     expect((await consumer.reply(5)).result?.isError).not.toBe(true)
     send(6, 'apply_canvas', write)
-    const update = await extension.call(3)
+    const update = await extension.call(5)
     extension.send({
       type: 'toolResult',
       id: update.id,
@@ -752,6 +1253,7 @@ describe('Hub runtime module', () => {
         vi.mocked(createAssetHttpServer).mockReturnValue({
           start: assetStart,
           stop: assetStop,
+          pendingTransfers: 0,
           getBaseUrl: () => `http://127.0.0.1:${address.port}`
         } as ReturnType<typeof createAssetHttpServer>)
         const { startHub } = await loadRuntime()
@@ -1095,7 +1597,678 @@ describe('Hub runtime module', () => {
     }
   )
 
-  it('keeps a dispatched cancelled write fenced until its late definitive result arrives', async () => {
+  it.each([
+    'success',
+    undefined,
+    'UNKNOWN_NATIVE_ERROR',
+    'INVALID_CANVAS_SPEC',
+    'CANVAS_READ_ONLY',
+    'CANVAS_APPLY_ABORTED',
+    'CANVAS_APPLY_FAILED',
+    'EXTENSION_RESULT_LOST',
+    'EXTENSION_DELIVERY_FAILED',
+    'EXTENSION_DISCONNECTED'
+  ])('requires readback only for an unknown write outcome after %s', async (code) => {
+    const readRequired =
+      code !== 'success' && code !== 'CANVAS_APPLY_ABORTED' && code !== 'EXTENSION_DELIVERY_FAILED'
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    const write = {
+      name: 'apply_canvas',
+      arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+    }
+    consumer.send({ id: 1, method: 'tools/call', params: write })
+    const first = await extension.call(0)
+    extension.send({
+      type: 'toolResult',
+      id: first.id,
+      ...(code === 'success'
+        ? {
+            payload: {
+              rootNodeId: 'root',
+              nodeIdsByKey: {},
+              createdNodeIds: [],
+              updatedNodeIds: [],
+              removedNodeIds: [],
+              mutationCount: 0,
+              verification: {
+                status: 'passed',
+                nodesChecked: 1,
+                referencesChecked: 0,
+                warnings: []
+              }
+            }
+          }
+        : { error: { code, message: 'Native error' } })
+    })
+    const result = await consumer.reply(1)
+    if (code === 'success') expect(result.result?.isError).not.toBe(true)
+    else
+      expect(JSON.stringify(result)).toContain(
+        code === 'EXTENSION_DISCONNECTED' ? 'outcome is unknown' : 'Native error'
+      )
+    consumer.send({ id: 2, method: 'tools/call', params: write })
+    if (code === 'EXTENSION_DISCONNECTED') {
+      expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
+      expect(extension.calls).toHaveLength(1)
+      extension.send({
+        type: 'toolResult',
+        id: first.id,
+        error: { message: 'Definitive completion' }
+      })
+    }
+    if (readRequired) {
+      const blockedId = code === 'EXTENSION_DISCONNECTED' ? 3 : 2
+      if (blockedId === 3) consumer.send({ id: blockedId, method: 'tools/call', params: write })
+      const blocked = JSON.stringify(await consumer.reply(blockedId))
+      expect(blocked).toContain('previous write did not confirm')
+      expect(blocked.match(/get_structure/g)).toHaveLength(2)
+      expect(blocked.match(/Canvas writes still require readback/g)).toHaveLength(1)
+      consumer.send({
+        id: 4,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
+      })
+      const read = await extension.call(1)
+      extension.send({ type: 'toolResult', id: read.id, payload: structure })
+      await consumer.reply(4)
+      consumer.send({ id: 5, method: 'tools/call', params: write })
+    }
+    const next = await extension.call(readRequired ? 2 : 1)
+    extension.send({
+      type: 'toolResult',
+      id: next.id,
+      error: { message: 'Next write completed' }
+    })
+    expect(JSON.stringify(await consumer.reply(readRequired ? 5 : 2))).toContain(
+      'Next write completed'
+    )
+  })
+
+  it('does not require readback when the transport rejects a write before dispatch', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    const write = {
+      name: 'apply_canvas',
+      arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+    }
+    extension.peer.send.mockImplementationOnce(() => {
+      throw new Error('Socket is closed')
+    })
+    consumer.send({ id: 1, method: 'tools/call', params: write })
+    expect(JSON.stringify(await consumer.reply(1))).toContain('Socket is closed')
+    expect(extension.calls).toHaveLength(0)
+    consumer.send({ id: 2, method: 'tools/call', params: write })
+    const next = await extension.call(0)
+    extension.send({ type: 'toolResult', id: next.id, error: { message: 'Native result' } })
+    expect(JSON.stringify(await consumer.reply(2))).toContain('Native result')
+  })
+
+  it('serves operator recovery without exposing a tool or keeping an otherwise idle Hub alive', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const connectRecovery = async () => {
+      const socket = connect(fixture.socketPath)
+      consumerSockets.push(socket)
+      await once(socket, 'connect')
+      return socket
+    }
+    const io = { interactive: false, write: vi.fn(), confirm: vi.fn(async () => '') }
+    await runRuntimeRecovery(['--runtime-status'], connectRecovery, io)
+    expect(io.write.mock.calls[0]?.[0]).toContain('"blocks": []')
+    await vi.waitFor(() => expect(websocket.close).toHaveBeenCalled())
+  })
+
+  it('does not dispatch a write when its read requirement cannot be saved', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    vi.spyOn(DesignTaskStore.prototype, 'save').mockImplementationOnce(() => {
+      throw new Error('Disk full')
+    })
+    const write = {
+      name: 'apply_canvas',
+      arguments: { mode: 'create', markup: '<div></div>' }
+    }
+    consumer.send({ id: 1, method: 'tools/call', params: write })
+    const failure = JSON.stringify(await consumer.reply(1))
+    expect(failure).toContain('DESIGN_TASK_INACTIVE')
+    expect(failure).toContain('No canvas write was dispatched')
+    expect(extension.calls).toHaveLength(0)
+    consumer.send({ id: 2, method: 'tools/call', params: write })
+    const next = await extension.call(0)
+    extension.send({ type: 'toolResult', id: next.id, error: { message: 'Native result' } })
+    expect(JSON.stringify(await consumer.reply(2))).toContain('Native result')
+  })
+
+  it.each(['in-flight', 'cancelled', 'rollback-failed'] as const)(
+    'persists a %s write before dispatch and requires readback after Hub restart',
+    async (state) => {
+      const { startHub } = await loadRuntime()
+      await startHub()
+      const extension = connectExtension()
+      const consumer = await connectConsumer()
+      const write = {
+        name: 'apply_canvas',
+        arguments: { mode: 'create', markup: '<div></div>' }
+      }
+      const readMarker = { readRequired: true, task: { target: { fileKey: 'file' } } }
+      const snapshot = () =>
+        JSON.parse(readFileSync(`${fixture.directory}/state/design-tasks.json`, 'utf8'))
+      consumer.send({ id: 1, method: 'tools/call', params: write })
+      const dispatched = await extension.call(0)
+      expect(snapshot().records).toContainEqual(readMarker)
+      const reader = await connectConsumer(false, 'another-reader')
+      reader.send({
+        id: 6,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
+      })
+      expect(JSON.stringify(await reader.reply(6))).toContain('DESIGN_TASK_BUSY')
+      expect(extension.calls).toHaveLength(1)
+      expect(snapshot().records).toContainEqual(readMarker)
+      if (state === 'cancelled') {
+        consumer.send({ method: 'notifications/cancelled', params: { requestId: 1 } })
+        consumer.send({ id: 2, method: 'tools/call', params: write })
+        expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
+        extension.send({
+          type: 'toolResult',
+          id: dispatched.id,
+          error: { message: 'Late definitive completion' }
+        })
+      }
+      if (state === 'rollback-failed') {
+        extension.send({
+          type: 'toolResult',
+          id: dispatched.id,
+          error: {
+            code: 'CANVAS_APPLY_FAILED',
+            message: 'Canvas apply failed; automatic rollback was not available.'
+          }
+        })
+        expect(JSON.stringify(await consumer.reply(1))).toContain('CANVAS_APPLY_FAILED')
+        expect(snapshot().records).toContainEqual(readMarker)
+        consumer.send({ id: 2, method: 'tools/call', params: write })
+        expect(JSON.stringify(await consumer.reply(2))).toContain('previous write did not confirm')
+        expect(extension.calls).toHaveLength(1)
+      }
+      await stopRuntime()
+      expect(snapshot().records).toContainEqual(readMarker)
+
+      websocket = new WebSocketServer({ noServer: true })
+      vi.spyOn(websocket, 'close')
+      vi.mocked(startExtensionWebSocketServer).mockResolvedValue({ server: websocket, port: 6220 })
+      await startHub()
+      const replacement = connectExtension()
+      const nextOwner = await connectConsumer()
+      nextOwner.send({ id: 3, method: 'tools/call', params: write })
+      expect(JSON.stringify(await nextOwner.reply(3))).toContain(
+        state === 'in-flight' ? 'earlier operation' : 'previous write did not confirm'
+      )
+      expect(replacement.calls).toHaveLength(0)
+      nextOwner.send({
+        id: 4,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
+      })
+      const read = await replacement.call(0)
+      replacement.send({ type: 'toolResult', id: read.id, payload: structure })
+      expect((await nextOwner.reply(4)).result?.isError).not.toBe(true)
+      if (state === 'in-flight') {
+        expect(snapshot().records).toContainEqual(readMarker)
+        nextOwner.send({ id: 40, method: 'tools/call', params: write })
+        expect(JSON.stringify(await nextOwner.reply(40))).toContain('earlier operation')
+        replacement.publishSession('session', 'replacement-document')
+        nextOwner.send({
+          id: 41,
+          method: 'tools/call',
+          params: { name: 'get_structure', arguments: {} }
+        })
+        const reread = await replacement.call(1)
+        replacement.send({ type: 'toolResult', id: reread.id, payload: structure })
+        expect((await nextOwner.reply(41)).result?.isError).not.toBe(true)
+      }
+      expect(snapshot().records).not.toContainEqual(readMarker)
+      nextOwner.send({ id: 5, method: 'tools/call', params: write })
+      const next = await replacement.call(state === 'in-flight' ? 2 : 1)
+      replacement.send({
+        type: 'toolResult',
+        id: next.id,
+        error: { code: 'CANVAS_APPLY_ABORTED', message: 'Definitive preflight rejection' }
+      })
+      expect(JSON.stringify(await nextOwner.reply(5))).toContain('Definitive preflight rejection')
+      expect(snapshot().records).not.toContainEqual(readMarker)
+    }
+  )
+
+  it.each([
+    { name: 'empty selection', tool: 'get_structure', payload: { roots: [] } },
+    {
+      name: 'failed roots with continuation',
+      tool: 'get_structure',
+      payload: {
+        roots: [],
+        errors: [{ nodeId: 'gone', error: { message: 'Missing node' } }],
+        remainingNodeIds: ['remaining']
+      }
+    },
+    {
+      name: 'failed code with continuation',
+      tool: 'get_code',
+      payload: {
+        results: [{ nodeId: 'gone', error: { message: 'Missing node' } }],
+        remainingNodeIds: ['remaining']
+      }
+    },
+    {
+      name: 'thrown node read',
+      tool: 'get_structure',
+      error: { code: 'NODE_NOT_VISIBLE', message: 'Node was removed.' }
+    },
+    {
+      name: 'oversized thrown node read',
+      tool: 'get_code',
+      error: { message: 'x'.repeat(64 * 1024) }
+    },
+    {
+      name: 'oversized code result',
+      tool: 'get_code',
+      responseError: true,
+      payload: { code: 'x'.repeat(64 * 1024), lang: 'jsx', nodeId: 'root' }
+    },
+    {
+      name: 'oversized failed-node result',
+      tool: 'get_code',
+      responseError: true,
+      payload: { results: [{ nodeId: 'gone', error: { message: 'x'.repeat(64 * 1024) } }] }
+    },
+    {
+      name: 'unformattable code result',
+      tool: 'get_code',
+      responseError: true,
+      payload: { code: '<div/>', lang: 42 }
+    }
+  ])('keeps readback required after $name', async ({ tool, payload, error, responseError }) => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    const write = {
+      name: 'apply_canvas',
+      arguments: { mode: 'create', markup: '<div></div>' }
+    }
+    consumer.send({ id: 1, method: 'tools/call', params: write })
+    const first = await extension.call(0)
+    extension.send({ type: 'toolResult', id: first.id, payload: { rootNodeId: 'unusable' } })
+    expect((await consumer.reply(1)).result?.isError).toBe(true)
+    consumer.send({
+      id: 2,
+      method: 'tools/call',
+      params: { name: tool, arguments: {} }
+    })
+    const emptyRead = await extension.call(1)
+    extension.send({ type: 'toolResult', id: emptyRead.id, ...(error ? { error } : { payload }) })
+    const response = await consumer.reply(2)
+    expect(!!response.result?.isError).toBe(!!error || !!responseError)
+    expect(JSON.stringify(response)).toContain('Canvas writes still require readback')
+    expect(Buffer.byteLength(JSON.stringify(response.result))).toBeLessThan(64 * 1024)
+    consumer.send({ id: 3, method: 'tools/call', params: write })
+    expect(JSON.stringify(await consumer.reply(3))).toContain('previous write did not confirm')
+    expect(extension.calls).toHaveLength(2)
+
+    // An exact empty page is valid evidence, unlike an empty selection.
+    consumer.send({
+      id: 4,
+      method: 'tools/call',
+      params: { name: 'get_structure', arguments: { pageId: 'page' } }
+    })
+    const pageRead = await extension.call(2)
+    extension.send({
+      type: 'toolResult',
+      id: pageRead.id,
+      payload: {
+        roots: [],
+        page: {
+          id: 'page',
+          name: 'Empty page',
+          index: 0,
+          active: true,
+          childCount: 0,
+          selectionCount: 0
+        }
+      }
+    })
+    expect(JSON.stringify(await consumer.reply(4))).not.toContain(
+      'Canvas writes still require readback'
+    )
+    consumer.send({ id: 5, method: 'tools/call', params: write })
+    const next = await extension.call(3)
+    extension.send({ type: 'toolResult', id: next.id, error: { message: 'Write completed' } })
+    expect(JSON.stringify(await consumer.reply(5))).toContain('Write completed')
+  })
+
+  it('keeps empty reads quiet when no canvas readback is required', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    consumer.send({
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'get_structure', arguments: {} }
+    })
+    const read = await extension.call(0)
+    extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+    const response = await consumer.reply(1)
+    expect(response.result?.isError).not.toBe(true)
+    expect(JSON.stringify(response)).not.toContain('Canvas writes still require readback')
+  })
+
+  it.each(['malformed', 'oversized'])(
+    'requires readback after a completed write returns an unusable result (%s)',
+    async (kind) => {
+      const { startHub } = await loadRuntime()
+      await startHub()
+      const extension = connectExtension()
+      const consumer = await connectConsumer()
+      const write = {
+        name: 'apply_canvas',
+        arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+      }
+      consumer.send({ id: 1, method: 'tools/call', params: write })
+      const first = await extension.call(0)
+      extension.send({
+        type: 'toolResult',
+        id: first.id,
+        payload:
+          kind === 'malformed'
+            ? { rootNodeId: 'created' }
+            : {
+                rootNodeId: 'created',
+                nodeIdsByKey: {},
+                createdNodeIds: ['created'],
+                updatedNodeIds: [],
+                removedNodeIds: [],
+                mutationCount: 1,
+                verification: {
+                  status: 'warning',
+                  nodesChecked: 1,
+                  referencesChecked: 0,
+                  warnings: [{ code: 'large-warning', message: 'x'.repeat(70_000) }]
+                }
+              }
+      })
+      const response = (await consumer.reply(1)).result
+      expect(CallToolResultSchema.parse(response)).toMatchObject({ isError: true })
+      expect(response).not.toHaveProperty('structuredContent')
+      if (kind === 'oversized') {
+        expect(JSON.stringify(response)).toContain('Read the original target')
+        expect(JSON.stringify(response)).toContain('do not replay the write')
+      }
+      consumer.send({ id: 2, method: 'tools/call', params: write })
+      expect(JSON.stringify(await consumer.reply(2))).toContain('previous write did not confirm')
+      expect(extension.calls).toHaveLength(1)
+      consumer.send({
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
+      })
+      const read = await extension.call(1)
+      extension.send({ type: 'toolResult', id: read.id, payload: structure })
+      await consumer.reply(3)
+      consumer.send({ id: 4, method: 'tools/call', params: write })
+      const next = await extension.call(2)
+      extension.send({ type: 'toolResult', id: next.id, error: { message: 'Native result' } })
+      expect(JSON.stringify(await consumer.reply(4))).toContain('Native result')
+    }
+  )
+
+  it.each([false, true])(
+    'recovers a lost write result without reviving Stop (%s)',
+    async (stopped) => {
+      const { startHub } = await loadRuntime()
+      await startHub()
+      const extension = connectExtension(true)
+      const consumer = await connectConsumer()
+      const send = (id: number, name: string, args: object) =>
+        consumer.send({ id, method: 'tools/call', params: { name, arguments: args } })
+      send(1, 'manage_design_task', {
+        action: 'begin',
+        title: 'Receipt fixture',
+        requestId: '00000000-0000-4000-8000-000000000017'
+      })
+      const binding = await extension.call(0)
+      const task = binding.payload.args as DesignTask
+      extension.send({ type: 'toolResult', id: binding.id, payload: task })
+      await consumer.reply(1)
+      const args = { taskId: task.taskId, taskEpoch: task.epoch }
+      const write = { ...args, mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+      send(2, 'apply_canvas', write)
+      const call = await extension.call(1)
+      expect(call.terminalReceipt).toBeDefined()
+      extension.publishSession() // Idle alone must not release this write.
+      send(3, 'apply_canvas', write)
+      expect(JSON.stringify(await consumer.reply(3))).toContain('DESIGN_TASK_BUSY')
+      if (stopped) {
+        send(7, 'manage_design_task', { action: 'cancel', taskId: task.taskId, epoch: task.epoch })
+        expect(await consumer.reply(7)).toMatchObject({
+          result: { structuredContent: { status: 'stopping' } }
+        })
+      }
+      extension.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+      expect(JSON.stringify(await consumer.reply(2))).toContain('EXTENSION_RESULT_LOST')
+      if (stopped) {
+        send(8, 'get_design_task', { taskId: task.taskId })
+        expect(await consumer.reply(8)).toMatchObject({
+          result: { structuredContent: { status: 'cancelled', operation: null } }
+        })
+        send(9, 'apply_canvas', write)
+        expect(JSON.stringify(await consumer.reply(9))).toContain('DESIGN_TASK_INACTIVE')
+        expect(extension.calls).toHaveLength(2)
+
+        send(10, 'manage_design_task', {
+          action: 'begin',
+          title: 'Fresh after Stop',
+          requestId: '00000000-0000-4000-8000-000000000018'
+        })
+        const newBinding = await extension.call(2)
+        const fresh = newBinding.payload.args as DesignTask
+        extension.send({ type: 'toolResult', id: newBinding.id, payload: fresh })
+        await consumer.reply(10)
+        const freshArgs = { taskId: fresh.taskId, taskEpoch: fresh.epoch }
+        send(11, 'apply_canvas', { ...write, ...freshArgs })
+        expect(JSON.stringify(await consumer.reply(11))).toContain('previous write did not confirm')
+        expect(extension.calls).toHaveLength(3)
+        send(12, 'get_structure', freshArgs)
+        const read = await extension.call(3)
+        extension.send({ type: 'toolResult', id: read.id, payload: structure })
+        await consumer.reply(12)
+        send(13, 'apply_canvas', { ...write, ...freshArgs })
+        const next = await extension.call(4)
+        extension.send({
+          type: 'toolResult',
+          id: next.id,
+          error: { message: 'Fresh write completed' }
+        })
+        expect(JSON.stringify(await consumer.reply(13))).toContain('Fresh write completed')
+        return
+      }
+      send(4, 'apply_canvas', write)
+      expect(JSON.stringify(await consumer.reply(4))).toContain(
+        'The resumed task has not confirmed'
+      )
+      // The duplicate receipt must not clear a fresh read or re-arm needsRead.
+      send(5, 'get_structure', args)
+      const read = await extension.call(2)
+      extension.send({ type: 'toolResult', id: read.id, payload: structure })
+      await consumer.reply(5)
+      extension.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+      send(6, 'apply_canvas', write)
+      const next = await extension.call(3)
+      extension.send({ type: 'toolResult', id: next.id, error: { message: 'Finished new write' } })
+      expect(JSON.stringify(await consumer.reply(6))).toContain('Finished new write')
+    }
+  )
+
+  it('does not exhaust receipt capacity after repeated disconnected reads in one document', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension(true)
+    const consumer = await connectConsumer()
+    for (let id = 1; id <= 129; id++) {
+      consumer.send({
+        id,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
+      })
+      await vi.waitFor(
+        () => expect(extension.calls.length >= id || consumer.replies.has(id)).toBe(true),
+        {
+          interval: 1
+        }
+      )
+      expect(extension.calls).toHaveLength(id)
+      const call = extension.calls[id - 1]!
+      extension.send({
+        type: 'toolResult',
+        id: call.id,
+        error: { code: 'EXTENSION_DISCONNECTED', message: 'Page read disconnected.' }
+      })
+      expect(JSON.stringify(await consumer.reply(id))).toContain('EXTENSION_DISCONNECTED')
+    }
+    consumer.send({
+      id: 130,
+      method: 'tools/call',
+      params: {
+        name: 'apply_canvas',
+        arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+      }
+    })
+    const write = await extension.call(129)
+    extension.send({ type: 'toolResult', id: write.id, error: { message: 'Write finished' } })
+    expect(JSON.stringify(await consumer.reply(130))).toContain('Write finished')
+  })
+
+  it.each(['transport', 'malformed', 'roots', 'code'])(
+    'keeps a recovered write unread after a %s read failure',
+    async (failure) => {
+      const { startHub } = await loadRuntime()
+      await startHub()
+      const original = connectExtension(true)
+      const consumer = await connectConsumer()
+      const write = {
+        name: 'apply_canvas',
+        arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+      }
+      consumer.send({ id: 1, method: 'tools/call', params: write })
+      const call = await original.call(0)
+      original.peer.emit('close')
+      expect(JSON.stringify(await consumer.reply(1))).toContain('EXTENSION_DISCONNECTED')
+      const replacement = connectExtension(true)
+      replacement.send({
+        type: 'toolCompletion',
+        id: call.id,
+        ...call.terminalReceipt,
+        receiptId: 'wrong'
+      })
+      consumer.send({ id: 2, method: 'tools/call', params: write })
+      expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
+      replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+      consumer.send({ id: 3, method: 'tools/call', params: write })
+      await vi.waitFor(
+        () => expect(replacement.calls.length || consumer.replies.has(3)).toBeTruthy(),
+        {
+          interval: 1
+        }
+      )
+      expect(replacement.calls).toHaveLength(0)
+      expect(JSON.stringify(await consumer.reply(3))).toContain('get_structure or get_code')
+
+      consumer.send({
+        id: 4,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: { sessionId: 'other-session' } }
+      })
+      const otherFile = await replacement.call(0)
+      replacement.send({ type: 'toolResult', id: otherFile.id, payload: { roots: [] } })
+      await consumer.reply(4)
+      consumer.send({ id: 5, method: 'tools/call', params: write })
+      expect(JSON.stringify(await consumer.reply(5))).toContain('get_structure or get_code')
+
+      consumer.send({
+        id: 6,
+        method: 'tools/call',
+        params: { name: failure === 'code' ? 'get_code' : 'get_structure', arguments: {} }
+      })
+      const failedRead = await replacement.call(1)
+      const error = { message: 'Read failed' }
+      replacement.send({
+        type: 'toolResult',
+        id: failedRead.id,
+        ...(failure === 'transport'
+          ? { error }
+          : {
+              payload:
+                failure === 'malformed'
+                  ? {
+                      roots: 'Invalid roots',
+                      content: [{ type: 'text', text: 'Invalid structured result' }],
+                      structuredContent: { invalid: true }
+                    }
+                  : failure === 'roots'
+                    ? { roots: [], errors: [{ nodeId: 'root', error }] }
+                    : { results: [{ nodeId: 'root', error }] }
+            })
+      })
+      const failedResponse = await consumer.reply(6)
+      expect(failedResponse).toMatchObject({ result: { isError: true } })
+      if (failure === 'malformed') {
+        expect(failedResponse.result).not.toHaveProperty('structuredContent')
+        expect(JSON.stringify(failedResponse)).toContain('Invalid roots')
+      }
+      consumer.send({ id: 7, method: 'tools/call', params: write })
+      expect(JSON.stringify(await consumer.reply(7))).toContain('get_structure or get_code')
+
+      consumer.send({
+        id: 8,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
+      })
+      const read = await replacement.call(2)
+      replacement.send({ type: 'toolResult', id: read.id, payload: structure })
+      await consumer.reply(8)
+      // Repeated completion cannot re-arm the read requirement after a successful read.
+      replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+      consumer.send({ id: 9, method: 'tools/call', params: write })
+      const next = await replacement.call(3)
+      replacement.send({
+        type: 'toolResult',
+        id: next.id,
+        error: { message: 'New call completed' }
+      })
+      expect(JSON.stringify(await consumer.reply(9))).toContain('New call completed')
+      replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+      expect(JSON.parse(replacement.peer.send.mock.calls.at(-1)![0])).toEqual({
+        type: 'toolCompletionAck',
+        id: call.id,
+        ...call.terminalReceipt,
+        accepted: true
+      })
+    }
+  )
+
+  it.each([
+    ['cancel', 'error'],
+    ['cancel', 'success'],
+    ['timeout', 'error'],
+    ['timeout', 'success']
+  ] as const)('requires a read after %s and a late definite %s result', async (ending, outcome) => {
+    vi.stubEnv('TEMPAD_MCP_APPLY_CANVAS_TIMEOUT', '100')
     const { startHub } = await loadRuntime()
     await startHub()
     const extension = connectExtension()
@@ -1107,42 +2280,78 @@ describe('Hub runtime module', () => {
     consumer.send({ id: 1, method: 'tools/call', params: write })
     const first = await extension.call(0)
     expect(first.route).toMatchObject({ sessionId: 'session', fileKey: 'file' })
-    consumer.send({
-      method: 'notifications/cancelled',
-      params: { requestId: 1, reason: 'User cancelled' }
-    })
-    await vi.waitFor(
-      () =>
-        expect(log.error).toHaveBeenCalledWith(
-          expect.objectContaining({ req: first.id, message: expect.stringContaining('cancelled') }),
-          'Tool invocation failed.'
-        ),
-      { interval: 1 }
-    )
+    if (ending === 'cancel') {
+      consumer.send({
+        method: 'notifications/cancelled',
+        params: { requestId: 1, reason: 'User cancelled' }
+      })
+      await vi.waitFor(
+        () =>
+          expect(log.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+              req: first.id,
+              message: expect.stringContaining('cancelled')
+            }),
+            'Tool invocation failed.'
+          ),
+        { interval: 1 }
+      )
+      expect(consumer.replies.has(1)).toBe(false)
+    } else {
+      await vi.advanceTimersByTimeAsync(200)
+      expect(JSON.stringify(await consumer.reply(1))).toContain('EXTENSION_TIMEOUT')
+    }
     extension.publishSession()
     consumer.send({ id: 2, method: 'tools/call', params: write })
     const blocked = await consumer.reply(2)
     expect(blocked.result?.isError).toBe(true)
     expect(JSON.stringify(blocked)).toContain('DESIGN_TASK_BUSY')
     expect(extension.calls).toHaveLength(1)
-    expect(consumer.replies.has(1)).toBe(false)
     extension.send({
       type: 'toolResult',
       id: first.id,
-      error: { message: 'Native operation definitively failed' }
+      ...(outcome === 'error'
+        ? { error: { message: 'Native operation definitively failed' } }
+        : {
+            payload: {
+              rootNodeId: 'created',
+              nodeIdsByKey: {},
+              createdNodeIds: ['created'],
+              updatedNodeIds: [],
+              removedNodeIds: [],
+              mutationCount: 1,
+              verification: {
+                status: 'passed',
+                nodesChecked: 1,
+                referencesChecked: 0,
+                warnings: []
+              }
+            }
+          })
     })
     expect(log.warn).toHaveBeenCalledWith(
       { reqId: first.id },
-      'Received error for unknown/timed-out call.'
+      `Received ${outcome === 'error' ? 'error' : 'result'} for unknown/timed-out call.`
     )
     consumer.send({ id: 3, method: 'tools/call', params: write })
-    const next = await extension.call(1)
+    expect(JSON.stringify(await consumer.reply(3))).toContain('previous write did not confirm')
+    expect(extension.calls).toHaveLength(1)
+    consumer.send({
+      id: 4,
+      method: 'tools/call',
+      params: { name: 'get_structure', arguments: {} }
+    })
+    const read = await extension.call(1)
+    extension.send({ type: 'toolResult', id: read.id, payload: structure })
+    await consumer.reply(4)
+    consumer.send({ id: 5, method: 'tools/call', params: write })
+    const next = await extension.call(2)
     extension.send({
       type: 'toolResult',
       id: next.id,
       error: { message: 'Definitive second result' }
     })
-    expect(JSON.stringify(await consumer.reply(3))).toContain('Definitive second result')
+    expect(JSON.stringify(await consumer.reply(5))).toContain('Definitive second result')
   })
 
   it('releases a cancelled operation after its native document is replaced', async () => {

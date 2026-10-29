@@ -38,4 +38,25 @@ describe('utils/object prune', () => {
   it('returns undefined when the top-level object becomes empty', () => {
     expect(prune({ only: undefined, nested: { also: undefined } })).toBeUndefined()
   })
+
+  it('preserves own dictionary keys without changing result prototypes', () => {
+    const source =
+      '{"__proto__":{"label":"Prototype"},"constructor":{"label":"Constructor"},"nested":{"__proto__":"value"}}'
+    const input = JSON.parse(source) as {
+      __proto__: { label: string }
+      constructor: { label: string }
+      nested: { __proto__: string }
+    }
+    const result = prune(input)
+
+    expect(Object.keys(result)).toEqual(['__proto__', 'constructor', 'nested'])
+    expect(Object.hasOwn(result, '__proto__')).toBe(true)
+    expect(result.__proto__).toEqual({ label: 'Prototype' })
+    expect(Object.getPrototypeOf(result)).toBe(Object.prototype)
+    expect(Object.getPrototypeOf(result.nested)).toBe(Object.prototype)
+    expect(Object.hasOwn(result.nested, '__proto__')).toBe(true)
+    expect(result.nested.__proto__).toBe('value')
+    expect({}).not.toHaveProperty('label')
+    expect(input).toEqual(JSON.parse(source))
+  })
 })

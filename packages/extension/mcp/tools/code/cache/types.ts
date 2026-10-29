@@ -1,3 +1,4 @@
+import type { ResponsePayload } from '@/types/codegen'
 import type { FigmaLookupReaders } from '@/utils/figma-style/types'
 
 import type { TokenReadContext } from '../../token/context'
@@ -92,13 +93,16 @@ export type GetCodeCacheContext = {
   tokens?: TokenReadContext
   pluginName?: string
   rawCss: Map<string, Promise<Record<string, string>>>
+  pluginResponses: Map<string, ResponsePayload>
   imageBytes: Map<string, Promise<Uint8Array>>
+  imageSizes: Map<string, Promise<{ width: number; height: number } | null>>
   signal?: AbortSignal
   checkpoint?: () => void
   readers: FigmaLookupReaders
   variables: Map<string, Variable | null>
   styles: Map<string, BaseStyle | null>
   paintStyles: Map<string, PaintStyleSummary | null>
+  childOverflow: WeakMap<SceneNode, { x: boolean; y: boolean }>
   nodeSemantics: Map<string, NodeSemanticSnapshot>
   vectorAnalysis: Map<string, VectorColorModel>
   metrics?: CacheMetrics

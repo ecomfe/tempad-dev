@@ -11,13 +11,38 @@ vi.mock('@/mcp/tools/token/raw-name', () => ({
 }))
 
 import { analyzeVectorColorModel } from '@/mcp/tools/code/assets/vector-semantics'
-import { createGetCodeCacheContext, getNodeSemanticsCached } from '@/mcp/tools/code/cache'
+import {
+  createGetCodeCacheContext,
+  getNodeSemanticsCached,
+  getRawCssCached
+} from '@/mcp/tools/code/cache'
 import { cleanFigmaSpecificStyles } from '@/mcp/tools/code/styles/background'
 import { collectCandidateVariableIds } from '@/mcp/tools/token/candidates'
 import { TEXT_VARIABLE_FIELDS } from '@/utils/figma-variables'
 import { formatNodeStyleForMcp } from '@/utils/variable-output'
 
 describe('code cache context', () => {
+  it.each(['throw', 'reject'] as const)(
+    'shares a failed native CSS %s only within the current request',
+    async (failure) => {
+      const reason = new Error('CSS unavailable')
+      const node = {
+        id: 'unavailable',
+        getCSSAsync: vi.fn(() => {
+          if (failure === 'throw') throw reason
+          return Promise.reject(reason)
+        })
+      } as unknown as SceneNode
+      const cache = createGetCodeCacheContext()
+
+      await expect(getRawCssCached(node, cache)).rejects.toBe(reason)
+      await expect(getRawCssCached(node, cache)).rejects.toBe(reason)
+      expect(node.getCSSAsync).toHaveBeenCalledOnce()
+      await expect(getRawCssCached(node, createGetCodeCacheContext())).rejects.toBe(reason)
+      expect(node.getCSSAsync).toHaveBeenCalledTimes(2)
+    }
+  )
+
   beforeEach(() => {
     vi.unstubAllGlobals()
   })
@@ -94,14 +119,14 @@ describe('code cache context', () => {
     const ctx = createGetCodeCacheContext(new Map(), { metrics: true })
 
     let nodeVariableIds: ReadonlySet<string> | undefined
-    const mappings = collectCandidateVariableIds([node], ctx.variables, ctx.readers, {
+    const ids = collectCandidateVariableIds([node], ctx.readers, {
       onNodeVariableIds: (_id, ids) => {
         nodeVariableIds = ids
       }
     })
     const style = formatNodeStyleForMcp({ 'font-size': '12px' }, node, ctx.readers, nodeVariableIds)
 
-    expect(mappings.variableIds).toEqual(new Set(['size']))
+    expect(ids).toEqual(new Set(['size']))
     expect(style['font-size']).toBe('var(--Font-Size)')
     expect(getRangeBoundVariable).toHaveBeenCalledTimes(TEXT_VARIABLE_FIELDS.length)
     expect(ctx.metrics).toMatchObject({
@@ -110,7 +135,7 @@ describe('code cache context', () => {
     })
 
     const nextCtx = createGetCodeCacheContext()
-    collectCandidateVariableIds([node], nextCtx.variables, nextCtx.readers)
+    collectCandidateVariableIds([node], nextCtx.readers)
     expect(getRangeBoundVariable).toHaveBeenCalledTimes(TEXT_VARIABLE_FIELDS.length * 2)
   })
 

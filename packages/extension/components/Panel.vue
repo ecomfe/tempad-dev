@@ -80,13 +80,13 @@ function onPointerMove(e: PointerEvent) {
 function endResize(e: PointerEvent) {
   if (!resizeState || e.pointerId !== resizeState.pointerId) return
 
-  resizeState.target.releasePointerCapture(resizeState.pointerId)
+  const { target, pointerId } = resizeState
+  resizeState = null
+  if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
 
   if (position) {
     options.value.panelPosition.width = panelWidth.value
   }
-
-  resizeState = null
 }
 
 function resetWidth(direction: 'left' | 'right') {
@@ -189,11 +189,13 @@ const rightHandleCursor = computed(() => getResizeCursor('right'))
     <div
       class="tp-panel-resize-handle tp-panel-resize-handle-left"
       @pointerdown="startResize($event, 'left')"
+      @lostpointercapture="endResize"
       @dblclick="resetWidth('left')"
     />
     <div
       class="tp-panel-resize-handle tp-panel-resize-handle-right"
       @pointerdown="startResize($event, 'right')"
+      @lostpointercapture="endResize"
       @dblclick="resetWidth('right')"
     />
     <div class="tp-panel-wrapper">

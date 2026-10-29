@@ -10,6 +10,7 @@ export interface HubRuntimeIdentity {
   startedAt: string
   processId: number
   activeExtension: ActiveExtensionRuntimeIdentity | null
+  wsPort?: number
 }
 
 export interface ActiveExtensionRuntimeIdentity {
@@ -61,6 +62,8 @@ export function parseHubRuntimeIdentity(value: unknown): HubRuntimeIdentity | nu
     !Number.isFinite(Date.parse(candidate.startedAt)) ||
     typeof candidate.processId !== 'number' ||
     !Number.isInteger(candidate.processId) ||
+    (candidate.wsPort !== undefined &&
+      (!Number.isInteger(candidate.wsPort) || candidate.wsPort < 1 || candidate.wsPort > 65535)) ||
     activeExtension === undefined
   ) {
     return null

@@ -1,5 +1,6 @@
 import type { DesignTask, FeedbackDraftScope } from '@tempad-dev/shared'
 
+import { DesignTaskSchema } from '@tempad-dev/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { DesignReviews } from '@/mcp/broker/design-reviews'
@@ -100,6 +101,102 @@ describe('saved design reviews', () => {
     expect(reviews.get('file-a')).toEqual(task)
     await reviews.save({ ...task, status: 'cancelled' })
     expect(reviews.get('file-a')?.status).toBe('cancelled')
+  })
+
+  it('projects additive stored fields without weakening wire validation or losing them on save', async () => {
+    const data = storage()
+    const saved = {
+      ...task,
+      status: 'cancelled',
+      futureTask: { value: 1 },
+      target: { ...task.target, futureTarget: true },
+      client: { ...task.client, futureClient: true },
+      capabilities: {
+        interrupt: false,
+        queue: false,
+        steer: false,
+        continue: false,
+        futureCapability: true
+      }
+    }
+    await data.set({ 'tempad.design-reviews.v1': [saved] })
+    const reviews = new DesignReviews(data)
+    await reviews.ready()
+    const projected = reviews.get('file-a')!
+    expect(projected).toMatchObject({ taskId: task.taskId, status: 'cancelled' })
+    expect(DesignTaskSchema.safeParse(saved).success).toBe(false)
+    expect(DesignTaskSchema.safeParse(projected).success).toBe(true)
+    expect(projected).not.toHaveProperty('futureTask')
+    expect(projected.target).not.toHaveProperty('futureTarget')
+    expect(projected.client).not.toHaveProperty('futureClient')
+    expect(projected.capabilities).not.toHaveProperty('futureCapability')
+    await reviews.save({ ...projected, status: 'active', revision: 6 })
+    expect((await data.get('tempad.design-reviews.v1'))['tempad.design-reviews.v1']).toEqual([
+      { ...saved, revision: 6 }
+    ])
+    const restarted = new DesignReviews(data)
+    await restarted.ready()
+    expect(restarted.get('file-a')).toMatchObject({ status: 'cancelled', revision: 6 })
+  })
+
+  it('preserves incompatible records and their order while saving another file or a new task', async () => {
+    const data = storage()
+    const future = { ...task, taskId: 'future-task', status: 'future-status' }
+    const invalid = { broken: true }
+    const unknownClient = { ...task, client: { ...task.client, kind: 'future-agent' } }
+    await data.set({ 'tempad.design-reviews.v1': [task, future, invalid, unknownClient] })
+    const reviews = new DesignReviews(data)
+    await reviews.ready()
+    const other = { ...task, taskId: 'other', target: { ...task.target, fileKey: 'other-file' } }
+    await reviews.save(other)
+    expect((await data.get('tempad.design-reviews.v1'))['tempad.design-reviews.v1']).toEqual([
+      task,
+      future,
+      invalid,
+      unknownClient,
+      other
+    ])
+    const fresh = { ...task, taskId: 'fresh-task' }
+    await reviews.save(fresh)
+    expect((await data.get('tempad.design-reviews.v1'))['tempad.design-reviews.v1']).toEqual([
+      future,
+      invalid,
+      unknownClient,
+      other,
+      fresh
+    ])
+    const restarted = new DesignReviews(data)
+    await restarted.ready()
+    expect(restarted.get('file-a')?.taskId).toBe('fresh-task')
+  })
+
+  it('flushes an unsaved Stop alongside another file without reviving cleared identity fields', async () => {
+    const data = storage()
+    const saved = { ...task, client: { ...task.client, futureClient: true }, futureTask: true }
+    await data.set({ 'tempad.design-reviews.v1': [saved] })
+    const reviews = new DesignReviews(data)
+    await reviews.ready()
+    const set = vi.spyOn(data, 'set').mockRejectedValueOnce(new Error('Storage unavailable'))
+    await expect(
+      reviews.save({ ...task, client: undefined, status: 'cancelled' })
+    ).rejects.toThrow()
+    const other = { ...task, taskId: 'other', target: { ...task.target, fileKey: 'other-file' } }
+    await reviews.save(other)
+    expect(set).toHaveBeenCalledTimes(2)
+    const restarted = new DesignReviews(data)
+    await restarted.ready()
+    expect(restarted.get('file-a')).toMatchObject({ status: 'cancelled' })
+    expect(restarted.get('file-a')?.client).toBeUndefined()
+    expect((await data.get('tempad.design-reviews.v1'))['tempad.design-reviews.v1']).toEqual([
+      {
+        ...task,
+        client: undefined,
+        status: 'cancelled',
+        reviewClosed: undefined,
+        futureTask: true
+      },
+      other
+    ])
   })
 
   it('merges an offline Stop without replacing a newer review', async () => {

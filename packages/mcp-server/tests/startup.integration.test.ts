@@ -33,9 +33,16 @@ beforeAll(async () => {
   const config = join(bundle, 'config.mjs')
   const hub = join(bundle, 'hub-entry.mts')
   const assets = join(bundle, 'asset-listener.mjs')
+  // Normal shutdown tests must not race a cold logging worker against the real watchdog.
   writeFileSync(
     hub,
-    `import {startHub} from ${JSON.stringify(join(packageRoot, 'src/hub-runtime.ts'))}; await startHub(); process.stdout.write('ready\\n');`
+    `import {once} from 'node:events'; import {symbols} from 'pino';
+    import {startHub} from ${JSON.stringify(join(packageRoot, 'src/hub-runtime.ts'))};
+    import {log} from ${JSON.stringify(join(packageRoot, 'src/shared.ts'))};
+    await startHub();
+    const transport = log[symbols.streamSym];
+    if (!transport.ready) await once(transport, 'ready');
+    process.stdout.write('ready\\n');`
   )
   writeFileSync(
     config,
@@ -59,6 +66,7 @@ beforeAll(async () => {
     format: ['esm'],
     platform: 'node',
     target: 'node22',
+    inputOptions: { resolve: { conditionNames: ['source'] } },
     dts: false,
     logLevel: 'silent',
     plugins: [
@@ -86,10 +94,16 @@ afterAll(async () => {
   rmSync(bundle, { recursive: true, force: true })
 })
 
-function launch(entry: string, runtime: string, preload?: string, stores = directory) {
+function launch(
+  entry: string,
+  runtime: string,
+  preload?: string,
+  stores = directory,
+  args: string[] = []
+) {
   const child = spawn(
     process.execPath,
-    [...(preload ? ['--import', preload] : []), join(bundle, entry)],
+    [...(preload ? ['--import', preload] : []), join(bundle, entry), ...args],
     {
       env: {
         ...process.env,
@@ -114,6 +128,47 @@ function launch(entry: string, runtime: string, preload?: string, stores = direc
   const exited = once(child, 'exit')
   return { child, exited, stderr: () => stderr, stdout: () => stdout }
 }
+
+it('recovers quarantined task storage through the CLI without spawning a Hub', async () => {
+  const runtime = join(directory, 'recovery-runtime')
+  const stores = join(directory, 'recovery-stores')
+  const state = join(stores, 'state')
+  mkdirSync(state, { recursive: true })
+  const path = join(state, 'design-tasks.json')
+  writeFileSync(path, '{unreadable Stop history')
+  const preload = join(bundle, 'recovery-no-spawn.mjs')
+  writeFileSync(
+    preload,
+    `import childProcess from 'node:child_process'; import {syncBuiltinESMExports} from 'node:module';
+    childProcess.spawn = () => { throw new Error('Recovery must not spawn a Hub'); }; syncBuiltinESMExports();`
+  )
+  const recovering = launch('cli.mjs', runtime, preload, stores, ['--recover-task-storage'])
+  expect(await recovering.exited).toEqual([0, null])
+  expect(recovering.stderr()).toBe('')
+  expect(recovering.stdout()).toContain(`Task storage: ${path}\n`)
+  expect(recovering.stdout()).toContain('Old tasks remain retired')
+  expect(existsSync(join(runtime, 'mcp.sock'))).toBe(false)
+  const saved = readFileSync(path, 'utf8')
+  expect(JSON.parse(saved)).toMatchObject({
+    revision: 0,
+    current: {},
+    records: [{ recoveryGeneration: expect.any(String) }]
+  })
+  expect(readFileSync(`${path}.corrupt`, 'utf8')).toBe('{unreadable Stop history')
+  const repeated = launch('cli.mjs', runtime, preload, stores, ['--recover-task-storage'])
+  expect(await repeated.exited).toEqual([1, null])
+  expect(repeated.stdout()).toContain(`Task storage: ${path}\n`)
+  expect(repeated.stderr()).toContain('readable')
+  expect(readFileSync(path, 'utf8')).toBe(saved)
+  const extraArgument = launch('cli.mjs', runtime, preload, stores, [
+    '--recover-task-storage',
+    '--force'
+  ])
+  expect(await extraArgument.exited).toEqual([1, null])
+  expect(extraArgument.stdout()).toContain(`Task storage: ${path}\n`)
+  expect(extraArgument.stderr()).toContain('without other arguments')
+  expect(readFileSync(path, 'utf8')).toBe(saved)
+})
 
 async function pingHub(socketPath: string): Promise<void> {
   const socket = connect(socketPath)
@@ -225,6 +280,54 @@ it.skipIf(process.platform === 'win32')(
   10000
 )
 
+it.skipIf(process.platform === 'win32').each(['success', 'throw', 'error'] as const)(
+  'creates a private Hub socket and restores the process mask on %s',
+  async (outcome) => {
+    const runtime = join(directory, `bind-${outcome}`)
+    const socketPath = join(runtime, 'mcp.sock')
+    const probe = join(directory, `bind-${outcome}.jsonl`)
+    const preload = join(bundle, `bind-${outcome}.mjs`)
+    writeFileSync(
+      preload,
+      `import {Server} from 'node:net'; import {appendFileSync, lstatSync} from 'node:fs';
+      process.umask(0o022);
+      const record = value => appendFileSync(${JSON.stringify(probe)}, JSON.stringify(value) + '\\n');
+      process.once('exit', () => record({restoredMask: process.umask()}));
+      const listen = Server.prototype.listen;
+      Server.prototype.listen = function(...args) {
+        if (args[0] !== ${JSON.stringify(socketPath)}) return listen.apply(this, args);
+        if (${JSON.stringify(outcome)} === 'throw') throw new Error('Fixture bind failed');
+        if (${JSON.stringify(outcome)} === 'error') {
+          queueMicrotask(() => this.emit('error', new Error('Fixture bind failed')));
+          return this;
+        }
+        const result = listen.apply(this, args);
+        // Observe the inode before the later listening callback can chmod it.
+        record({mode: lstatSync(${JSON.stringify(socketPath)}).mode & 0o777});
+        return result;
+      };`
+    )
+    const hub = launch('hub.mjs', runtime, preload, join(directory, `bind-stores-${outcome}`))
+    if (outcome === 'success') {
+      await vi.waitFor(() => expect(hub.stdout(), hub.stderr()).toContain('ready'), {
+        timeout: 5000
+      })
+      await pingHub(socketPath)
+    }
+    await vi.waitFor(() => expect(hub.child.exitCode, hub.stderr()).not.toBeNull(), {
+      timeout: 5000
+    })
+    expect((await hub.exited)[0], hub.stderr()).toBe(outcome === 'success' ? 0 : 1)
+    const records = readFileSync(probe, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    if (outcome === 'success') expect(records[0]).toEqual({ mode: 0o600 })
+    else expect(hub.stderr()).toContain('Fixture bind failed')
+    expect(records.at(-1)).toEqual({ restoredMask: 0o022 })
+  }
+)
+
 it.skipIf(process.platform === 'win32')(
   'recovers through the CLI after orphaned lifecycle and writer locks expire',
   async () => {
@@ -252,6 +355,10 @@ it.skipIf(process.platform === 'win32')(
     cli.child.stdin!.write('{"jsonrpc":"2.0","id":1,"method":"ping"}\n')
     try {
       await vi.waitFor(
+        () => expect(cli.stderr()).toContain('Waiting for TemPad Hub to become available.'),
+        { timeout: 15000 }
+      )
+      await vi.waitFor(
         () => {
           expect(cli.child.exitCode, cli.stderr()).toBeNull()
           expect(cli.stdout(), cli.stderr()).toContain('"id":1')
@@ -265,6 +372,7 @@ it.skipIf(process.platform === 'win32')(
       }
       expect(readFileSync(identityPath, 'utf8')).not.toBe(oldIdentity)
       expect(JSON.parse(cli.stdout().trim())).toEqual({ jsonrpc: '2.0', id: 1, result: {} })
+      expect(cli.stderr().match(/Waiting for TemPad Hub/g)).toHaveLength(1)
     } finally {
       cli.child.stdin!.end()
       await cli.exited
@@ -455,7 +563,21 @@ it.skipIf(process.platform === 'win32')(
     expect(existsSync(join(directory, 'state/.tempad-hub-writer.lock'))).toBe(false)
     expect(existsSync(join(directory, 'assets/.tempad-hub-writer.lock'))).toBe(false)
     const nextRuntime = join(directory, 'run-three')
-    const next = launch('hub.mjs', nextRuntime)
+    const delayedLogger = join(bundle, 'delayed-log-ready.mjs')
+    // Reproduce a worker starting later than the shutdown watchdog allows.
+    writeFileSync(
+      delayedLogger,
+      `import {Worker} from 'node:worker_threads';
+      const emit = Worker.prototype.emit;
+      Worker.prototype.emit = function(event, ...args) {
+        if (event === 'message' && args[0]?.code === 'READY') {
+          setTimeout(() => emit.call(this, event, ...args), 2500);
+          return true;
+        }
+        return emit.call(this, event, ...args);
+      };`
+    )
+    const next = launch('hub.mjs', nextRuntime, delayedLogger)
     await vi.waitFor(() => expect(next.stdout(), next.stderr()).toContain('ready'), {
       timeout: 5000
     })
@@ -502,6 +624,10 @@ it.each(['denied', 'stalled', 'closed'])(
       `Unable to connect to TemPad Hub after ${attempts} startup attempts`
     )
     expect(attempt.stderr().match(/fixture-connect/g)).toHaveLength(attempts)
+    expect(attempt.stderr().match(/Waiting for TemPad Hub/g) ?? []).toHaveLength(
+      failure === 'stalled' ? 1 : 0
+    )
+    expect(attempt.stdout()).toBe('')
   },
   15000
 )
@@ -568,7 +694,7 @@ it.skipIf(process.platform === 'win32')(
 
 it
   .skipIf(process.platform === 'win32')
-  .each(['closed', 'invalid', 'invalid-with-stdin', 'denied-after-binding'])(
+  .each(['closed', 'invalid', 'invalid-with-stdin', 'invalid-log-wait', 'denied-after-binding'])(
   'bounds an accepted CLI bridge that is %s',
   async (failure) => {
     const runtime = join(directory, failure === 'denied-after-binding' ? 'bridge-denied' : failure)
@@ -593,6 +719,18 @@ it
     writeFileSync(
       preload,
       `import net from 'node:net'; import {syncBuiltinESMExports} from 'node:module';
+      import {Worker} from 'node:worker_threads';
+      if (${JSON.stringify(failure)} === 'invalid-log-wait') {
+        // Keep the transport pending readiness while its worker continues writing logs.
+        const emit = Worker.prototype.emit;
+        Worker.prototype.emit = function(event, ...args) {
+          if (event === 'message' && args[0]?.code === 'READY') {
+            process.stderr.write('fixture-log-ready-held\\n');
+            return false;
+          }
+          return emit.call(this, event, ...args);
+        };
+      }
       const timeout = globalThis.setTimeout, connect = net.connect;
       globalThis.setTimeout = (fn, ms, ...args) => timeout(fn, ms >= 1000 ? 20 : ms, ...args);
       let calls = 0;
@@ -629,6 +767,16 @@ it
       expect(connections).toBe(failure === 'denied-after-binding' ? 1 : 3)
       expect(attempt.stdout()).toBe('')
       expect(existsSync(join(runtime, 'hub-runtime.json'))).toBe(false)
+      if (failure === 'invalid-log-wait') {
+        expect(attempt.stderr()).toContain('fixture-log-ready-held')
+        const logs = join(directory, 'logs')
+        const pid = attempt.child.pid
+        const filename = readdirSync(logs).find((name) => name.endsWith(`-${pid}.log`))
+        expect(filename).toBeDefined()
+        const contents = readFileSync(join(logs, filename!), 'utf8')
+        expect(contents.match(/Invalid Hub output\. Reconnecting\./g)).toHaveLength(3)
+        expect(contents.match(/Connection attempt failed\. Retrying/g)).toHaveLength(2)
+      }
     } finally {
       // Stop the CLI before removing its listener, even when an assertion fails.
       if (attempt && attempt.child.exitCode === null && attempt.child.signalCode === null) {
@@ -724,4 +872,54 @@ it.skipIf(process.platform === 'win32')(
     }
   },
   5000
+)
+
+it.skipIf(process.platform === 'win32')(
+  'drains complete Hub output before reconnecting when the consumer is backpressured',
+  async () => {
+    const runtime = join(directory, 'bridge-output')
+    mkdirSync(runtime, { mode: 0o700 })
+    const messages = [1, 2, 3].map(
+      (id) => JSON.stringify({ jsonrpc: '2.0', id, result: { text: 'x'.repeat(100_000) } }) + '\n'
+    )
+    const sockets = new Set<Socket>()
+    let connections = 0
+    let notifyClosed!: () => void
+    const firstClosed = new Promise<void>((resolve) => {
+      notifyClosed = resolve
+    })
+    const server = createServer((socket) => {
+      sockets.add(socket)
+      socket.on('close', () => sockets.delete(socket))
+      socket.on('error', () => {})
+      socket.resume()
+      if (++connections !== 1) return
+      socket.on('close', notifyClosed)
+      socket.end(messages.join(''))
+    })
+    let attempt: ReturnType<typeof launch> | undefined
+    try {
+      server.listen(join(runtime, 'mcp.sock'))
+      await once(server, 'listening')
+      chmodSync(join(runtime, 'mcp.sock'), 0o600)
+      attempt = launch('cli.mjs', runtime)
+      attempt.child.stdout!.pause()
+      await firstClosed
+      attempt.child.stdout!.resume()
+      await vi.waitFor(() => expect(attempt!.stdout().length).toBe(messages.join('').length), {
+        timeout: 3000
+      })
+      expect(attempt.stdout()).toBe(messages.join(''))
+      attempt.child.stdin!.end()
+      expect((await attempt.exited)[0], attempt.stderr()).toBe(0)
+    } finally {
+      if (attempt && attempt.child.exitCode === null && attempt.child.signalCode === null) {
+        attempt.child.kill()
+        await attempt.exited
+      }
+      for (const socket of sockets) socket.destroy()
+      if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  },
+  10000
 )

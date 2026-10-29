@@ -1,3 +1,4 @@
+import { raw } from '@tempad-dev/plugins'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CodegenConfig } from '@/utils/codegen'
@@ -5,13 +6,15 @@ import type { CodegenConfig } from '@/utils/codegen'
 import { withCodeDeadline } from '@/mcp/tools/code/deadline'
 import { createTokenMatcher, extractTokenNames } from '@/mcp/tools/code/tokens/extract'
 import { processTokens } from '@/mcp/tools/code/tokens/process'
-import { rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
+import { createTokenNameRewriter } from '@/mcp/tools/code/tokens/rewrite'
 import { buildSourceNameIndex } from '@/mcp/tools/code/tokens/source-index'
 import { applyPluginTransformToNames } from '@/mcp/tools/code/tokens/transform'
 import { resolveTokenDefsByIds } from '@/mcp/tools/token/defs'
+import { stringifyComponent } from '@/utils/component'
 import { stripFallback } from '@/utils/css'
 
-vi.mock('@/utils/css', () => ({
+vi.mock('@/utils/css', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/css')>()),
   stripFallback: vi.fn((code: string) => code.replace('/*fallback*/', ''))
 }))
 
@@ -21,7 +24,7 @@ vi.mock('@/mcp/tools/code/tokens/extract', () => ({
 }))
 
 vi.mock('@/mcp/tools/code/tokens/rewrite', () => ({
-  rewriteTokenNamesInCode: vi.fn((code: string) => code)
+  createTokenNameRewriter: vi.fn(() => (code: string) => code)
 }))
 
 vi.mock('@/mcp/tools/code/tokens/source-index', () => ({
@@ -43,9 +46,9 @@ const CONFIG: CodegenConfig = {
 }
 
 const baseInput = () => ({
-  code: 'const a = "/*fallback*/ var(--token)";',
+  component: raw('const a = "/*fallback*/ var(--token)";'),
+  serialize: (component: ReturnType<typeof raw>) => stringifyComponent(component, 'jsx'),
   variableIds: new Set<string>(['var-1']),
-  usedCandidateIds: new Set<string>(),
   variableCache: new Map<string, Variable | null>(),
   styles: new Map<string, Record<string, string>>(),
   textSegments: new Map<string, StyledTextSegment[] | null>(),
@@ -114,7 +117,7 @@ describe('tokens/process processTokens', () => {
       rewriteMap: new Map([['--token', '--renamed']]),
       finalBridge: new Map([['--renamed', 'var-1']])
     })
-    vi.mocked(rewriteTokenNamesInCode).mockReturnValue('const a = "var(--renamed)";')
+    vi.mocked(createTokenNameRewriter).mockReturnValue(() => 'const a = "var(--renamed)";')
     vi.mocked(resolveTokenDefsByIds).mockResolvedValue({
       '--renamed': {
         kind: 'color',
@@ -207,7 +210,7 @@ describe('tokens/process processTokens', () => {
     expect(report).toHaveBeenCalledWith('token-definition', 'Variable var-1 is unavailable.')
   })
 
-  it('merges candidate ids and records used-stage stamp with partial rename map', async () => {
+  it('merges rendered font-face ids and records used-stage stamp with partial rename map', async () => {
     const matcher = vi.fn((value: string) => value.includes('--token'))
     const sourceIndex = new Map([
       ['--token', 'var-1'],
@@ -220,7 +223,7 @@ describe('tokens/process processTokens', () => {
       rewriteMap: new Map([['--token', '--renamed']]),
       finalBridge: new Map([['--renamed', 'var-1']])
     })
-    vi.mocked(rewriteTokenNamesInCode).mockReturnValue('short')
+    vi.mocked(createTokenNameRewriter).mockReturnValue(() => 'short')
     vi.mocked(resolveTokenDefsByIds).mockResolvedValue({
       '--renamed': {
         kind: 'color',
@@ -233,7 +236,8 @@ describe('tokens/process processTokens', () => {
     const result = await processTokens({
       ...baseInput(),
       resolveTokens: true,
-      usedCandidateIds: new Set(['var-2']),
+      fontStyleVariableIds: new Set(['var-2']),
+      variableCache: new Map([['var-2', { id: 'var-2', name: 'other' } as Variable]]),
       styles: new Map([
         [
           'node-a',

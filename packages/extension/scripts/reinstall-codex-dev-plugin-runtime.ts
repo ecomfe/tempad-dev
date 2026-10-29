@@ -1,6 +1,6 @@
-import { normalize, resolve } from 'node:path'
+import { isAbsolute, normalize, resolve } from 'node:path'
 
-import { exactPathPattern, type RuntimeProcess } from './agent-authoring-runtime-preflight'
+import { processRunsRuntimeEntry, type RuntimeProcess } from './agent-authoring-runtime-preflight'
 
 export const devPluginName = 'tempad-dev-dev'
 export const devPluginId = `${devPluginName}@${devPluginName}`
@@ -12,6 +12,8 @@ export type ReinstallArguments = {
   pageUrl?: string
   restartCodex: boolean
   resumeAfterRestart: boolean
+  resumeThread?: string
+  reportPath?: string
   timeoutMs: number
   version?: string
 }
@@ -24,7 +26,9 @@ const BOOLEAN_FLAGS = {
 const VALUE_FLAGS = {
   '--app-path': 'appPath',
   '--cdp-url': 'cdpUrl',
-  '--page-url': 'pageUrl'
+  '--page-url': 'pageUrl',
+  '--resume-thread': 'resumeThread',
+  '--report-path': 'reportPath'
 } as const
 
 export function parseReinstallArguments(argv: string[]): ReinstallArguments | null {
@@ -62,7 +66,30 @@ export function parseReinstallArguments(argv: string[]): ReinstallArguments | nu
     if (args.version) throw new Error(`Unexpected positional argument: ${argument}`)
     args.version = argument
   }
+  if (args.restartCodex && args.resumeAfterRestart) throw new Error('Use only one restart mode.')
+  if (args.restartCodex) args.resumeThread ??= process.env.CODEX_THREAD_ID
+  if (args.resumeThread) assertThreadId(args.resumeThread)
+  if ((args.restartCodex || args.resumeAfterRestart) && !args.resumeThread)
+    throw new Error('Restart requires --resume-thread or CODEX_THREAD_ID to restore the task.')
+  if (args.resumeAfterRestart && !args.reportPath)
+    throw new Error('Detached restart requires its saved --report-path.')
+  if (args.reportPath && !isAbsolute(args.reportPath))
+    throw new Error('--report-path must be absolute.')
   return { ...args, cdpPort: localCdpPort(args.cdpUrl) }
+}
+
+export function assertThreadId(id: string): void {
+  if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(id))
+    throw new Error('Expected a Codex thread UUID for --resume-thread.')
+}
+
+export function threadPageUrl(pageUrl: string, threadId: string): string {
+  assertThreadId(threadId)
+  selectCodexPageUrl([pageUrl])
+  const url = new URL(pageUrl)
+  url.searchParams.set('initialRoute', `/local/${threadId}`)
+  url.hash = ''
+  return url.href
 }
 
 export function resolveDevPluginVersion(input: unknown, requested?: string): string {
@@ -113,7 +140,7 @@ export async function inspectDevPlugin(
   runCodex: (args: string[]) => Promise<unknown>,
   pluginRoot: string,
   version?: string
-): Promise<void> {
+): Promise<boolean> {
   const listed = objectValue(
     await runCodex(['plugin', 'list', '--available', '--json', '--marketplace', devPluginName])
   )
@@ -128,12 +155,56 @@ export async function inspectDevPlugin(
   }
   const entry = candidates[0]!
   assertLocalPlugin(entry, pluginRoot)
+  if (typeof entry.installed !== 'boolean')
+    throw new Error('Codex did not report whether the development plugin is installed.')
   if (
     version &&
     (entry.installed !== true || entry.enabled !== true || entry.version !== version)
   ) {
     throw new Error(`The installed development plugin is not enabled at version ${version}.`)
   }
+  return entry.installed
+}
+
+/** An empty snapshot is insufficient: a host can respawn its MCP process after uninstall. */
+export async function stopRuntimeProcesses(
+  list: () => Promise<number[]>,
+  terminate: (pid: number) => void,
+  options: {
+    timeoutMs?: number
+    quietMs?: number
+    sleep?: (ms: number) => Promise<void>
+    now?: () => number
+  } = {}
+): Promise<number[]> {
+  const {
+    timeoutMs = 15_000,
+    quietMs = 1500,
+    sleep = (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    now = Date.now
+  } = options
+  const stopped = await list()
+  for (const pid of stopped) {
+    try {
+      terminate(pid)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    }
+  }
+  const deadline = now() + timeoutMs
+  let quietSince: number | undefined
+  do {
+    const remaining = await list()
+    if (remaining.some((pid) => !stopped.includes(pid)))
+      throw new Error(
+        'Checkout MCP processes respawned after uninstall; stop the owning host before reinstalling.'
+      )
+    if (remaining.length) quietSince = undefined
+    else quietSince ??= now()
+    if (quietSince !== undefined && now() - quietSince >= quietMs) return stopped
+    await sleep(250)
+  } while (now() < deadline)
+  throw new Error('Timed out waiting for this checkout’s MCP processes to remain stopped.')
 }
 
 export function localCdpPort(value: string): number {
@@ -194,14 +265,17 @@ export function selectCodexPageUrl(urls: string[], requested?: string): string {
 
 export function matchingProcesses(processes: RuntimeProcess[], executable: string): number[] {
   return processes
-    .filter(({ command }) => command === executable || command.startsWith(`${executable} `))
+    .filter(
+      (process) =>
+        process.executable === executable &&
+        (process.command === executable || process.command.startsWith(`${executable} `))
+    )
     .map(({ pid }) => pid)
 }
 
 export function checkoutRuntimeProcesses(processes: RuntimeProcess[], entries: string[]): number[] {
-  const patterns = entries.map(exactPathPattern)
   return processes
-    .filter(({ command }) => patterns.some((pattern) => pattern.test(command)))
+    .filter((process) => entries.some((entry) => processRunsRuntimeEntry(process, entry)))
     .map(({ pid }) => pid)
 }
 

@@ -13,9 +13,9 @@ import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { access, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import process from 'node:process'
 import { clearTimeout, setTimeout } from 'node:timers'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -35,10 +35,13 @@ if (process.platform === 'win32') {
   )
 }
 
+// Also accepts an unpacked/installed package, using the same frozen receiving fixtures.
+const packageDir = resolve(process.argv[2] ?? fileURLToPath(new URL('..', import.meta.url)))
+await Promise.all(['hub.mjs', 'cli.mjs'].map((file) => access(join(packageDir, 'dist', file))))
 // Exercise the shipped Hub, without connecting to the user's Hub or Figma sessions.
 // A dedicated Origin allowlist prevents the browser from joining this test Hub.
 const origin = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-const directory = await mkdtemp(join(tmpdir(), 'tempad-bridge-'))
+const directory = await realpath(await mkdtemp(join(tmpdir(), 'tempad-bridge-')))
 const peers = []
 const failures = []
 const metricSamples = []
@@ -55,7 +58,7 @@ const environment = {
   TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT: '2000',
   TEMPAD_MCP_AUTO_ACTIVATE_GRACE: '10'
 }
-const hub = spawn(process.execPath, [fileURLToPath(new URL('../dist/hub.mjs', import.meta.url))], {
+const hub = spawn(process.execPath, [join(packageDir, 'dist/hub.mjs')], {
   env: environment,
   stdio: ['ignore', 'ignore', 'pipe']
 })
@@ -67,7 +70,7 @@ hub.on('error', (error) => failures.push(error))
 const client = new Client({ name: 'bridge-test', version: '1.0.0' })
 const transport = new StdioClientTransport({
   command: process.execPath,
-  args: [fileURLToPath(new URL('../dist/cli.mjs', import.meta.url))],
+  args: [join(packageDir, 'dist/cli.mjs')],
   env: environment,
   stderr: 'pipe'
 })
@@ -598,13 +601,83 @@ try {
     replacementCount,
     'disconnected tasks cannot fall back to legacy'
   )
+  // Opt in independently of the wire version; previously released peers above
+  // keep their frozen receiving schemas and never receive completion envelopes.
+  const receiptSession = {
+    sessionId: 'receipt-session',
+    fileKey: 'receipt-file',
+    fileName: 'Receipt fixture',
+    pageId: 'receipt-page',
+    tabId: 42,
+    documentId: 'receipt-document',
+    busy: false
+  }
+  const receiptPeer = async () => {
+    const extension = await peer(port, false)
+    assert.equal(typeof extension.frames[0].terminalReceiptGeneration, 'string')
+    send(extension, {
+      type: 'runtimeHello',
+      protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+      extensionVersion: '0.23.4',
+      extensionRuntimeFingerprint: 'c'.repeat(64),
+      terminalReceipts: true
+    })
+    send(extension, {
+      type: 'sessions',
+      browserId: 'receipt-browser',
+      activeSessionId: receiptSession.sessionId,
+      sessions: [receiptSession]
+    })
+    await activate(extension)
+    return extension
+  }
+  const originalReceiptPeer = await receiptPeer()
+  const lostWrite = call('apply_canvas', {
+    mode: 'create',
+    markup: '<div class="w-10 h-10"></div>'
+  })
+  await until(() => originalReceiptPeer.calls.length === 1, 'receipt write dispatch')
+  const lostCall = originalReceiptPeer.calls[0]
+  assert.ok(lostCall.terminalReceipt)
+  originalReceiptPeer.socket.close()
+  await once(originalReceiptPeer.socket, 'close')
+  assert.match(JSON.stringify(await lostWrite), /EXTENSION_DISCONNECTED/)
+  const reconnectedReceiptPeer = await receiptPeer()
+  assert.equal(
+    (await call('get_structure')).isError,
+    true,
+    'same-document idle must not release the write'
+  )
+  const completion = { type: 'toolCompletion', id: lostCall.id, ...lostCall.terminalReceipt }
+  send(reconnectedReceiptPeer, completion)
+  await until(
+    () =>
+      reconnectedReceiptPeer.frames.some(
+        (frame) => frame.type === 'toolCompletionAck' && frame.id === lostCall.id && frame.accepted
+      ),
+    'same-Hub receipt acknowledgment'
+  )
+  reconnectedReceiptPeer.respond = () => structure
+  assert.deepEqual((await call('get_structure')).structuredContent, structure)
+  send(reconnectedReceiptPeer, completion)
+  await until(
+    () =>
+      reconnectedReceiptPeer.frames.filter(
+        (frame) => frame.type === 'toolCompletionAck' && frame.id === lostCall.id && frame.accepted
+      ).length === 2,
+    'duplicate receipt acknowledgment'
+  )
   assert.deepEqual(failures, [])
   if (metricSamples.length) {
     process.stdout.write(`Bridge byte samples: ${JSON.stringify(metricSamples)}\n`)
   }
   process.stdout.write(
-    'Bridge compatibility passed: protocol 13 reads/writes/tasks/assets/reconnect, legacy reads/assets/reconnect, upgrade errors, current routing and task fences.\n'
+    'Bridge compatibility passed: protocol 13 reads/writes/tasks/assets/reconnect, legacy reads/assets/reconnect, upgrade errors, current routing/task fences and negotiated terminal receipts.\n'
   )
+} catch (error) {
+  throw new Error(`Bridge compatibility failed. Child diagnostics:\n${stderr.slice(-16_384)}`, {
+    cause: error
+  })
 } finally {
   for (const peer of peers) peer.socket.terminate()
   await client.close()

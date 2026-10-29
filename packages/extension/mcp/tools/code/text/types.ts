@@ -28,7 +28,7 @@ export const TYPO_FIELDS = [
   'paragraphIndent'
 ] as const
 
-export const NEWLINE_RE = /\r\n|[\n\r\u2028\u2029]/
+export const PARAGRAPH_BREAK_RE = /\r\n|[\n\r\u2029]/
 
 export type BlockType = 'paragraph' | 'ordered-list' | 'unordered-list'
 
@@ -46,6 +46,7 @@ export interface TextLine {
     listType: 'ORDERED' | 'UNORDERED' | 'NONE'
     indentation: number
     listSpacing: number
+    paragraphIndent: number
     paragraphSpacing: number
   }
 }
@@ -54,6 +55,7 @@ export interface TextBlock {
   type: BlockType
   lines: TextLine[]
   attrs: TextLine['attrs']
+  paragraphLayout?: true
 }
 
 export type TokenRef = { id: string; name: string }
@@ -104,6 +106,7 @@ export const REQUESTED_SEGMENT_FIELDS: SegmentFieldForRequest[] = [
   'textDecorationColor',
   'textDecorationSkipInk',
   'paragraphSpacing',
+  'paragraphIndent',
   'indentation',
   'listOptions',
   'fills',
@@ -115,6 +118,7 @@ export const REQUESTED_SEGMENT_FIELDS: SegmentFieldForRequest[] = [
 
 export type RenderTextSegmentsOptions = {
   inheritedTextStyle?: Record<string, string>
+  nodeTextStyle?: Record<string, string>
   segments?: StyledTextSegmentSubset[] | null
 }
 

@@ -35,10 +35,6 @@ export function escapeHTML(str: string) {
   return str.replace(ESCAPE_RE, (match) => ESCAPE_MAP[match]!)
 }
 
-export function looseEscapeHTML(str: string) {
-  return str.replaceAll('"', '&quot;')
-}
-
 const JS_SINGLE_QUOTE_ESCAPE_RE = /['\\\r\n\u2028\u2029]/g
 const JS_TEMPLATE_LITERAL_ESCAPE_RE = /[`\\]|\$\{/g
 
@@ -68,8 +64,45 @@ export function escapeJsTemplateLiteralText(str: string) {
   )
 }
 
-export function stringify(value: unknown) {
-  return stringifyObject(value, { indent: '  ' })
+const JS_PROPERTY_NAME_RE = /^[$_\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*$/u
+
+export function stringify(value: unknown): string {
+  const ancestors = new Set<object>()
+
+  function serialize(value: unknown, pad: string): string {
+    if (value === null || typeof value !== 'object') {
+      return stringifyObject(value, { indent: '  ' })
+    }
+    const array = Array.isArray(value)
+    const prototype = Object.getPrototypeOf(value)
+    if (!array && prototype !== Object.prototype && prototype !== null) {
+      return stringifyObject(value, { indent: '  ' })
+    }
+    if (ancestors.has(value)) return '"[Circular]"'
+
+    // The library drops own __proto__ keys. Serialize data containers directly
+    // so this key remains a property when the generated expression is evaluated.
+    ancestors.add(value)
+    const indent = `${pad}  `
+    const entries = array
+      ? value.map((item) => `${indent}${serialize(item, indent)}`)
+      : Reflect.ownKeys(value)
+          .filter((key) => Object.prototype.propertyIsEnumerable.call(value, key))
+          .map((key) => {
+            const name =
+              typeof key === 'symbol' || key === '__proto__'
+                ? `[${stringifyObject(key)}]`
+                : JS_PROPERTY_NAME_RE.test(key)
+                  ? key
+                  : stringifyObject(key)
+            return `${indent}${name}: ${serialize(Reflect.get(value, key), indent)}`
+          })
+    ancestors.delete(value)
+    const [open, close] = array ? ['[', ']'] : ['{', '}']
+    return entries.length ? `${open}\n${entries.join(',\n')}\n${pad}${close}` : `${open}${close}`
+  }
+
+  return serialize(value, '')
 }
 
 export function indentAll(str: string, indent: string, skipFirst = false) {

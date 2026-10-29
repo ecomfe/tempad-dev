@@ -98,13 +98,8 @@ const GetCodeResultSchema = z.object({
 ## Testing notes
 
 - Follow repo-wide testing workflow in `TESTING.md`.
-- Coverage architecture and strict pure inventory are documented in `docs/testing/architecture.md`.
+- Coverage architecture is documented in [`docs/testing/architecture.md`](../../docs/testing/architecture.md).
 - Keep pure-function tests under `tests/**/*.test.ts`.
-- Strict pure coverage in this package targets:
-  - `src/index.ts`
-  - `src/mcp/constants.ts`
-  - `src/mcp/errors.ts`
-  - `src/mcp/index.ts`
-  - `src/mcp/protocol.ts`
-  - `src/mcp/tools.ts`
+- Coverage scope and thresholds come from [`vitest.coverage.ts`](../../vitest.coverage.ts)
+  and are applied by this package's [`vitest.config.ts`](vitest.config.ts).
 - Validate schema changes downstream in this order: `shared` -> `mcp-server` -> `extension`.

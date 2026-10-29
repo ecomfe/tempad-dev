@@ -4,6 +4,9 @@ const files = vi.hoisted(() => new Map<string, string>())
 vi.mock('node:fs', () => ({
   existsSync: (path: string) => files.has(path),
   mkdirSync: () => {},
+  openSync: () => 1,
+  fsyncSync: () => {},
+  closeSync: () => {},
   readFileSync: (path: string) => {
     if (!files.has(path)) throw Object.assign(new Error('Missing'), { code: 'ENOENT' })
     return files.get(path)
@@ -16,10 +19,138 @@ vi.mock('node:fs', () => ({
 }))
 
 import { DesignTaskStore } from '../src/design-task-store'
+import { DesignTasks } from '../src/design-tasks'
+import { HISTORY_RETENTION_MS } from '../src/history-retention'
 
 beforeEach(() => files.clear())
 
 describe('task snapshot recovery', () => {
+  it.each(['__proto__', 'constructor', 'toString', 'ordinary'])(
+    'preserves the current review and compacted Stop fence for file %s',
+    (fileKey) => {
+      const path = '/state/tasks.json'
+      let time = 1000
+      const target = {
+        fileKey,
+        fileName: 'Design',
+        sessionId: 'session',
+        pageId: 'page',
+        busy: false
+      }
+      const tasks = new DesignTasks({
+        store: new DesignTaskStore(path),
+        createId: () => 'task',
+        now: () => time
+      })
+      const record = tasks.begin('owner', 'extension', target, 'Design', 'request')
+      const restart = () => {
+        const restored = new DesignTasks({
+          store: new DesignTaskStore(path),
+          createId: () => 'unused',
+          now: () => time
+        })
+        restored.restore()
+        return restored
+      }
+      expect.soft(restart().current(fileKey)?.task.status).toBe('paused')
+      tasks.stop(record.task.taskId, 'cancelled')
+      expect.soft(restart().current(fileKey)?.task.status).toBe('cancelled')
+      time += HISTORY_RETENTION_MS
+      tasks.sweep()
+      const snapshot = new DesignTaskStore(path).load()!
+      expect(snapshot.records).toEqual([])
+      expect.soft(Object.hasOwn(snapshot.fileFences!, fileKey)).toBe(true)
+      expect(Object.getPrototypeOf(snapshot.fileFences)).toBe(Object.prototype)
+      expect(() => restart().checkOperation('owner', target, undefined, true)).toThrow(
+        'stopped task'
+      )
+    }
+  )
+
+  it.each(['current', 'fileFences'])(
+    'fences an invalid __proto__ value in %s instead of silently dropping it',
+    (field) => {
+      files.set(
+        '/state/tasks.json',
+        JSON.stringify({
+          revision: 1,
+          current: {},
+          records: [],
+          [field]: { ['__proto__']: 42 }
+        })
+      )
+      const store = new DesignTaskStore('/state/tasks.json')
+      expect(store.load()).toBeUndefined()
+      expect(store.recoveryError).toContain('Stop fences')
+    }
+  )
+
+  it('retains only matching incompatible current pointers through task restore and save', () => {
+    const future = {
+      task: {
+        taskId: 'future',
+        title: 'Future',
+        target: { fileKey: 'blocked-file', fileName: 'File', sessionId: 'session', pageId: 'page' },
+        status: 'future-status',
+        operation: null,
+        expiresAt: 1000,
+        revision: 1
+      },
+      requestId: 'future-request'
+    }
+    files.set(
+      '/state/tasks.json',
+      JSON.stringify({
+        revision: 1,
+        current: { 'blocked-file': 'future', 'mismatched-file': 'future', dangling: 'missing' },
+        records: [future]
+      })
+    )
+    const store = new DesignTaskStore('/state/tasks.json')
+    const tasks = new DesignTasks({ store, createId: () => 'new', now: () => 1000 })
+    tasks.restore()
+    expect(tasks.current('blocked-file')).toBeUndefined()
+    expect(store.blockedFiles).toEqual(new Set(['blocked-file']))
+    const other = {
+      sessionId: 'other',
+      fileKey: 'other',
+      fileName: 'Other',
+      pageId: 'page',
+      busy: false
+    }
+    expect(() =>
+      tasks.begin('owner', 'extension', { ...other, fileKey: 'blocked-file' }, 'New', 'r')
+    ).toThrow(/upgrade TemPad Dev MCP/i)
+    tasks.begin('owner', 'extension', other, 'Other', 'request')
+    const persisted = JSON.parse(files.get('/state/tasks.json')!)
+    expect(persisted.current).toEqual({ 'blocked-file': 'future', other: 'new' })
+    expect(persisted.records).toContainEqual(future)
+
+    // Simulate the newer reader recognizing this status, without inventing a current pointer.
+    persisted.records.find(
+      (record: { task: { taskId: string } }) => record.task.taskId === 'future'
+    ).task.status = 'paused'
+    files.set('/state/tasks.json', JSON.stringify(persisted))
+    const upgraded = new DesignTasks({
+      store: new DesignTaskStore('/state/tasks.json'),
+      createId: () => 'unused',
+      now: () => 1000
+    })
+    upgraded.restore()
+    expect(upgraded.current('blocked-file')?.task).toMatchObject({
+      taskId: 'future',
+      status: 'paused'
+    })
+    expect(upgraded.current('mismatched-file')).toBeUndefined()
+    expect(upgraded.current('dangling')).toBeUndefined()
+    expect(
+      upgraded.resume('future', 'restored:future', 1, {
+        ...future.task.target,
+        busy: false
+      }).task.status
+    ).toBe('active')
+  })
+
   it('isolates an incompatible record to its file and preserves its fence when saving valid tasks', () => {
     const incompatible = {
       task: { taskId: 'future', target: { fileKey: 'blocked-file' }, status: 'future-status' }
@@ -109,5 +240,55 @@ describe('task snapshot recovery', () => {
     }
     store.save(snapshot)
     expect(new DesignTaskStore('/state/tasks.json').load()).toEqual(snapshot)
+  })
+
+  it('round-trips read requirements as identifiable file fences for older readers', () => {
+    const store = new DesignTaskStore('/state/tasks.json')
+    const snapshot = {
+      revision: 2,
+      current: {},
+      records: [],
+      filesNeedingRead: ['interrupted-file']
+    }
+    store.save(snapshot)
+    expect(JSON.parse(files.get('/state/tasks.json')!).records).toContainEqual({
+      readRequired: true,
+      task: { target: { fileKey: 'interrupted-file' } }
+    })
+    expect(new DesignTaskStore('/state/tasks.json').load()).toEqual(snapshot)
+  })
+
+  it('preserves future read markers while loading known markers and recovery generations', () => {
+    const future = {
+      readRequired: true,
+      task: { target: { fileKey: 'future-file' } },
+      futureRequirement: { nodeId: '1:1' }
+    }
+    const generation = '00000000-0000-4000-8000-000000000001'
+    files.set(
+      '/state/tasks.json',
+      JSON.stringify({
+        revision: 1,
+        current: {},
+        records: [
+          { recoveryGeneration: generation },
+          { readRequired: true, task: { target: { fileKey: 'known-file' } } },
+          future
+        ]
+      })
+    )
+    const store = new DesignTaskStore('/state/tasks.json')
+    const snapshot = store.load()!
+    expect(snapshot).toMatchObject({
+      filesNeedingRead: ['known-file'],
+      recoveryGeneration: generation,
+      records: []
+    })
+    expect(store.blockedFiles).toEqual(new Set(['future-file']))
+    store.save(snapshot)
+    expect(JSON.parse(files.get('/state/tasks.json')!).records).toContainEqual(future)
+    const restarted = new DesignTaskStore('/state/tasks.json')
+    expect(restarted.load()).toEqual(snapshot)
+    expect(restarted.blockedFiles).toEqual(new Set(['future-file']))
   })
 })

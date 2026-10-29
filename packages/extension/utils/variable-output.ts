@@ -1,7 +1,7 @@
 import type { FigmaLookupReaders } from './figma-style/types'
 
 import { CANVAS_COUNTER_AXIS_SYNC_NAME, CANVAS_KEY_NAMESPACE } from './canvas-metadata'
-import { normalizeCustomPropertyName, replaceVarFunctions } from './css'
+import { normalizeCustomPropertyName, replaceVarFunctions, transformCssValue } from './css'
 import {
   collectNodeVariableIds,
   getSingleVariableId,
@@ -26,7 +26,7 @@ type VariableProjectionContext = {
   variablesByCodeSyntax: Map<string, Variable>
   variableSyntax?: Record<string, string>
 }
-type CodeSyntaxReplacement = { syntax: string; value: string; pattern: RegExp | null }
+type CodeSyntaxReplacement = { value: string; pattern: RegExp | null }
 
 export type FormattedStyle = {
   style: Record<string, string>
@@ -100,6 +100,7 @@ function buildVariableProjectionContext(
 ): VariableProjectionContext {
   const variablesById = new Map<string, Variable>()
   const variablesByCodeSyntax = new Map<string, Variable>()
+  const ambiguousSyntax = new Set<string>()
   const variableSyntax: Record<string, string> = {}
 
   for (const id of nodeVariableIds ?? collectNodeVariableIds(node, readers)) {
@@ -111,8 +112,13 @@ function buildVariableProjectionContext(
     if (!value) continue
 
     const syntax = value.trim()
-    if (syntax && !variablesByCodeSyntax.has(syntax)) {
-      variablesByCodeSyntax.set(syntax, variable)
+    if (syntax && !ambiguousSyntax.has(syntax)) {
+      if (variablesByCodeSyntax.has(syntax)) {
+        variablesByCodeSyntax.delete(syntax)
+        ambiguousSyntax.add(syntax)
+      } else {
+        variablesByCodeSyntax.set(syntax, variable)
+      }
     }
 
     const name = getVariableCssName(variable)
@@ -173,23 +179,22 @@ function rewriteKnownCodeSyntaxValues(
   let tokenReplacements: CodeSyntaxReplacement[] | undefined
   for (const [key, value] of Object.entries(style)) {
     if (!value) continue
-    const exact = replacements.find((entry) => value.trim() === entry.syntax)
-    if (exact) {
-      style[key] = exact.value
-      continue
-    }
+    style[key] = transformCssValue(value, (value) => {
+      const exact = replacements.find((entry) => value.trim() === entry.syntax)
+      if (exact) return exact.value
 
-    tokenReplacements ??= replacements.map(({ syntax, value }) => ({
-      syntax,
-      value,
-      pattern: /\s/.test(syntax)
-        ? null
-        : new RegExp(
-            `(^|[^A-Za-z0-9_-])(${syntax.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?=[^A-Za-z0-9_-]|$)`,
-            'g'
-          )
-    }))
-    style[key] = replaceKnownCodeSyntaxTokens(value, tokenReplacements)
+      tokenReplacements ??= replacements.map(({ syntax, value }) => ({
+        value,
+        // NUL-delimited literal/var placeholders must stay opaque even to numeric syntax.
+        pattern: /\s/.test(syntax)
+          ? null
+          : new RegExp(
+              `(^|[^A-Za-z0-9_\0-])(${syntax.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?=[^A-Za-z0-9_\0-]|$)`,
+              'g'
+            )
+      }))
+      return replaceKnownCodeSyntaxTokens(value, tokenReplacements)
+    })
   }
 }
 
@@ -198,8 +203,10 @@ function replaceKnownCodeSyntaxTokens(
   replacements: CodeSyntaxReplacement[]
 ): string {
   const placeholders: string[] = []
+  let delimiter = '\0'
+  while (value.includes(delimiter)) delimiter += '\0'
   let out = replaceVarFunctions(value, ({ full }) => {
-    const token = `__VAR_${placeholders.length}__`
+    const token = `${delimiter}${placeholders.length}${delimiter}`
     placeholders.push(full)
     return token
   })
@@ -209,9 +216,9 @@ function replaceKnownCodeSyntaxTokens(
     out = out.replace(pattern, (_match, prefix: string) => `${prefix}${replacement}`)
   }
 
-  return placeholders.reduce(
-    (next, placeholder, index) => next.replace(`__VAR_${index}__`, placeholder),
-    out
+  return out.replace(
+    new RegExp(`${delimiter}(\\d+)${delimiter}`, 'g'),
+    (_match, index: string) => placeholders[Number(index)]!
   )
 }
 

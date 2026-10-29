@@ -7,6 +7,7 @@ let host: HTMLElement | undefined
 afterEach(() => {
   stop?.()
   host?.remove()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -78,4 +79,52 @@ it('reuses tooltip membership while still measuring visibility, geometry and DOM
   stop = observeCanvasOverlay(receive)
   expect(scans()).toBe(beforeResubscribe + 1)
   expect(receive.mock.lastCall?.[0].tooltips).toEqual([])
+})
+
+it('wakes idle overlays before descendant activity stops propagating and removes capture listeners', () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const now = vi.spyOn(performance, 'now').mockReturnValue(0)
+  const frames = new Map<number, FrameRequestCallback>()
+  let frameId = 0
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    frames.set(++frameId, callback)
+    return frameId
+  })
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+    frames.delete(id)
+  })
+  vi.stubGlobal('figma', {
+    fileKey: 'file-a',
+    currentPage: { id: 'page-a', selection: [] },
+    viewport: { bounds: { x: 0, y: 0, width: 600, height: 500 }, zoom: 1 }
+  })
+  host = document.createElement('div')
+  host.id = 'fullscreen-root'
+  host.innerHTML =
+    '<div class="gpu-view-content"><canvas style="width:600px;height:500px"></canvas></div>'
+  const target = document.createElement('button')
+  host.append(target)
+  document.body.append(host)
+  const stopPropagation = vi.fn((event: Event) => event.stopPropagation())
+  target.addEventListener('pointermove', stopPropagation)
+  const observer = vi.fn()
+  stop = observeCanvasOverlay(observer)
+  expect(observer).toHaveBeenCalledOnce()
+  now.mockReturnValue(1000)
+  const [id, callback] = [...frames][0]!
+  frames.delete(id)
+  callback(1000)
+  expect(frames.size).toBe(0)
+  expect(vi.getTimerCount()).toBe(1)
+  target.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }))
+  expect(stopPropagation).toHaveBeenCalledOnce()
+  expect(frames.size).toBe(1)
+  expect(vi.getTimerCount()).toBe(0)
+  stop()
+  expect(frames.size).toBe(0)
+  expect(vi.getTimerCount()).toBe(0)
+  now.mockClear()
+  target.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }))
+  expect(frames.size).toBe(0)
+  expect(now).not.toHaveBeenCalled()
 })

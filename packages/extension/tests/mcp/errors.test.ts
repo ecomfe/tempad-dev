@@ -1,9 +1,21 @@
 import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 import { describe, expect, it } from 'vitest'
 
-import { coerceToolErrorPayload, createCodedError } from '@/mcp/errors'
+import { canvasAbortedError, coerceToolErrorPayload, createCodedError } from '@/mcp/errors'
 
 describe('mcp/errors', () => {
+  it('marks proven pre-execution rejection without losing its original diagnostic', () => {
+    const cause = createCodedError(TEMPAD_MCP_ERROR_CODES.DESIGN_TARGET_CHANGED, 'Wrong file')
+    const error = canvasAbortedError(cause)
+    expect(error).toMatchObject({ code: 'CANVAS_APPLY_ABORTED', cause })
+    expect(coerceToolErrorPayload(error)).toEqual({
+      code: 'CANVAS_APPLY_ABORTED',
+      message: 'Wrong file [DESIGN_TARGET_CHANGED]'
+    })
+    expect(canvasAbortedError(error).message).toBe(error.message)
+    expect(canvasAbortedError(new Error('Invalid input')).message).toBe('Invalid input')
+  })
+
   it('creates coded errors with message and code', () => {
     const error = createCodedError(TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION, 'bad request')
 

@@ -136,6 +136,10 @@ Capture, compare, and promote accept the same `--group` or `--only` selection an
 
 The capture checks the selected agent, compares displayed commands against `AGENT_INTEGRATIONS` from the shared package, and verifies the declared purpose text. It also checks that the crop contains the complete dialog. Changing package versions, installation paths, skills, or dialog copy requires refreshing these images; do not rely on PNG dimensions alone to establish freshness.
 
+Canvas-painted details cannot be verified by DOM assertions. The manifest's
+`visualReview` requirements appear in every relevant comparison row; confirm those
+pixels before promotion, including all four measurement labels in the measure scene.
+
 Setup captures use `screenshots/dialog-capture.mjs` to isolate the real dialog on a transparent browser surface. The capture temporarily hides surrounding page content and the modal backdrop, omits the outside shadow, and restores those overrides in `finally`. It preserves the dialog’s native geometry, colors, text, and antialiased rounded corners. Keep the resulting RGBA PNG: do not flatten it against the gray overlay or a theme-specific background. Review all four corners on both light and dark backgrounds before promotion. This is capture-only styling; do not change the shipped dialog to fix screenshot composition.
 
 If setup content needs scrolling, declare separate views in the manifest with exact scroll targets and visible assertions. Do not expand the dialog using injected styles or silently crop out a skill command. Keep screenshots faithful to the shipped interface.

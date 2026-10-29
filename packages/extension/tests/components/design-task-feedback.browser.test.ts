@@ -7,7 +7,7 @@ import type {
 } from '@tempad-dev/shared'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { page, userEvent } from 'vitest/browser'
+import { cdp, page, userEvent } from 'vitest/browser'
 import { defineComponent, h, nextTick, shallowRef } from 'vue'
 
 import DesignTaskStatus from '@/components/DesignTaskStatus.vue'
@@ -1470,6 +1470,64 @@ describe('element feedback drafts', () => {
     ).toEqual(['Keep the button', 'Keep this heading'])
   })
 
+  it('uses a static nontext warning for unsaved comments with reduced motion', async () => {
+    await cdp().send('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-reduced-motion', value: 'reduce' }]
+    })
+    try {
+      await page.viewport(900, 700)
+      expect(window.matchMedia('(prefers-reduced-motion: reduce)').matches).toBe(true)
+      const f = fixture()
+      f.api.currentPage.selection = [f.nodes[0]!]
+      await expect.poll(() => document.querySelector('.tp-feedback-marker-add')).not.toBeNull()
+      click('.tp-feedback-marker-add')
+      const input = page.getByRole('textbox', { name: 'Element comment', exact: true })
+      await input.fill('Unsaved thought')
+      const outside = document.createElement('button')
+      outside.textContent = 'Outside editor'
+      Object.assign(outside.style, { position: 'fixed', left: '0', top: '0' })
+      f.host.append(outside)
+      await page.getByRole('button', { name: 'Outside editor', exact: true }).click()
+      await expect.poll(() => document.querySelector('.tp-feedback-editor-warned')).not.toBeNull()
+      const editor = document.querySelector<HTMLElement>('.tp-feedback-editor')!
+      expect(getComputedStyle(editor).animationName).toBe('none')
+      expect(getComputedStyle(editor).outlineStyle).toBe('solid')
+      expect(getComputedStyle(editor).outlineWidth).toBe('2px')
+      const luminance = (color: string) => {
+        const [r, g, b] = color
+          .match(/\d+/g)!
+          .slice(0, 3)
+          .map((channel) => {
+            const value = Number(channel) / 255
+            return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+          })
+        return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+      }
+      for (const surface of ['#fff', '#2c2c2c']) {
+        editor.style.setProperty('--color-bg', surface)
+        const style = getComputedStyle(editor)
+        const foreground = luminance(style.outlineColor)
+        const background = luminance(style.backgroundColor)
+        expect(
+          (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
+        ).toBeGreaterThanOrEqual(3)
+      }
+      editor.style.setProperty('--color-border-warning', '#c47800')
+      expect(getComputedStyle(editor).outlineColor).toBe('rgb(196, 120, 0)')
+      expect(editor.querySelector('[role="status"]')).toBeNull()
+      await expect.element(input).toHaveValue('Unsaved thought')
+      await input.fill('Revised thought')
+      expect(getComputedStyle(editor).outlineStyle).toBe('none')
+      await page.getByRole('button', { name: 'Outside editor', exact: true }).click()
+      await page.getByRole('button', { name: 'Outside editor', exact: true }).click()
+      await expect.poll(() => document.querySelector('.tp-feedback-editor')).toBeNull()
+      expect((await f.store.request({ operation: 'load', scope })).items).toHaveLength(0)
+      expect(f.send).not.toHaveBeenCalled()
+    } finally {
+      await cdp().send('Emulation.setEmulatedMedia', { features: [] })
+    }
+  })
+
   it('warns once before discarding an unsaved edit on outside click, and resets the warning after typing', async () => {
     await page.viewport(900, 700)
     const f = fixture()
@@ -2260,9 +2318,16 @@ describe('element feedback drafts', () => {
     done().click()
     await page.getByRole('button', { name: 'Discard comments and finish' }).click()
     await nextTick()
-    expect(done().disabled).toBe(true)
+    expect(done().matches(':disabled, [aria-disabled="true"]')).toBe(true)
+    await expect.poll(() => document.querySelector('[role="dialog"]')).toBeNull()
+    done().click()
+    await nextTick()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(f.requestDrafts.mock.calls.some(([request]) => request.operation === 'clear')).toBe(
+      false
+    )
     await finishSave()
-    await expect.poll(() => done().disabled).toBe(false)
+    await expect.poll(() => done().matches(':disabled, [aria-disabled="true"]')).toBe(false)
     expect(await f.store.request({ operation: 'load', scope })).toEqual({
       items: [],
       comment: 'Last guidance'

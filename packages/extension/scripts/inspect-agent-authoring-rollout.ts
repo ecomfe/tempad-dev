@@ -1,9 +1,8 @@
 import { Buffer } from 'node:buffer'
-import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
-import { decodeXmlText, inspectAgentRunIdentity } from './inspect-agent-run-identity'
+import { inspectAgentRun } from './inspect-agent-run-identity'
 import { parseRolloutRows } from './rollout-rows'
 
 interface NodeLimitAttempt {
@@ -13,7 +12,7 @@ interface NodeLimitAttempt {
 }
 
 interface AuthoringRolloutInspection {
-  execution: ReturnType<typeof inspectAgentRunIdentity>
+  execution: ReturnType<typeof inspectAgentRun>['identity']
   prompt: {
     text: string | null
     sha256: string | null
@@ -424,64 +423,6 @@ function completedToolEvents(parsedRows: unknown[]): CompletedToolEvent[] {
   })
 }
 
-function messageText(row: unknown): { role: string | null; text: string } | null {
-  if (get(row, 'type') !== 'response_item') return null
-  const payload = get(row, 'payload')
-  if (get(payload, 'type') !== 'message') return null
-  const content = get(payload, 'content')
-  if (!Array.isArray(content)) return null
-  return {
-    role: typeof get(payload, 'role') === 'string' ? String(get(payload, 'role')) : null,
-    text: content
-      .map((item) => (typeof get(item, 'text') === 'string' ? String(get(item, 'text')) : ''))
-      .join('\n')
-  }
-}
-
-function createThreadOutputText(row: unknown): string | null {
-  if (get(row, 'type') !== 'response_item') return null
-  const payload = get(row, 'payload')
-  if (
-    get(payload, 'type') !== 'function_call_output' ||
-    get(payload, 'namespace') !== 'codex_app' ||
-    get(payload, 'name') !== 'create_thread'
-  ) {
-    return null
-  }
-  const output = get(payload, 'output')
-  return typeof output === 'string' ? output : null
-}
-
-function normalizePrompt(value: string): string {
-  return value.trim().replaceAll(/\s+/g, ' ')
-}
-
-function extractPrompt(parsedRows: unknown[]): string | null {
-  const messages = parsedRows.flatMap((row) => {
-    const message = messageText(row)
-    return message ? [message] : []
-  })
-  const delegatedTexts = [
-    ...messages.map(({ text }) => text),
-    ...parsedRows.flatMap((row) => {
-      const output = createThreadOutputText(row)
-      return output ? [output] : []
-    })
-  ]
-  for (const text of delegatedTexts) {
-    const delegated = text.match(/<codex_delegation>[\s\S]*?<input>([\s\S]*?)<\/input>/)
-    if (delegated?.[1]) return normalizePrompt(decodeXmlText(delegated[1]))
-  }
-  const userMessages = messages
-    .filter(
-      ({ role, text }) =>
-        role === 'user' && !/<recommended_plugins>|<environment_context>/.test(text)
-    )
-    .map(({ text }) => normalizePrompt(text))
-    .filter(Boolean)
-  return userMessages.at(-1) ?? null
-}
-
 function skillResources(input: string): string[] {
   const normalized = input.replaceAll('\\/', '/').replaceAll('\\\\', '/')
   const expanded = normalized.replace(
@@ -516,14 +457,20 @@ function runtimeObservation(value: unknown, seen = new Set<unknown>()): RuntimeO
     const hubFingerprint = get(hub, 'runtimeFingerprint')
     const extensionFingerprint = get(extension, 'runtimeFingerprint')
     const issues = get(value, 'issues')
+    const complete = [hubFingerprint, extensionFingerprint].every(
+      (fingerprint) => typeof fingerprint === 'string' && /^[a-f0-9]{64}$/.test(fingerprint)
+    )
+    const identityIssues = Array.isArray(issues)
+      ? issues.filter((issue): issue is string => typeof issue === 'string')
+      : []
+    if (!complete)
+      identityIssues.push('An apply_canvas runtime identity is missing valid fingerprints.')
     return {
       locked,
-      valid,
+      valid: valid && complete,
       hubFingerprint: typeof hubFingerprint === 'string' ? hubFingerprint : null,
       extensionFingerprint: typeof extensionFingerprint === 'string' ? extensionFingerprint : null,
-      issues: Array.isArray(issues)
-        ? issues.filter((issue): issue is string => typeof issue === 'string')
-        : []
+      issues: identityIssues
     }
   }
   for (const nested of Object.values(value)) {
@@ -603,7 +550,7 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
     .map((row) => timestampMs(get(row, 'timestamp')))
     .filter((value): value is number => value !== null)
   const rolloutStartedMs = rowTimestamps.length ? Math.min(...rowTimestamps) : null
-  const prompt = extractPrompt(parsedRows)
+  const { identity: execution, prompt } = inspectAgentRun(rows)
   const finalResponseMs = parsedRows.reduce<number | null>((latest, row) => {
     const value = itemTimestampMs(row, 'AgentMessage')
     return value === null || (latest !== null && value <= latest) ? latest : value
@@ -748,10 +695,10 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
   }
 
   return {
-    execution: inspectAgentRunIdentity(rows),
+    execution,
     prompt: {
       text: prompt,
-      sha256: prompt ? createHash('sha256').update(prompt).digest('hex') : null,
+      sha256: execution.promptSha256,
       wordCount: prompt ? prompt.split(/\s+/).filter(Boolean).length : 0,
       characterCount: prompt?.length ?? 0
     },

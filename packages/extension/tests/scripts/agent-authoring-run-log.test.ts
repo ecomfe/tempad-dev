@@ -288,6 +288,57 @@ describe('agent authoring run log', () => {
     ).toThrow('consistent runtime evidence')
   })
 
+  it.each(['hub', 'extension'])('requires the %s fingerprint in every successful apply', (side) => {
+    const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')
+    const original = rollout()
+    const incompleteApply = original
+      .split('\n')
+      .find((line) => line.includes('apply_canvas'))!
+      .replace(
+        `"${side}":{"runtimeFingerprint":"${side === 'hub' ? hubFingerprint : extensionFingerprint}"}`,
+        `"${side}":{}`
+      )
+
+    expect(() =>
+      buildFinishEvent(
+        start,
+        review(),
+        {
+          source: '/tmp/incomplete-runtime.jsonl',
+          text: original + incompleteApply + '\n'
+        },
+        '2026-08-29T00:01:00.000Z'
+      )
+    ).toThrow('consistent runtime evidence')
+  })
+
+  it('rejects a host skill catalog change after the initial matching catalog', () => {
+    const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')
+    const source =
+      rollout() +
+      row({
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'developer',
+          content: [
+            {
+              type: 'input_text',
+              text: '<skills_instructions>\n- unrelated: Different skills. (file: /other/SKILL.md)\n</skills_instructions>'
+            }
+          ]
+        }
+      })
+    expect(() =>
+      buildFinishEvent(
+        start,
+        review(),
+        { source: '/tmp/changed-catalog.jsonl', text: source },
+        '2026-08-29T00:01:00.000Z'
+      )
+    ).toThrow('authoring skill verified at run start')
+  })
+
   it('rejects post-start prompt, runtime, skill, and artifact substitutions', () => {
     const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')
 
@@ -354,6 +405,46 @@ describe('agent authoring run log', () => {
           source: '/tmp/xml-escaped-prompt.jsonl',
           text: rollout({ prompt: 'Book Shape &amp; finish.' })
         },
+        '2026-08-29T00:01:00.000Z'
+      )
+    ).not.toThrow()
+  })
+
+  it('accepts a direct task following host metadata without treating assistant text as identity', () => {
+    const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')
+    const source =
+      rollout().replace(/<codex_delegation>.*?<\/codex_delegation>/, '') +
+      row({
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: `<environment_context>cwd</environment_context>${note().task.prompt}`
+            }
+          ]
+        }
+      }) +
+      row({
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [
+            {
+              type: 'output_text',
+              text: '<codex_delegation><input>Invented task</input></codex_delegation>'
+            }
+          ]
+        }
+      })
+    expect(() =>
+      buildFinishEvent(
+        start,
+        review(),
+        { source: '/tmp/direct-task.jsonl', text: source },
         '2026-08-29T00:01:00.000Z'
       )
     ).not.toThrow()

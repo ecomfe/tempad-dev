@@ -66,6 +66,9 @@ claude plugin install tempad-dev@tempad-dev
 设计任务的状态栏显示 agent 状态、Stop/Done 和评论入口。Stop 会立即阻止当前任务继续写入，
 在执行中的操作结束后永久取消该任务；重新连接也不会恢复它。后续设计工作需要明确开始新任务。
 
+正常配置只需完成 TemPad Dev 扩展设置并安装本插件，无需另行配置控制地址、
+环境变量或辅助服务。
+
 评论目前仅支持通过兼容 Codex App 的原生会话通道发送。Queue 将整批评论交给宿主的原生队列，
 等待会话可以执行时再处理。宿主确认接收后，TemPad Dev 会清空本批评论和标记、停止发送指示，
 并允许继续输入下一批；这表示已接收，不表示 agent 已完成修改。如果原生入队不可用，
@@ -89,13 +92,19 @@ Codex App 的任务绑定和状态同步使用 MCP 元数据及原生 IPC，不�
 宿主不可用时，本地取消仍然生效。Claude 保留生命周期和 Stop 通知 hooks；Claude、Codex CLI
 等尚未接入原生投递的客户端提供任务状态和 Stop/Done，但不显示评论入口，已有草稿不会删除。
 Claude 会在下一个启用 hook 的工具边界收到 Stop 通知。任务暂停可用新的 lease epoch 恢复，
-恢复后必须先重新读取画布才能写入；取消的任务不能恢复。详见
+恢复后必须先重新读取画布才能写入；取消的任务不能恢复。Agent 会遵守 Stop，不会自动创建
+替代任务；必要或用户要求的后续设计工作可以显式开始新任务，无需另行在 Figma 中解锁。
+只有实际持有目标会话的宿主确认支持时，才会启用 Codex 原生投递，无需手动配置连接。
+当前验证范围详见
 [任务与客户端设计](https://github.com/ecomfe/tempad-dev/blob/main/docs/extension/mcp-design-tasks.md)。
 
 原生适配器在 macOS/Linux 上使用 Unix socket，在 Windows 上使用 Codex 的本机 Named Pipe。
 已在 macOS Codex App 26.908.70816 上实测 Steer，以及暂停状态下的原生队列入队和移除。
 自动执行和完整的已安装插件/Figma UI 流程仍待实测；Windows/Linux 的证据限于源码检查和
 自动化测试，尚不能据此宣称完整宿主支持。
+
+Agent 会在对话中报告结果并附上 Figma 链接，用户可以继续提出后续要求。
+任务工具返回文本和结构化数据。
 
 ## 升级
 
@@ -104,19 +113,23 @@ Claude 会在下一个启用 hook 的工具边界收到 Stop 通知。任务暂�
 安装新版后还应移除旧名称的 skill。
 独立 skill 包会保留旧名称的生成兼容入口一个扩展商店发布周期，让已安装旧扩展中的配置命令继续有效。
 
-请使用 TemPad Dev 扩展 **0.23.4 或更高版本**和 MCP server **0.11.0 或更高版本**。
+如需使用完整的 1.0 发布，请将 TemPad Dev 扩展、MCP server、Agent Plugin（或其独立 skill）
+均更新到 **1.0.0 或更高版本**。
 MCP server 要求 Node.js **22.x、24.x 或 26+**。
 多节点读取和按消费节点解析 token 要求 Hub 与扩展均使用匹配的 protocol 15 构建。
 MCP 0.11.0 同时通过 protocol 13 兼容扩展 0.22.0，在商店更新期间保留既有读取、会话、任务和画布写入。
 新版读取选项会提示升级扩展，响应会明确标注旧版选区和 token 语义。
 MCP 0.10.0 及之后版本使用 `manage_design_task` 代替旧的生命周期工具。
 
-1. 将浏览器扩展更新到 0.23.4 或更高版本并重新加载 Figma 标签页。0.23.4 包含内置 rewrite 规则和 SVG 定位修复；多节点读取从 0.23.0 开始提供。
+1. 将浏览器扩展更新到 1.0.0 或更高版本并重新加载 Figma 标签页。
 2. 通过原先使用的客户端或安装器更新 plugin。独立配置时，请同时更新
    `figma-design-to-code` 和 `design-in-figma`。
 3. 正式版 MCP 配置使用 `@tempad-dev/mcp@latest`；请替换旧的 `@alpha` 或固定 alpha 版本。
-   重新连接 MCP client 并新建任务，以加载更新后的工具和 skill。若提示 Hub 过期，请先关闭
-   使用旧 MCP server 的任务，再重新连接。
+   Plugin 1.0.0 配合 MCP 1.0.0 或更高版本，会在 macOS、Linux 和 Windows 上启用经过校验的后台下载，
+   在支持切换等待的 MCP 会话空闲时自动切换兼容的 Hub。Claude 还要求已验证的会话和支持回执与重试的 hook。
+   从未启用更新的 Hub 升级时，需先断开所有 TemPad MCP client，
+   再重启其 MCP server，一次即可。入口进程、已安装插件和不兼容的运行时改动仍需按原方式更新或重启。
+   详见[运行时更新控制](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/README.zh-Hans.md#运行时更新100)。
 4. 打开 TemPad Dev 并启用 **MCP access**；需要选择会话时，点击目标 Figma 标签页内的 MCP
    badge。该 badge 选择默认文件；agent 也可以发现已连接会话，并通过精确 session ID
    指定独立读取的目标。

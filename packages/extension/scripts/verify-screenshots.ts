@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
 import { AGENT_SETUP_SHOT, INSPECTION_SLIDES } from '../../site/src/content/landing'
+import { parseScreenshotOptions } from './screenshot-plan'
 
 type Scenario = {
   assertions: unknown[]
@@ -80,6 +81,7 @@ type ScreenshotManifest = {
 }
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
+parseScreenshotOptions({})
 const manifestPath = fileURLToPath(new URL('../screenshots/scenarios.json', import.meta.url))
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as ScreenshotManifest
 const readmes = await Promise.all(

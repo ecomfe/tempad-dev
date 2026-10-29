@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   layoutReady: { value: false } as RefLike<boolean>,
   runtimeMode: { value: 'standard' } as RefLike<'standard' | 'unavailable'>,
   selection: { value: [] as SceneNode[] } as RefLike<readonly SceneNode[]>,
+  selectionRevision: { value: 0 },
   visibility: { value: 'visible' } as RefLike<'visible' | 'hidden'>,
   focused: { value: true } as RefLike<boolean>,
   getCanvas: vi.fn(),
@@ -53,7 +54,8 @@ vi.mock('vue', () => ({
     }
     return vi.fn()
   },
-  onMounted: (callback: () => void) => callback()
+  onMounted: (callback: () => void) => callback(),
+  onBeforeUnmount: vi.fn()
 }))
 
 vi.mock('@vueuse/core', () => ({
@@ -68,7 +70,8 @@ vi.mock('@vueuse/core', () => ({
 vi.mock('@/ui/state', () => ({
   layoutReady: mocks.layoutReady,
   runtimeMode: mocks.runtimeMode,
-  selection: mocks.selection
+  selection: mocks.selection,
+  selectionRevision: mocks.selectionRevision
 }))
 
 vi.mock('@/utils', () => ({
@@ -110,9 +113,11 @@ function findListener(event: string, index = 0) {
 
 describe('composables/selection', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     mocks.layoutReady.value = false
     mocks.runtimeMode.value = 'standard'
     mocks.selection.value = []
+    mocks.selectionRevision.value = 0
     mocks.visibility.value = 'visible'
     mocks.focused.value = true
     mocks.getCanvas.mockReset()
@@ -122,6 +127,8 @@ describe('composables/selection', () => {
   })
 
   afterEach(() => {
+    vi.clearAllTimers()
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.clearAllMocks()
   })
@@ -139,7 +146,7 @@ describe('composables/selection', () => {
     expect(selection.value).toEqual([])
   })
 
-  it('syncSelection updates only when selected node ids change', () => {
+  it('syncSelection keeps selection identity stable while invalidating mutable node content', () => {
     const sameRef = [createSceneNode('same-ref')]
     setFigmaSelection(sameRef)
     selection.value = sameRef
@@ -152,6 +159,7 @@ describe('composables/selection', () => {
 
     syncSelection()
     expect(selection.value).toBe(current)
+    expect(mocks.selectionRevision.value).toBe(2)
 
     const next = [createSceneNode('next')]
     setFigmaSelection(next)
@@ -172,22 +180,25 @@ describe('composables/selection', () => {
 
     expect(selection.value[0]?.id).toBe('initial')
     expect(mocks.listeners.filter((entry) => entry.event === 'click')).toHaveLength(2)
-    expect(mocks.listeners.filter((entry) => entry.event === 'keydown')).toHaveLength(1)
+    expect(mocks.listeners.filter((entry) => entry.event === 'keyup')).toHaveLength(1)
 
     setFigmaSelection([createSceneNode('click-sync')])
     findListener('click', 0)?.handler({})
+    vi.advanceTimersByTime(100)
     expect(selection.value[0]?.id).toBe('click-sync')
 
     setFigmaSelection([createSceneNode('focus-sync')])
-    findListener('keydown', 0)?.handler({
+    findListener('keyup', 0)?.handler({
       target: { classList: { contains: (name: string) => name === 'focus-target' } }
     })
+    vi.advanceTimersByTime(100)
     expect(selection.value[0]?.id).toBe('focus-sync')
 
-    findListener('keydown', 0)?.handler({
+    findListener('keyup', 0)?.handler({
       target: { classList: { contains: () => false } }
     })
-    findListener('keydown', 0)?.handler({ target: null })
+    findListener('keyup', 0)?.handler({ target: null })
+    vi.advanceTimersByTime(100)
     expect(selection.value[0]?.id).toBe('focus-sync')
 
     const layoutWatcher = mocks.watchers[0]
@@ -202,21 +213,22 @@ describe('composables/selection', () => {
     expect(selection.value).toEqual([])
 
     layoutWatcher.callback(true)
-    expect(mocks.getCanvas).toHaveBeenCalledTimes(3)
-    expect(mocks.getLeftPanel).toHaveBeenCalledTimes(3)
+    expect(mocks.getCanvas).toHaveBeenCalledTimes(2)
+    expect(mocks.getLeftPanel).toHaveBeenCalledTimes(2)
+    const readySelection = selection.value
 
     setFigmaSelection([createSceneNode('mode-guard')])
     mocks.layoutReady.value = true
     modeWatcher.callback(['unavailable', true])
-    expect(selection.value).toEqual([])
+    expect(selection.value).toBe(readySelection)
 
     mocks.layoutReady.value = false
     modeWatcher.callback(['standard', true])
-    expect(selection.value).toEqual([])
+    expect(selection.value).toBe(readySelection)
 
     mocks.layoutReady.value = true
     modeWatcher.callback(['standard', false])
-    expect(selection.value).toEqual([])
+    expect(selection.value).toBe(readySelection)
 
     modeWatcher.callback(['standard', true])
     expect(selection.value[0]?.id).toBe('mode-guard')
@@ -234,8 +246,8 @@ describe('composables/selection', () => {
 
     useSelection()
 
-    expect(mocks.watchers).toHaveLength(2)
+    expect(mocks.watchers).toHaveLength(3)
     expect(mocks.listeners.filter((entry) => entry.event === 'click')).toHaveLength(2)
-    expect(mocks.listeners.filter((entry) => entry.event === 'keydown')).toHaveLength(1)
+    expect(mocks.listeners.filter((entry) => entry.event === 'keyup')).toHaveLength(1)
   })
 })

@@ -1,10 +1,14 @@
 import type { CodegenConfig } from '@/utils/codegen'
 
+import { normalizeStyleValues } from '@/utils/css'
+import { camelToKebab, kebabToCamel } from '@/utils/string'
 import { joinClassNames } from '@/utils/tailwind'
 
 import type { DataHint } from '../model'
 
 import { styleToClassNames } from '../styles'
+
+export type RenderProps = Record<string, string | Record<string, string>>
 
 export function classProps(
   style: Record<string, string>,
@@ -13,8 +17,27 @@ export function classProps(
   dataHint: DataHint | undefined,
   options: { isFallback?: boolean; includeDataHint?: boolean } = {}
 ) {
-  const classNames = styleToClassNames(style, config)
-  const props: Record<string, string> = {}
+  let classStyle = style
+  const props: RenderProps = {}
+  if (style.background?.trim()) {
+    // Keep quoted URLs out of Tailwind's source scanner and keep the shorthand before
+    // its longhand overrides without depending on generated utility order.
+    classStyle = { ...style }
+    const background: Record<string, string> = { background: style.background }
+    delete classStyle.background
+    for (const [key, value] of Object.entries(style)) {
+      if (!key.startsWith('background-')) continue
+      if (value.trim()) background[key] = value
+      delete classStyle[key]
+    }
+    props.style = Object.fromEntries(
+      Object.entries(normalizeStyleValues(background, config)).map(([key, value]) => [
+        kebabToCamel(key),
+        value
+      ])
+    )
+  }
+  const classNames = styleToClassNames(classStyle, config)
 
   if (classNames.length) props[defaultClassProp] = joinClassNames(classNames)
 
@@ -39,6 +62,19 @@ export function classProps(
   }
 
   return { classNames, props }
+}
+
+export function toMarkupAttributes(props: RenderProps): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(props).map(([key, value]) => [
+      key,
+      typeof value === 'string'
+        ? value
+        : Object.entries(value)
+            .map(([property, entry]) => `${camelToKebab(property)}: ${entry}`)
+            .join('; ')
+    ])
+  )
 }
 
 export function filterGridProps(style: Record<string, string>): Record<string, string> {

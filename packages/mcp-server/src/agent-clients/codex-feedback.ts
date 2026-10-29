@@ -8,16 +8,26 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
+import type { HostContext } from './host-context'
 import type { ClientBinding } from './types'
 
 import { HISTORY_RETENTION_MS } from '../history-retention'
-import { CodexDiscoveryError, CodexIpc, CodexIpcError } from './codex-ipc'
+import { hostEnvironment } from '../process-environment'
+import { CodexDiscoveryError, CodexIpc, CodexIpcError, codexSocketPaths } from './codex-ipc'
 import {
   CodexNativeQueue,
   CodexQueueUnavailable,
   type CodexQueueBackend,
   type CodexQueueConnection
 } from './codex-queue'
+import {
+  HostContextSchema,
+  codexStoreKey,
+  codexConversationKey,
+  hostContextKey,
+  hostConversationKey,
+  requireHostContext
+} from './host-context'
 import { nativeFeedback } from './types'
 
 export const CODEX_APP_FEEDBACK: AgentCapabilities = {
@@ -99,6 +109,7 @@ type Receipt = {
   acceptedAt?: number
   feedbackCreatedAt?: number
   queueCommitConfirmed?: boolean
+  hostContext?: HostContext
 }
 type QueueReceipt = Receipt &
   Required<Pick<Receipt, 'delivery' | 'conversationId' | 'taskId' | 'messageId'>>
@@ -129,7 +140,11 @@ function isQueueReceipt(receipt: Receipt): receipt is QueueReceipt {
   )
 }
 
-async function loadConversation(conversationId: string, signal: AbortSignal): Promise<void> {
+async function loadConversation(
+  conversationId: string,
+  signal: AbortSignal,
+  context?: HostContext
+): Promise<void> {
   if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(conversationId))
     throw new Error('Open the original conversation in Codex before sending these comments.')
   const url = `codex://threads/${conversationId}`
@@ -143,7 +158,8 @@ async function loadConversation(conversationId: string, signal: AbortSignal): Pr
     throw new Error('Open the original conversation in Codex before sending these comments.')
   await promisify(execFile)(command.file, command.args, {
     signal,
-    timeout: 5000
+    timeout: 5000,
+    env: hostEnvironment(requireHostContext(context))
   })
 }
 
@@ -151,32 +167,94 @@ function isUnloadedConversation(error: unknown): boolean {
   return error instanceof CodexIpcError && !error.uncertain && error.message === 'no-client-found'
 }
 
+type FeedbackOptions = {
+  open?: (context?: HostContext) => Promise<Connection>
+  retryMs?: number
+  load?: typeof loadConversation
+  nativeQueue?: CodexNativeQueue
+  taskContext?: (taskId: string) => HostContext | undefined
+}
+
 export class CodexAppFeedback {
   private readonly shutdown = new AbortController()
   private readonly cancelledTasks = new Set<string>()
   private readonly pendingTasks = new Map<string, Promise<void>>()
-  private readonly queues = new Map<string, Promise<void>>()
+  private readonly queues = new Map<string, { pending: Promise<void>; contexts: Set<string> }>()
   private readonly availability = new Map<string, { available: boolean; expiresAt: number }>()
+  private readonly hostQueues = new Map<string, CodexNativeQueue>()
   private receiptScan?: AsyncGenerator<string>
   private reconciliation?: Promise<void>
+  private readonly open: NonNullable<FeedbackOptions['open']>
+  private readonly retryMs: number
+  private readonly load: typeof loadConversation
+  private readonly nativeQueue?: CodexNativeQueue
+  private readonly taskContext: NonNullable<FeedbackOptions['taskContext']>
 
   constructor(
     private readonly directory: string,
-    private readonly open: () => Promise<Connection> = () => CodexIpc.open(),
-    private readonly retryMs = 1000,
-    private readonly load: typeof loadConversation = loadConversation,
-    private readonly nativeQueue = new CodexNativeQueue()
-  ) {}
+    options: FeedbackOptions = {}
+  ) {
+    this.open =
+      options.open ?? ((context) => CodexIpc.open(codexSocketPaths(requireHostContext(context))))
+    this.retryMs = options.retryMs ?? 1000
+    this.load = options.load ?? loadConversation
+    this.nativeQueue = options.nativeQueue
+    this.taskContext = options.taskContext ?? (() => undefined)
+  }
+
+  private queue(context?: HostContext): CodexNativeQueue {
+    if (this.nativeQueue) return this.nativeQueue
+    const host = requireHostContext(context)
+    const key = hostContextKey(host)
+    let queue = this.hostQueues.get(key)
+    if (!queue) {
+      if (this.hostQueues.size >= 128) throw new Error('Too many active Codex host contexts.')
+      queue = CodexNativeQueue.forContext(host)
+      this.hostQueues.set(key, queue)
+    }
+    return queue
+  }
+
+  retainContexts(contexts: Iterable<HostContext>): void {
+    const retained = new Set([...contexts].map(hostContextKey))
+    for (const { contexts } of this.queues.values()) for (const key of contexts) retained.add(key)
+    for (const [key, queue] of this.hostQueues) {
+      if (retained.has(key)) continue
+      queue.close()
+      this.hostQueues.delete(key)
+    }
+  }
+
+  private receiptContext(receipt: Receipt): HostContext | undefined {
+    const current = receipt.taskId ? this.taskContext(receipt.taskId) : undefined
+    return current &&
+      (!receipt.hostContext || codexStoreKey(current) === codexStoreKey(receipt.hostContext))
+      ? current
+      : receipt.hostContext
+  }
+
+  private async readQueuedReceipt(receipt: QueueReceipt) {
+    try {
+      return await this.queue(this.receiptContext(receipt)).readForReconciliation(
+        receipt.conversationId,
+        receipt.backend
+      )
+    } catch {
+      // Missing host context and unreadable native state must both preserve the receipt.
+      return undefined
+    }
+  }
 
   async available(binding: ClientBinding): Promise<boolean> {
     const { sessionId } = binding.client
     if (!sessionId || !nativeFeedback(binding.client) || this.shutdown.signal.aborted) return false
-    const cached = this.availability.get(sessionId)
+    const key = hostConversationKey(sessionId, binding.hostContext)
+    const cached = this.availability.get(key)
     if (cached && cached.expiresAt > Date.now()) return cached.available
     let connection: Connection | undefined
     let available = false
     try {
-      connection = await this.open()
+      connection = await this.open(binding.hostContext)
       await connection.owner(sessionId, undefined, 2000)
       available = true
     } catch {
@@ -185,7 +263,7 @@ export class CodexAppFeedback {
       connection?.close()
     }
     if (this.availability.size >= 256) this.availability.clear()
-    this.availability.set(sessionId, { available, expiresAt: Date.now() + 10000 })
+    this.availability.set(key, { available, expiresAt: Date.now() + 10000 })
     return available
   }
 
@@ -207,7 +285,8 @@ export class CodexAppFeedback {
       return Promise.reject(new Error('These design comments were cancelled.'))
     if (!conversationId || !['queue', 'steer'].includes(feedback.mode))
       return Promise.reject(new Error('Native Codex delivery requires Queue or Steer comments.'))
-    if (feedback.mode === 'steer' && this.queues.has(conversationId))
+    const key = codexConversationKey(conversationId, binding.hostContext)
+    if (feedback.mode === 'steer' && this.queues.has(key))
       return Promise.reject(
         new Error(
           'Codex already has a pending delivery. Comments are saved; retry when it finishes.'
@@ -216,8 +295,16 @@ export class CodexAppFeedback {
     if (this.queues.size >= 128)
       return Promise.reject(new Error('Too many pending Codex conversations.'))
     const combined = AbortSignal.any([signal, this.shutdown.signal])
-    const pending = this.schedule(conversationId, () =>
-      this.deliver(conversationId, taskId, feedback, combined, beforeSend, onDispatch)
+    const pending = this.schedule(key, binding.hostContext, () =>
+      this.deliver(
+        conversationId,
+        taskId,
+        feedback,
+        combined,
+        beforeSend,
+        onDispatch,
+        binding.hostContext
+      )
     )
     this.pendingTasks.set(taskId, pending)
     void pending
@@ -228,13 +315,19 @@ export class CodexAppFeedback {
     return pending
   }
 
-  private schedule(conversationId: string, action: () => Promise<void>): Promise<void> {
-    const previous = this.queues.get(conversationId) ?? Promise.resolve()
-    const pending = previous.catch(() => {}).then(action)
-    this.queues.set(conversationId, pending)
+  private schedule(
+    key: string,
+    context: HostContext | undefined,
+    action: () => Promise<void>
+  ): Promise<void> {
+    const previous = this.queues.get(key)
+    const pending = (previous?.pending ?? Promise.resolve()).catch(() => {}).then(action)
+    const contexts = previous?.contexts ?? new Set<string>()
+    contexts.add(hostContextKey(context))
+    this.queues.set(key, { pending, contexts })
     void pending
       .finally(() => {
-        if (this.queues.get(conversationId) === pending) this.queues.delete(conversationId)
+        if (this.queues.get(key)?.pending === pending) this.queues.delete(key)
       })
       .catch(() => {})
     return pending
@@ -246,7 +339,8 @@ export class CodexAppFeedback {
     feedback: DesignFeedback,
     signal: AbortSignal,
     beforeSend: () => void,
-    onDispatch: () => void
+    onDispatch: () => void,
+    context?: HostContext
   ): Promise<void> {
     const validate = () => {
       assertFreshFeedback(feedback)
@@ -262,7 +356,8 @@ export class CodexAppFeedback {
       status: 'pending',
       conversationId,
       acceptedAt: Date.now(),
-      feedbackCreatedAt: feedback.createdAt
+      feedbackCreatedAt: feedback.createdAt,
+      ...(context ? { hostContext: context } : {})
     }
     let loaded = false
     let nativeQueueUnavailable = false
@@ -277,6 +372,8 @@ export class CodexAppFeedback {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
       if (existing) {
+        if (existing.hostContext && codexStoreKey(existing.hostContext) !== codexStoreKey(context))
+          throw new Error('This comment delivery belongs to a different Codex host context.')
         if (existing.signature !== signature || (existing.taskId && existing.taskId !== taskId))
           throw new Error('This comment delivery ID already belongs to different content or task.')
         onDispatch()
@@ -285,7 +382,7 @@ export class CodexAppFeedback {
           throw new Error('These queued comments were cancelled.')
         if (
           existing.delivery === 'queue' &&
-          (await this.nativeQueue.read(conversationId, existing.backend)).some(
+          (await this.queue(context).read(conversationId, existing.backend)).some(
             (message) => message.id === feedback.id
           )
         ) {
@@ -303,14 +400,14 @@ export class CodexAppFeedback {
       if (
         feedback.mode === 'queue' &&
         nativeQueueUnavailable &&
-        !(await this.nativeQueue.areQueuesEmpty(conversationId))
+        !(await this.queue(context).areQueuesEmpty(conversationId))
       ) {
         if (Date.now() >= deadline)
           throw new Error('Codex still has queued messages. Comments are saved; retry later.')
         await delay(this.retryMs, undefined, { signal })
         continue
       }
-      const connection = await this.open()
+      const connection = await this.open(context)
       try {
         let owner: string
         try {
@@ -320,9 +417,9 @@ export class CodexAppFeedback {
           signal.throwIfAborted()
           validate()
           loaded = true
-          owner = await this.loadOwner(connection, conversationId, signal, validate)
+          owner = await this.loadOwner(connection, conversationId, signal, validate, context)
         }
-        this.availability.delete(conversationId)
+        this.availability.delete(hostConversationKey(conversationId, context))
         signal.throwIfAborted()
         validate()
         // Reserve before writing to IPC so a Hub restart cannot duplicate an uncertain submission.
@@ -347,7 +444,7 @@ export class CodexAppFeedback {
           }
           let attempted = false
           try {
-            await this.nativeQueue.admit(
+            await this.queue(context).admit(
               connection,
               owner,
               conversationId,
@@ -380,14 +477,14 @@ export class CodexAppFeedback {
               nativeQueueUnavailable = true
               // Recheck both queues before the bounded idle-turn fallback. A pending
               // native queue must not be bypassed, and waiting reserves no receipt.
-              if (!(await this.nativeQueue.areQueuesEmpty(conversationId))) continue
+              if (!(await this.queue(context).areQueuesEmpty(conversationId))) continue
               await writeFile(path, JSON.stringify(pendingReceipt), {
                 flag: 'wx',
                 mode: 0o600
               })
             } else {
               onDispatch()
-              const admitted = await this.nativeQueue
+              const admitted = await this.queue(context)
                 .read(conversationId, receipt.backend)
                 .then((messages) => messages.some((message) => message.id === feedback.id))
                 .catch(() => false)
@@ -521,30 +618,43 @@ export class CodexAppFeedback {
     const queues = new Map<string, QueueReceipt>()
     for (const { receipt } of await this.queueReceipts()) {
       if (receipt.taskId === taskId)
-        queues.set(JSON.stringify([receipt.conversationId, receipt.backend ?? 'legacy']), receipt)
+        queues.set(
+          JSON.stringify([
+            codexConversationKey(receipt.conversationId, this.receiptContext(receipt)),
+            receipt.backend ?? 'legacy'
+          ]),
+          receipt
+        )
     }
-    for (const { conversationId, backend = 'legacy' } of queues.values()) {
-      await this.schedule(conversationId, async () => {
+    for (const group of queues.values()) {
+      const { conversationId, backend = 'legacy' } = group
+      const context = this.receiptContext(group)
+      await this.schedule(codexConversationKey(conversationId, context), context, async () => {
         const receipts = (await this.queueReceipts()).filter(
           ({ receipt }) =>
             receipt.taskId === taskId &&
             receipt.conversationId === conversationId &&
+            codexStoreKey(this.receiptContext(receipt)) === codexStoreKey(context) &&
             (receipt.backend ?? 'legacy') === backend &&
             receipt.messageId
         )
         if (!receipts.length) return
         const ids = new Set(receipts.map(({ receipt }) => receipt.messageId))
         for (const { path, receipt } of receipts) {
-          if (receipt.status !== 'removed')
+          const recoveredContext =
+            context && hostContextKey(context) !== hostContextKey(receipt.hostContext)
+          if (recoveredContext) receipt.hostContext = context
+          // Persist refreshed discovery inputs before the supplying task can expire.
+          if (receipt.status !== 'removed' || recoveredContext)
             await this.saveReceipt(path, {
               ...receipt,
-              status: 'cancelled',
+              status: receipt.status === 'removed' ? 'removed' : 'cancelled',
               queueCommitConfirmed:
                 receipt.queueCommitConfirmed === true || receipt.status === 'delivered'
             })
         }
         const observed = new Set(
-          (await this.nativeQueue.read(conversationId, backend)).map((message) => message.id)
+          (await this.queue(context).read(conversationId, backend)).map((message) => message.id)
         )
         const hasMessages = receipts.some(({ receipt }) => observed.has(receipt.messageId))
         for (const { path, receipt } of receipts) {
@@ -558,10 +668,10 @@ export class CodexAppFeedback {
           if (hasMessages) {
             let owner: string | undefined
             if (backend === 'legacy') {
-              connection = await this.open()
+              connection = await this.open(context)
               owner = await connection.owner(conversationId, this.shutdown.signal)
             }
-            await this.nativeQueue.remove(
+            await this.queue(context).remove(
               connection,
               owner,
               conversationId,
@@ -613,12 +723,14 @@ export class CodexAppFeedback {
         continue
       }
       // Keep cancellation tombstones: a disconnected writer can commit after the first removal check.
-      const key = JSON.stringify([receipt.conversationId, receipt.backend ?? 'legacy'])
+      const context = this.receiptContext(receipt)
+      const key = JSON.stringify([
+        codexConversationKey(receipt.conversationId, context),
+        receipt.backend ?? 'legacy'
+      ])
       let ids = snapshots.get(key)
       if (!snapshots.has(key)) {
-        const messages = await this.nativeQueue
-          .readForReconciliation(receipt.conversationId, receipt.backend)
-          .catch(() => undefined)
+        const messages = await this.readQueuedReceipt(receipt)
         ids = messages ? new Set(messages.map((message) => message.id)) : undefined
         snapshots.set(key, ids)
       }
@@ -631,10 +743,14 @@ export class CodexAppFeedback {
         !(entry.receipt.status === 'removed' && entry.receipt.queueCommitConfirmed === true)
       )
         continue
-      if (entry.receipt.conversationId && this.queues.has(entry.receipt.conversationId)) continue
+      const context = this.receiptContext(entry.receipt)
+      const key = entry.receipt.conversationId
+        ? codexConversationKey(entry.receipt.conversationId, context)
+        : undefined
+      if (key && this.queues.has(key)) continue
       const prune = () => this.pruneReceipt(entry.path)
       // Serialize against admission and Stop, then re-read rather than pruning a scan snapshot.
-      if (entry.receipt.conversationId) await this.schedule(entry.receipt.conversationId, prune)
+      if (key) await this.schedule(key, context, prune)
       else await prune()
     }
   }
@@ -664,9 +780,7 @@ export class CodexAppFeedback {
       ) + HISTORY_RETENTION_MS
     if (Date.now() < expiresAt) return
     if (isQueueReceipt(receipt)) {
-      const messages = await this.nativeQueue
-        .readForReconciliation(receipt.conversationId, receipt.backend)
-        .catch(() => undefined)
+      const messages = await this.readQueuedReceipt(receipt)
       if (!messages || messages.some((message) => message.id === receipt.messageId)) return
     }
     await unlink(path)
@@ -706,6 +820,8 @@ export class CodexAppFeedback {
         const path = join(this.directory, file)
         try {
           const receipt = JSON.parse(await readFile(path, 'utf8')) as Receipt
+          if (receipt.hostContext)
+            receipt.hostContext = HostContextSchema.parse(receipt.hostContext)
           if (typeof receipt?.signature === 'string' && typeof receipt.status === 'string')
             entries.push({ path, receipt })
         } catch {
@@ -725,11 +841,12 @@ export class CodexAppFeedback {
     connection: Connection,
     conversationId: string,
     signal: AbortSignal,
-    beforeSend: () => void
+    beforeSend: () => void,
+    context?: HostContext
   ): Promise<string> {
     try {
       // Only an explicit submission may load its original task. Polls never navigate.
-      await this.load(conversationId, signal)
+      await this.load(conversationId, signal, context)
       const deadline = Date.now() + 5000
       while (true) {
         signal.throwIfAborted()
@@ -764,6 +881,8 @@ export class CodexAppFeedback {
     this.shutdown.abort()
     void this.receiptScan?.return(undefined).catch(() => {})
     this.receiptScan = undefined
-    this.nativeQueue.close()
+    this.nativeQueue?.close()
+    for (const queue of this.hostQueues.values()) queue.close()
+    this.hostQueues.clear()
   }
 }

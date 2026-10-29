@@ -113,7 +113,7 @@ describe('mcp/code text segments', () => {
       })
     ])
 
-    expect(blocks).toHaveLength(1)
+    expect(blocks).toHaveLength(2)
     const block = at(blocks, 0)
     const line = at(block.lines, 0)
     expect(block).toMatchObject({ type: 'paragraph' })
@@ -124,6 +124,7 @@ describe('mcp/code text segments', () => {
       listSpacing: 0,
       paragraphSpacing: 12
     })
+    expect(at(blocks, 1)).toEqual(block)
   })
 
   it('passes request-scoped readers into text run token resolution', () => {
@@ -134,9 +135,32 @@ describe('mcp/code text segments', () => {
     }
     const segment = createSegment()
 
-    buildTextBlocks(node, [segment], readers as never)
+    buildTextBlocks(node, [segment], readers)
 
     expect(mocks.resolveTokens).toHaveBeenCalledWith(node, segment, readers)
+  })
+
+  it('inherits the last paragraph attributes across a styled segment ending in a hard break', () => {
+    const node = { getRangeBoundVariable: vi.fn() } as unknown as TextNode
+    const blocks = buildTextBlocks(node, [
+      createSegment({ characters: 'First\n', paragraphIndent: 4, paragraphSpacing: 8 }),
+      createSegment({
+        characters: 'Last\n',
+        fontName: { family: 'Inter', style: 'Bold' },
+        fontWeight: 700,
+        paragraphIndent: 24,
+        paragraphSpacing: 20
+      })
+    ])
+
+    const textLines = blocks.map((block) =>
+      block.lines.flatMap((line) => line.runs.map((run) => run.text))
+    )
+    expect(textLines).toEqual([['First'], ['Last'], []])
+    expect(at(blocks, 0).attrs).toMatchObject({ paragraphIndent: 4, paragraphSpacing: 8 })
+    expect(at(blocks, 1).attrs).toMatchObject({ paragraphIndent: 24, paragraphSpacing: 20 })
+    expect(at(blocks, 2).attrs).toEqual(at(blocks, 1).attrs)
+    expect(at(at(at(blocks, 1).lines, 0).runs, 0).marks).toContain('bold')
   })
 
   it('merges compatible runs with sticky whitespace and preserves link/url', () => {
@@ -326,7 +350,7 @@ describe('mcp/code text segments', () => {
     expect(run.attrs['font-family']).toBe('Inter')
   })
 
-  it('groups ordered/unordered list lines into separate blocks', () => {
+  it('groups adjacent ordered/unordered lists at the same level into separate blocks', () => {
     const node = { getRangeBoundVariable: vi.fn() } as unknown as TextNode
 
     const blocks = buildTextBlocks(node, [
@@ -341,7 +365,7 @@ describe('mcp/code text segments', () => {
         characters: 'Three\nFour',
         listOptions: { type: 'UNORDERED' },
         paragraphSpacing: 6,
-        indentation: 2,
+        indentation: 1,
         __attrs: { color: '#222' }
       })
     ])

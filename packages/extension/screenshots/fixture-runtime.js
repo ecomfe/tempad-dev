@@ -21,37 +21,24 @@
     }
   }
 
-  let page = figma.root.children.find(
-    (node) => node.type === 'PAGE' && node.name === 'README Fixtures'
-  )
+  const page =
+    figma.root.children.find((node) => node.type === 'PAGE' && node.name === 'README Fixtures') ??
+    figma.root.children.find((node) => node.type === 'PAGE' && node.findOne(isKongButton) !== null)
+  const button =
+    page?.findOne((node) => markerOf(node) === 'plugins' && isKongButton(node)) ??
+    page?.selection.find(isKongButton) ??
+    page?.findOne(isKongButton)
 
-  if (!page) {
-    page = figma.root.children.find(
-      (node) => node.type === 'PAGE' && node.findOne(isKongButton) !== null
-    )
-
-    if (page) {
-      page.name = 'README Fixtures'
-    } else {
-      page = figma.createPage()
-      page.name = 'README Fixtures'
-    }
-  }
-
-  figma.currentPage = page
-
-  const markedPluginFixture = page.findOne(
-    (node) => markerOf(node) === 'plugins' && node.type === 'INSTANCE'
-  )
-  const selectedKongButton = page.selection.find(isKongButton)
-  const kongButton = page.findOne(isKongButton)
-  const button = markedPluginFixture ?? selectedKongButton ?? kongButton
-
-  if (!button || button.type !== 'INSTANCE') {
+  if (!page || !button) {
     throw new Error(
       'A real remote Kong Button instance is required on README Fixtures before running this script'
     )
   }
+
+  // Validate before changing the scene, and keep the real instance out of geometry being replaced.
+  if (button.parent !== page) page.appendChild(button)
+  page.name = 'README Fixtures'
+  figma.currentPage = page
 
   const managedTopLevelMarkers = new Set(['code', 'deep_outer', 'measure_outer', 'plugins'])
   for (const child of [...page.children]) {

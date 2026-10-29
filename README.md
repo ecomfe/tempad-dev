@@ -80,7 +80,7 @@ Both workflows use the same MCP connection to Figma. Compatible clients can inst
 
 ### Setup guide
 
-1. Install Node.js 22.x, 24.x, or 26+ with `npx`. Keep TemPad Dev open in the Figma tab you want the agent to inspect, then enable **Preferences → Agent integration → MCP access**. When prompted, allow the loopback connection to `127.0.0.1`. Canvas authoring is available while MCP access is enabled and the current Figma Design file is editable.
+1. Install Node.js 22.x, 24.x, or 26+ and make sure `npx` is available. Keep TemPad Dev open in the Figma tab you want the agent to inspect, then enable **Preferences → Agent integration → MCP access**. When prompted, allow the loopback connection to `127.0.0.1`. Canvas authoring is available while MCP access is enabled and the current Figma Design file is editable.
 2. Select **Set up agents**, choose your client, and follow the displayed path. Dedicated entries include Qwen Code, Qoder, ZCode, Kimi Code, Pi, and Hermes Agent alongside the existing IDE and CLI integrations. Use **Other agents** for another compatible client. The choice only changes the instructions shown; it does not bind or activate an agent.
 3. The setup flow uses native marketplace installation for Codex and Claude Code, and the portable Agent Plugin for Cursor and VS Code. Codex App integration uses native IPC without lifecycle hooks. Other entries provide the client's MCP flow plus the two standalone skills, with configuration destinations and documentation links where needed. Pi requires version 0.99 or later with built-in MCP enabled. Every command or config is shown in full for review and copying. These setup paths do not imply native comment delivery or host interruption support for every client.
 
@@ -104,10 +104,13 @@ For native Codex and Claude marketplace commands and portable Cursor and VS Code
 see the [Agent Plugin guide](./agent-plugin/src/README.md).
 
 All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
+Verified MCP releases from 1.0.0 enable background downloads and compatible Hub updates during
+idle MCP sessions. Agent Plugin 1.0.0 and the setup commands select this policy explicitly.
+Existing clients take it up after restarting onto the new release. See
+[runtime update controls](./packages/mcp-server/README.md#runtime-updates-100) for limits and opt-out.
 
-For this release, use extension **0.23.4**, MCP server **0.11.0**, and Agent
-Plugin **0.5.1** together. See the [upgrade guide](./agent-plugin/src/README.md#upgrading)
-when updating an existing installation.
+See the [upgrade guide](./agent-plugin/src/README.md#upgrading) for minimum versions
+and instructions for updating an existing installation.
 
 Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context. An agent can also list connected sessions and pass an exact `sessionId` to an independent read without changing the active badge.
 
@@ -123,7 +126,7 @@ When the MCP server is enabled, a badge appears in the TemPad Dev panel title ba
     <img alt="MCP status badge showing Unavailable." src="packages/site/public/marketing/mcp-unavailable-light.png" width="360">
   </picture>
 
-- **Inactive**: TemPad Dev is connected to a local MCP server, but this tab is not currently active because multiple Figma tabs are open. Click the badge to activate MCP for this tab (this deactivates MCP in other tabs).
+- **Inactive**: TemPad Dev is connected to the local MCP server, but this tab is not the default file. Click its badge to make it the default. Other connected files remain available for reads addressed to their exact session.
 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-inactive-dark.png">
@@ -174,7 +177,7 @@ for exact continuation. A single `nodeId` remains supported.
   page, or one or more visible nodes in the current selection.
 - `upload_asset`: Stores a generated PNG/JPEG/GIF in the local Hub and returns an `assetHash`
   for canvas authoring.
-- Binary assets are returned as metadata + HTTP download URLs (`asset.url`) in tool responses. Asset MCP resources are not exposed.
+- Binary assets are returned as metadata with temporary HTTP download URLs (`asset.url`) and, when available, local file paths (`asset.localPath`). Asset MCP resources are not exposed.
 
 ---
 
@@ -341,15 +344,15 @@ Current available plugins:
 <!-- availablePlugins:start -->
 | Plugin name | Description | Author | Repository |
 | -- | -- | -- | -- |
-| `@kong` | Kong Design System | [@Justineo](https://github.com/@Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-kong) |
-| `@kong/advanced` | Kong Design System (Advanced) | [@Justineo](https://github.com/@Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-kong) |
-| `@fubukicss/unocss` | UnoCSS by FubukiCSS | [@zouhangwithsweet](https://github.com/@zouhangwithsweet) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/zouhangwithsweet/fubukicss-tool) |
-| `@nuxt` | Nuxt UI | [@Justineo](https://github.com/@Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
-| `@nuxt/pro` | Nuxt UI Pro | [@Justineo](https://github.com/@Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
-| `@baidu-health/wz-style` | Custom style for Baidu Health wz-style | [@KangXinzhi](https://github.com/@KangXinzhi) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-wz-style) |
-| `@baidu-health/med-style` | Custom style for Baidu Health med-style | [@KangXinzhi](https://github.com/@KangXinzhi) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-med-style) |
-| `@tailwind` | CSS to Tailwind CSS | [@haydenull](https://github.com/@haydenull) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/haydenull/tempad-dev-plugin-tailwind) |
-| `@react-native` | CSS to React Native StyleSheet | [@CANntyield](https://github.com/@CANntyield) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/CANntyield/tempad-dev-plugin-react-native) |
+| `@kong` | Kong Design System | [@Justineo](https://github.com/Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-kong) |
+| `@kong/advanced` | Kong Design System (Advanced) | [@Justineo](https://github.com/Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-kong) |
+| `@fubukicss/unocss` | UnoCSS by FubukiCSS | [@zouhangwithsweet](https://github.com/zouhangwithsweet) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/zouhangwithsweet/fubukicss-tool) |
+| `@nuxt` | Nuxt UI | [@Justineo](https://github.com/Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
+| `@nuxt/pro` | Nuxt UI Pro | [@Justineo](https://github.com/Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
+| `@baidu-health/wz-style` | Custom style for Baidu Health wz-style | [@KangXinzhi](https://github.com/KangXinzhi) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-wz-style) |
+| `@baidu-health/med-style` | Custom style for Baidu Health med-style | [@KangXinzhi](https://github.com/KangXinzhi) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-med-style) |
+| `@tailwind` | CSS to Tailwind CSS | [@haydenull](https://github.com/haydenull) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/haydenull/tempad-dev-plugin-tailwind) |
+| `@react-native` | CSS to React Native StyleSheet | [@CANntyield](https://github.com/CANntyield) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/CANntyield/tempad-dev-plugin-react-native) |
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
 
@@ -367,37 +370,10 @@ If there are components generated by the TemPad Figma plugin on the canvas, TemP
 <details>
 <summary><h2><a id="quirks-mode"></a>Quirks mode</h2></summary>
 
-> [!CAUTION]
-> Quirks mode is no longer usable as of 2025.04.01. Figma removed the `window.DebuggingHelpers.logSelected` API, which was used to extract style data.
-
-> [!NOTE]
-> New in v0.1.0
-
-New in TemPad Dev v0.1.0, Quirks Mode lets you use the tool even when `window.figma` is unavailable. This mode extracts style data through Figma's debug logs, allowing for basic style generation, albeit with some limitations.
-
-Known missing features generating style codes include:
-
-- Styles added through Effects, corresponding to CSS properties like `box-shadow`, `filter: blur()`, and `backdrop-filter: blur()`.
-- Gradient fill styles. TemPad Dev can only detect the existence of a gradient and outputs it as `linear-gradient(<color-stops>)`.
-- Fill styles' blend mode, corresponding to the `background-blend-mode` CSS property.
-- `font-family` of text nodes, which is obtained heuristically and may be inaccurate.
-- Advanced OpenType configurations for text nodes, other than numeric styles, which are generally not used.
-- The ["Scroll Selection into View"](#scroll-selection-into-view) feature is not available in this mode.
-
-Except for the above-mentioned features, others are mostly consistent with the standard mode. If Quirks mode is sufficient for your scenarios, it can eliminate the tedious operation of duplicating to drafts and be used directly in view-only mode. Note that this mode also relies on Figma's globally exposed debug interface and cannot guarantee long-term validity. If Figma removes the related interface again, this mode will also become unavailable.
-
-<details>
-<summary><h3>Compatibility Updates</h3></summary>
-
-**2025.04.01**: Figma removed the `window.DebuggingHelpers.logSelected` API, which was used to extract style data. As a result, Quirks mode is no longer usable.
-
-**2024.11.04**: TemPad Dev now managed to bring back the `window.figma` API under view-only mode. But we still cannot guarantee the long-term validity of this feature. If Figma removes the related interface again, this mode will also become unavailable.
-
-**2024.04.08**: TemPad Dev successfully retrieved most style information using currently unblocked debug interfaces, providing a new [Quirks Mode](#quirks-mode). This mode does not rely on `window.figma` but instead parses debug logs to generate style code, with slight differences from the standard mode.
-
-**2024.03.20**: After we posted complaints on the Figma Community Forum, the Figma team stated that they would reinstate the `window.figma` interface in view-only mode in the coming weeks. You can track the progress of this issue on this [thread](https://forum.figma.com/t/figma-removed-window-figma-on-view-only-pages-today/67292).
-
-</details>
+Quirks mode was a fallback that extracted styles from Figma debug logs. It stopped
+working when Figma removed the required API and was removed in TemPad Dev 0.12.0.
+It is unavailable in current releases. See the [extension changelog](./packages/extension/CHANGELOG.md)
+for its history and [Inspect designs](#inspect-designs) for current features.
 
 </details>
 

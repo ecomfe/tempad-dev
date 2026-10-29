@@ -8,6 +8,9 @@ Read this report when changing TemPad's Codex conversation routing, lifecycle,
 comments, Queue, Steer, or Stop. It describes the installed desktop application's
 private protocol, not a stable public API. The implementation and product rules
 remain in [Design tasks, client integration, and feedback](../extension/mcp-design-tasks.md).
+The [integration assessment](#tempad-integration-assessment) summarizes the current
+adapter. Dated probes below retain their original scope; later rechecks resolve
+some of the early findings without establishing support for newer host builds.
 
 ## Release-blocking installed-host findings
 
@@ -27,6 +30,7 @@ This corrects the earlier implication that the server queue cannot be read at al
 its persisted local state is accessible, although the existing follower IPC does
 not expose it. Both stores were empty for the inspected task, so that probe alone
 does not validate nonempty payload decoding or establish its feature-gate value.
+The current TemPad reader also honors `CODEX_SQLITE_HOME` as a directory override.
 
 The adapter now retains a populated legacy queue and uses native server admission
 when a server database exists and the legacy queue is empty. It lazily discovers
@@ -160,10 +164,10 @@ The 2026-09-17 installed-plugin acceptance exposed a queue-backend conflict. Aft
 the user queued an independent message in Codex, admitting a Figma comment through
 the legacy follower endpoint made that independent message disappear from the
 displayed queue. The user reported that it did not reappear after Figma Stop.
-Source inspection explains the queue selection: `R1t` selects the server queue only
+Source inspection explained the queue selection: `R1t` selects the server queue only
 when enabled **and** the legacy queue is empty, while `acceptFromFollower` always
 writes legacy storage. This establishes a visibility/coexistence failure, not proof
-that TemPad deleted the server-side submission. The adapter does not call
+that TemPad deleted the server-side submission. That adapter did not yet call
 `thread/queue/delete`.
 
 Basic Queue admission, consecutive submission, draft clearing, queued execution,
@@ -208,12 +212,11 @@ regression and successful refreshed-host acceptance are recorded above.
 
 ## Findings
 
-1. **Desktop IPC has a native queue interface.**
+1. **Native queue admission is separate from execution.** The legacy
    `thread-follower-set-queued-follow-ups-state` persists a conversation's local
    follow-up queue and acknowledges the write without waiting for execution.
-   TemPad now reads the committed local queue and submits a merged list through
-   this interface. An unavailable local store retains the bounded Hub waiting path.
-2. **The native queue interface replaces a whole conversation queue.** It is not
+   The app-server's `thread/queue/add` similarly acknowledges a stored submission.
+2. **The legacy interface replaces a whole conversation queue.** It is not
    an atomic append operation. Its request has no expected revision, and its
    acknowledgement has no message ID or queue revision. Finding this method does
    not establish that an independent producer can safely append alongside the
@@ -234,9 +237,12 @@ regression and successful refreshed-host acceptance are recorded above.
    The optional source is a message ID and text range; there is no Figma node
    source in that contract.
 
-The working-tree integration uses best-effort read/merge/set, with conversation-level
+TemPad selects server admission when the server database exists and the legacy queue
+is empty; otherwise it retains legacy admission. Both paths use conversation-level
 serialization, stable message IDs, durable receipts, and targeted cancellation.
-The endpoint still has no compare-and-swap protection against simultaneous composer edits.
+Only the legacy path uses best-effort read/merge/set, without compare-and-swap
+protection against simultaneous composer edits. The bounded Start fallback requires
+both queues to be readable and empty; an unreadable store is never treated as empty.
 
 ## Contents
 
@@ -313,9 +319,11 @@ only that message through IPC. The queue was empty before and after the probe. A
 including the original-conversation snapshot, took 782.96 ms in this single observation.
 The probe did not execute the diagnostic or measure the read-to-write conflict window.
 Unit tests cover preservation of existing messages, multiple batches, uncertain admission,
-restart recovery, and targeted removal. Automatic queued execution, simultaneous native
-composer edits, and the full installed-plugin/Figma UI flow still need live verification.
-Windows and Linux observations remain limited to source and deterministic tests.
+restart recovery, and targeted removal. This probe did not verify automatic execution,
+simultaneous native composer edits, or the installed-plugin/Figma UI flow. The
+September 20 follow-up separately records execution, coexistence, Steer and Stop
+checks; it does not eliminate the legacy replacement race. Windows and Linux
+observations remain limited to source and deterministic tests.
 
 ## Protocol boundaries
 
@@ -328,7 +336,14 @@ flowchart LR
   O -->|app-server RPC| A[Codex app-server]
   Q --> L[Local follow-up storage]
   Q -->|when enabled| A
+  H -->|queue list/add/delete| C[Managed queue-only companion]
+  C --> S[Native server queue storage]
+  A --> S
 ```
+
+The companion shares native queue storage with the original app-server. It never
+loads or executes the conversation; lifecycle, Start, Steer and interruption remain
+with the desktop owner.
 
 Three surfaces must not be conflated:
 
@@ -695,8 +710,10 @@ TemPad reads `queued-follow-ups` from the host's `.codex-global-state.json` with
 modifying that file. S2 uses `updateAndPersist`; S6 writes and commits the complete
 file before updating the in-memory store and resolving the native write. Each
 admission reads again after durable receipt preparation, immediately before dispatch.
-A missing or unreadable store uses the existing Hub waiting path; incompatible queue
-contents fail without replacement. This is a best-effort integration, not atomic append.
+A missing or unreadable store prevents replacement. The bounded Hub waiting path
+can submit directly only after both queues can be checked and are empty;
+incompatible queue contents fail without replacement. This is a best-effort
+integration, not atomic append.
 Even obtaining an initial list is insufficient to exclude intervening composer edits. Never submit only TemPad's new
 batch as the replacement list when other queued messages may exist. Likewise,
 retrying an acknowledged or uncertain replacement can restore messages that the
@@ -748,7 +765,9 @@ binary version alone does not establish the feature gate's value.
 `QueuedSubmission` contains `id`, `clientUserMessageId`, and `input`. The
 `thread/queue/changed` notification contains `threadId`; the desktop refetches
 the list. These schemas were generated from the installed binary with experimental
-fields enabled; no app-server queue mutations were performed.
+fields enabled. The initial schema probe performed no mutations; the later
+[companion experiment](#queue-only-companion-process-verified-feasibility) tested
+admission, deletion and original-owner execution separately.
 
 The local coordinator selects the server queue only when it is enabled **and the
 legacy queue is empty**. Adding a legacy entry can change which queue is selected.
@@ -758,9 +777,10 @@ stores require explicit verification.
 
 The app-server API's atomic add and targeted delete are a better semantic fit for
 multiple producers, but no generic app-server forwarding method was found in the
-desktop follower registry. Whether TemPad can reach these operations through an
-existing, supported owner connection remains unresolved. Starting another server
-or editing Codex's global-state file would not satisfy the normal installation path.
+desktop follower registry. TemPad therefore uses the automatically managed queue-only
+companion described above. This is not a second conversation executor or a manually
+launched helper, and it does not write the host's global-state file or database
+directly. A direct owner queue route remains undiscovered in the inspected builds.
 
 ## Lifecycle subscriptions and interruption
 
@@ -875,7 +895,7 @@ It is not a claim about a published release.
 | Windows      | Fixed local pipe, OS URL handler, deterministic tests                           | Native Windows host verification is outstanding                                  |
 | Reconnection | Durable identities and reconciliation; never restore absent uncertain messages  | Absence is not evidence of execution                                             |
 
-A final `delivered` receipt means native input admission, either into the local queue
+A final `delivered` receipt means native input admission, either into a native queue
 or into a turn. It does not mean execution or completion. The UI clears only submitted
 revisions and permits the next batch after native admission. A final receipt arriving
 before the initial Hub response unlocks the editor immediately; the late response cannot
@@ -939,6 +959,9 @@ process.
 
 - [IPC transport and discovery](../../packages/mcp-server/src/agent-clients/codex-ipc.ts)
 - [Feedback delivery and receipts](../../packages/mcp-server/src/agent-clients/codex-feedback.ts)
+- [Queue backend selection and legacy admission](../../packages/mcp-server/src/agent-clients/codex-queue.ts)
+- [Read-only server queue detection](../../packages/mcp-server/src/agent-clients/codex-server-queue.ts)
+- [Managed queue-only RPC](../../packages/mcp-server/src/agent-clients/codex-queue-rpc.ts)
 - [Lifecycle subscription and interruption](../../packages/mcp-server/src/agent-clients/codex-lifecycle.ts)
 - [Turn-state projection](../../packages/mcp-server/src/agent-clients/codex-turn-state.ts)
 - [Per-request host identity](../../packages/mcp-server/src/agent-clients/identity.ts)

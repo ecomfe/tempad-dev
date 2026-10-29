@@ -2,9 +2,12 @@ import type { AgentCapabilities, AgentClient } from '@tempad-dev/shared'
 
 import { AGENT_CLIENTS } from '@tempad-dev/shared'
 
+import type { HostContext } from './host-context'
+
 export type ClientBinding = {
   client: AgentClient
   turnId?: string
+  hostContext?: HostContext
 }
 
 /** Only clients with a verified native conversation channel can carry comments or interruption. */

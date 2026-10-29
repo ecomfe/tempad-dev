@@ -1758,7 +1758,7 @@ describe('mcp/tools canvas authoring schemas', () => {
                   color: { r: 0, g: 0, b: 0, a: 1 },
                   secondaryColor: { r: 1, g: 1, b: 1, a: 1 },
                   noiseSize: 2,
-                  noiseSizeVector: { x: 2, y: 2 },
+                  noiseSizeVector: { x: 2, y: 3 },
                   density: 0.5
                 },
                 {
@@ -1772,7 +1772,7 @@ describe('mcp/tools canvas authoring schemas', () => {
                 {
                   type: 'TEXTURE',
                   noiseSize: 1,
-                  noiseSizeVector: { x: 1, y: 1 },
+                  noiseSizeVector: { x: 1, y: 2 },
                   radius: 4,
                   clipToShape: true
                 },
@@ -1855,7 +1855,7 @@ describe('mcp/tools canvas authoring schemas', () => {
         color: { r: 0, g: 0, b: 0, a: 1 },
         secondaryColor: { r: 1, g: 1, b: 1, a: 1 },
         noiseSize: 2,
-        noiseSizeVector: { x: 2, y: 3 },
+        noiseSizeVector: { x: 2, y: Infinity },
         density: 1
       }
     ],

@@ -225,4 +225,32 @@ describe('mcp/code render svg', () => {
     expect(markup).toContain('className="relative text-[var(--icon-color)]"')
     expect(markup).not.toContain('data-src=')
   })
+
+  it('serializes inline background overrides as CSS when injecting a raw SVG', async () => {
+    const root = createSnapshot({ id: 'icon', type: 'VECTOR' })
+    const rendered = await renderTree(root.id, createTree([root]), {
+      styles: new Map(),
+      layout: new Map(),
+      nodes: new Map([[root.id, root.node]]),
+      svgs: new Map([
+        [
+          root.id,
+          {
+            raw: '<svg viewBox="0 0 100 100"><path d="M0 0H100V100H0Z"/></svg>',
+            presentationStyle: {
+              background: 'url("front_image;v=1.png") left / cover no-repeat',
+              'background-color': 'var(--surface)'
+            }
+          }
+        ]
+      ]),
+      textSegments: new Map(),
+      config: { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+      preferredLang: 'vue'
+    } as never)
+
+    expect(stringifyComponent(rendered as never, 'vue')).toContain(
+      'style="background: url(&quot;front_image;v=1.png&quot;) left / cover no-repeat; background-color: var(--surface)"'
+    )
+  })
 })

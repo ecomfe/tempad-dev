@@ -43,4 +43,13 @@ describe('asset-utils', () => {
     expect(getHashFromAssetFilename('too-short.png')).toBeNull()
     expect(getHashFromAssetFilename(`${hash}.bad-ext!`)).toBeNull()
   })
+
+  it.each(['a1b2c3d4', 'a1b2c3d4'.repeat(8)])(
+    'reads a generated hyphenated image filename for hash %s',
+    (hash) => {
+      const filename = buildAssetFilename(hash, 'image/x-icon')
+      expect(filename).toBe(`${hash}.x-icon`)
+      expect(getHashFromAssetFilename(filename)).toBe(hash)
+    }
+  )
 })

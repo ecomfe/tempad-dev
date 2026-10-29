@@ -1,19 +1,54 @@
 # Changelog
 
-## Unreleased
+## 1.0.0
+
+### Runtime updates
+
+- Added verified automatic Hub updates on macOS, Linux and Windows. Compatible updates wait until
+  connected clients are idle and support switching, keeping their MCP connections open.
+- Added update status, `off` and `pinned` policies, explicit version switching with confirmation,
+  and recovery if a replacement fails. Development checkouts never download releases.
+- Preserved asset URLs and task protections across updates. Failed downloads leave the current Hub
+  running; damaged unused downloads can be replaced.
+- When upgrading from 0.11.0 or earlier, disconnect all TemPad MCP clients once before restarting
+  their MCP servers to enable runtime updates.
+
+### Tasks and feedback
 
 - Fixed Claude task routing after reconnects and `/clear`, including sessions launched from Codex.
-- Kept stopped tasks cancelled across reconnects and restarts, and prevented overlapping canvas
-  writes while an earlier operation's outcome remains uncertain.
-- Improved connection recovery, permission error messages, and reliability when saving tasks and assets.
+- Kept Codex queues, feedback and Stop tied to each agent's configuration when multiple clients share a Hub.
+- Kept Stop effective across reconnects and restarts, including for completed, resumable tasks,
+  without interrupting a later conversation turn.
+- Prevented restored reviews from sending feedback to unrelated conversations, and retained
+  uncertain feedback receipts instead of risking duplicate delivery.
 - Refreshed completion summaries after resuming a design task.
+
+### Canvas recovery
+
+- Prevented overlapping canvas edits after a Hub restart when an earlier operation may still be
+  running. Added `--resolve-runtime-block` for recovery that preserves Stop and requires readback.
+- Blocked further canvas writes after an unknown result or unconfirmed rollback until the affected
+  content is read back. This protection survives Stop, new tasks, and Hub restarts; insufficient
+  reads explain what remains. Requests rejected before editing do not require an extra read.
+- Added safe recovery for damaged task storage, keeping old tasks retired and recovery errors
+  readable by MCP clients. Preserved saved records across version changes.
+
+### Storage and connections
+
+- Isolated development Hubs from installed releases with separate ports and storage.
 - Added automatic cleanup of retired task details and confirmed feedback receipts after 30 days,
   retaining current open reviews, Stop protections, and feedback with uncertain delivery.
 - Capped each process log at 10 MiB. Logs from exited processes are removed after seven days
   without updates.
-- Hardened local storage and Unix socket access.
-- Prevented restored reviews from sending feedback to unrelated conversations.
-- Added recovery guidance for damaged task storage while preserving Stop protections.
+- Tightened local file and Unix socket permissions and made storage failures actionable.
+- Fixed concurrent uploads of identical assets, asset expiry during downloads, and storage
+  accounting after failed cleanup.
+- Prevented malformed asset requests from disconnecting agents and released resources after
+  cancelled downloads.
+- Prevented repeated disconnected reads from exhausting request capacity, and ignored trailing
+  messages from rejected or replaced connections.
+- Showed progress during longer Hub startup and prevented the agent connection process from
+  hanging after startup fails.
 
 ## 0.11.0
 

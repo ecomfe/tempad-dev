@@ -27,22 +27,19 @@ export function resolveRunAttrs(
   fills: ResolvedFill[]
 ): Record<string, string> {
   const style: Record<string, string> = {}
-  let visibleSolid: Extract<ResolvedFill, { type: 'SOLID' }> | undefined
-  let hasVisiblePaint = false
-  for (const fill of fills) {
-    if (!isRenderablePaint(fill.raw)) continue
-    hasVisiblePaint = true
-    if (fill.type === 'SOLID') {
-      visibleSolid = fill
-      break
-    }
-  }
+  const visible = fills.filter((fill) => isRenderablePaint(fill.raw))
+  const front = visible.at(-1)
+  const composited =
+    front &&
+    visible.length > 1 &&
+    ((front.raw.opacity ?? 1) < 1 ||
+      (front.raw.blendMode !== undefined && front.raw.blendMode !== 'NORMAL'))
 
-  if (visibleSolid) {
-    const val = formatHexAlpha(visibleSolid.raw.color, visibleSolid.raw.opacity ?? 1)
-    const colorValue = constructCssVar(visibleSolid.token, val)
+  if (front?.type === 'SOLID' && !composited) {
+    const val = formatHexAlpha(front.raw.color, front.raw.opacity ?? 1)
+    const colorValue = constructCssVar(front.token, val)
     if (colorValue) style.color = colorValue
-  } else if (fills.length === 0 || !hasVisiblePaint) {
+  } else if (!front) {
     style.color = 'transparent'
   }
 

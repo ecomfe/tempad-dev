@@ -8,11 +8,14 @@ import type {
   RuntimeHelloMessage,
   StateMessage,
   ToolCallMessage,
-  ToolResultMessage
+  ToolResultMessage,
+  ToolCompletionMessage,
+  ToolCompletionAckMessage
 } from '@tempad-dev/shared'
 
 import {
-  MCP_PORT_CANDIDATES,
+  runtimePortCandidates,
+  sameRuntimeProfile,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
   parseMessageToExtension
@@ -28,6 +31,8 @@ const LOCAL_HUB_UNREACHABLE_MESSAGE =
 type HubConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
 type HubClientSnapshot = {
+  terminalReceiptGeneration?: string
+  durableTerminalReceipts?: true
   activeId: string | null
   assetServerUrl: string | null
   errorMessage: string | null
@@ -36,6 +41,8 @@ type HubClientSnapshot = {
 }
 
 type McpHubClientEvents = {
+  onToolCompletionAck?: (message: ToolCompletionAckMessage) => void
+  onKeepalive?: () => void
   onSnapshot?: (snapshot: HubClientSnapshot) => void
   onToolCall?: (message: ToolCallMessage) => void
   onDesignActionResult?: (message: DesignActionResultMessage) => void
@@ -53,6 +60,7 @@ type HubConnection = {
 class McpBridgeProtocolMismatchError extends Error {}
 
 export class McpHubClient {
+  private readonly runtimeProfile = __TEMPAD_RUNTIME_PROFILE__
   private activeId: string | null = null
   private assetServerUrl: string | null = null
   private candidateSocket: WebSocket | null = null
@@ -66,6 +74,8 @@ export class McpHubClient {
   private registeredId: string | null = null
   private status: HubConnectionStatus = 'idle'
   private ws: WebSocket | null = null
+  private terminalReceiptGeneration: string | undefined
+  private durableTerminalReceipts = false
 
   constructor(
     private readonly events: McpHubClientEvents = {},
@@ -76,6 +86,10 @@ export class McpHubClient {
 
   getSnapshot(): HubClientSnapshot {
     return {
+      ...(this.terminalReceiptGeneration
+        ? { terminalReceiptGeneration: this.terminalReceiptGeneration }
+        : {}),
+      ...(this.durableTerminalReceipts ? { durableTerminalReceipts: true as const } : {}),
       activeId: this.activeId,
       assetServerUrl: this.assetServerUrl,
       errorMessage: this.errorMessage,
@@ -122,8 +136,22 @@ export class McpHubClient {
     this.sendJson({ type: 'activate' })
   }
 
-  sendToolResult(message: ToolResultMessage): void {
-    this.sendJson(message)
+  sendToolResult(message: ToolResultMessage): boolean {
+    return this.trySendJson(message)
+  }
+
+  sendToolCompletion(message: ToolCompletionMessage): boolean {
+    if (!this.durableTerminalReceipts && message.generation !== this.terminalReceiptGeneration)
+      return false
+    return this.trySendJson(message)
+  }
+
+  private trySendJson(message: unknown): boolean {
+    try {
+      return this.sendJson(message)
+    } catch {
+      return false
+    }
   }
 
   sendSessions(message: FigmaSessionsMessage): void {
@@ -136,6 +164,13 @@ export class McpHubClient {
 
   private async connect(epoch: number): Promise<void> {
     this.clearReconnectTimer()
+    if (!sameRuntimeProfile(this.runtimeProfile, this.runtimeIdentity?.runtimeProfile)) {
+      this.status = 'error'
+      this.errorMessage =
+        'MCP runtime identity is missing or inconsistent. Rebuild and reload the extension.'
+      this.emitSnapshot()
+      return
+    }
     this.status = 'connecting'
     this.errorMessage = null
     this.emitSnapshot()
@@ -155,7 +190,12 @@ export class McpHubClient {
         }
         this.attachSocket(connection.ws)
         this.handleHubMessage(connection.registered)
-        if (this.runtimeIdentity) this.sendJson(this.runtimeIdentity)
+        if (this.runtimeIdentity && this.runtimeProfile.kind === 'release')
+          this.sendJson({
+            ...this.runtimeIdentity,
+            ...(this.terminalReceiptGeneration ? { terminalReceipts: true } : {}),
+            ...(this.durableTerminalReceipts ? { durableTerminalReceipts: true } : {})
+          })
         this.handleHubMessage(connection.state)
         if (!this.isCurrentConnection(epoch) || this.ws !== connection.ws) return
         this.lastSuccessfulPort = candidatePort
@@ -182,13 +222,14 @@ export class McpHubClient {
   }
 
   private getPortCandidates(): number[] {
-    if (this.lastSuccessfulPort && MCP_PORT_CANDIDATES.includes(this.lastSuccessfulPort)) {
+    const candidates = runtimePortCandidates(this.runtimeProfile)
+    if (this.lastSuccessfulPort && candidates.includes(this.lastSuccessfulPort)) {
       return [
         this.lastSuccessfulPort,
-        ...MCP_PORT_CANDIDATES.filter((port) => port !== this.lastSuccessfulPort)
+        ...candidates.filter((port) => port !== this.lastSuccessfulPort)
       ]
     }
-    return [...MCP_PORT_CANDIDATES]
+    return [...candidates]
   }
 
   private openHubConnection(port: number): Promise<HubConnection> {
@@ -236,6 +277,14 @@ export class McpHubClient {
           return
         }
         if (message.type === 'registered') {
+          if (!sameRuntimeProfile(this.runtimeProfile, message.runtimeProfile)) {
+            fail(
+              new McpBridgeProtocolMismatchError(
+                'MCP runtime profile does not match this extension build.'
+              )
+            )
+            return
+          }
           if (!servesThisExtension(message)) {
             fail(createProtocolMismatchError(message))
             return
@@ -245,6 +294,21 @@ export class McpHubClient {
             return
           }
           registered = message
+          // Checkout Hubs withhold routes and asset access until identity is verified.
+          if (this.runtimeProfile.kind === 'checkout') {
+            try {
+              ws.send(
+                JSON.stringify({
+                  ...this.runtimeIdentity,
+                  ...(message.terminalReceiptGeneration ? { terminalReceipts: true } : {}),
+                  ...(message.durableTerminalReceipts ? { durableTerminalReceipts: true } : {})
+                })
+              )
+            } catch (error) {
+              fail(error instanceof Error ? error : new Error(String(error)))
+              return
+            }
+          }
         } else if (message.type === 'state') {
           if (state) {
             fail(new Error('Received duplicate MCP server state'))
@@ -287,7 +351,7 @@ export class McpHubClient {
     if (this.ws !== ws) return
     const message = parseHubMessage(event)
     if (!message) {
-      this.rejectConnectedMessage(
+      this.disconnectSocket(
         ws,
         isRegistrationFrame(event)
           ? createProtocolMismatchError().message
@@ -296,7 +360,7 @@ export class McpHubClient {
       return
     }
     if (message.type === 'registered') {
-      this.rejectConnectedMessage(
+      this.disconnectSocket(
         ws,
         servesThisExtension(message)
           ? 'Received duplicate registration from MCP server'
@@ -305,7 +369,7 @@ export class McpHubClient {
       return
     }
     if (message.type === 'state' && !isAllowedAssetServerUrl(message.assetServerUrl)) {
-      this.rejectConnectedMessage(ws, 'MCP server advertised a non-loopback asset URL')
+      this.disconnectSocket(ws, 'MCP server advertised a non-loopback asset URL')
       return
     }
     if (
@@ -313,24 +377,36 @@ export class McpHubClient {
       this.assetServerUrl !== null &&
       message.assetServerUrl !== this.assetServerUrl
     ) {
-      this.rejectConnectedMessage(ws, 'MCP server changed its asset server URL')
+      this.disconnectSocket(ws, 'MCP server changed its asset server URL')
       return
     }
     this.handleHubMessage(message)
   }
 
-  private rejectConnectedMessage(ws: WebSocket, message: string): void {
+  private disconnectSocket(ws: WebSocket, errorMessage: string | null): void {
     if (this.ws !== ws) return
-    this.errorMessage = message
+    // Revoke the route before close(), whose handshake can outlive this connection.
+    this.cleanupSocket()
+    this.activeId = null
+    this.assetServerUrl = null
+    this.registeredId = null
     this.status = 'connecting'
+    this.errorMessage = errorMessage
     this.emitSnapshot()
-    closeWebSocket(ws)
+    this.scheduleReconnect()
   }
 
   private handleHubMessage(message: MessageToExtension): void {
     switch (message.type) {
       case 'registered':
         this.registeredId = message.id
+        this.durableTerminalReceipts = !!this.runtimeIdentity && !!message.durableTerminalReceipts
+        this.terminalReceiptGeneration = this.runtimeIdentity
+          ? message.terminalReceiptGeneration
+          : undefined
+        break
+      case 'toolCompletionAck':
+        this.events.onToolCompletionAck?.(message)
         break
       case 'state':
         this.activeId = message.activeId
@@ -352,15 +428,7 @@ export class McpHubClient {
   }
 
   private handleClose(ws: WebSocket, event: CloseEvent): void {
-    if (this.ws !== ws) return
-    this.cleanupSocket()
-    this.activeId = null
-    this.assetServerUrl = null
-    this.registeredId = null
-    this.status = 'connecting'
-    this.errorMessage = event.wasClean ? null : 'MCP connection closed unexpectedly'
-    this.emitSnapshot()
-    this.scheduleReconnect()
+    this.disconnectSocket(ws, event.wasClean ? null : 'MCP connection closed unexpectedly')
   }
 
   private handleError(ws: WebSocket, event: Event): void {
@@ -386,7 +454,8 @@ export class McpHubClient {
   private startKeepalive(): void {
     this.clearKeepaliveTimer()
     this.keepaliveTimer = setInterval(() => {
-      this.sendJson({ type: 'ping' })
+      this.trySendJson({ type: 'ping' })
+      this.events.onKeepalive?.()
     }, KEEPALIVE_INTERVAL_MS)
   }
 

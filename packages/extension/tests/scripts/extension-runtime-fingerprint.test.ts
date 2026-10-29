@@ -79,4 +79,46 @@ describe('extension runtime fingerprint', () => {
     unlinkSync(join(root, 'packages/extension/assets/icons/logo.svg'))
     expect(computeExtensionRuntimeFingerprint(root)).toBe(clean)
   })
+
+  it.each([
+    'packages/plugins/src/runtime/raw.ts',
+    'packages/plugins/package.json',
+    'packages/plugins/tsconfig.json',
+    'packages/shared/tsconfig.json',
+    'packages/extension/tsconfig.json',
+    'tsconfig.base.json',
+    'pnpm-lock.yaml',
+    'pnpm-workspace.yaml'
+  ])('detects changes to consumed runtime or build input %s', (path) => {
+    write('packages/extension/package.json', '{}')
+    const clean = computeExtensionRuntimeFingerprint(root)
+    write(path, 'original input')
+    const added = computeExtensionRuntimeFingerprint(root)
+    expect(added).not.toBe(clean)
+    write(path, 'changed input')
+    expect(computeExtensionRuntimeFingerprint(root)).not.toBe(added)
+    unlinkSync(join(root, path))
+    expect(computeExtensionRuntimeFingerprint(root)).toBe(clean)
+  })
+
+  it('ignores generated dependencies, package prose, and unrelated source and check inputs', () => {
+    write('packages/plugins/src/index.ts', 'export const RAW_TAG_NAME = "raw"')
+    const clean = computeExtensionRuntimeFingerprint(root)
+    for (const path of [
+      'packages/plugins/dist/index.js',
+      'packages/plugins/tsdown.config.ts',
+      'packages/plugins/node_modules/dependency/index.js',
+      'packages/plugins/README.md',
+      'packages/plugins/tests/index.test.ts',
+      'packages/shared/dist/index.js',
+      'packages/shared/tsdown.config.ts',
+      'packages/extension/.wxt/tsconfig.json',
+      'packages/site/src/index.ts',
+      'packages/mcp-server/src/index.ts',
+      'tsconfig.configs.json'
+    ]) {
+      write(path, 'unrelated to authored extension runtime inputs')
+    }
+    expect(computeExtensionRuntimeFingerprint(root)).toBe(clean)
+  })
 })

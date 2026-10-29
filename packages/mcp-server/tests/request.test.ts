@@ -89,6 +89,28 @@ describe('mcp-server/request', () => {
     await vi.advanceTimersByTimeAsync(2000)
     await result
   })
+
+  it.each(['socket', 'page'] as const)(
+    'warns against replaying a write after a %s disconnect',
+    async (source) => {
+      vi.mocked(nanoid).mockReturnValue('disconnected-write')
+      const { promise, requestId } = register('ext', 1000, { waitForDefinitiveResult: true })
+      if (source === 'socket') cleanupForExtension('ext')
+      else
+        reject(
+          requestId,
+          'ext',
+          Object.assign(new Error('The page port disconnected.'), {
+            code: TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED
+          })
+        )
+      await expect(promise).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED,
+        message: expect.stringMatching(/outcome is unknown.*Do not replay/)
+      })
+    }
+  )
+
   it('registers and resolves a pending call', async () => {
     vi.mocked(nanoid).mockReturnValue('req-1')
 

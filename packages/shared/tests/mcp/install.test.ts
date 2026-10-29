@@ -56,7 +56,7 @@ describe('shared/mcp/install', () => {
     expect(mcp.MCP_SERVER).toEqual({
       name: 'tempad-dev',
       command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@latest']
+      args: ['-y', '@tempad-dev/mcp@latest', '--runtime-updates=stable']
     })
 
     expect(mcp.MCP_DEFAULT_CONFIG_SNIPPET).toContain('"tempad-dev"')
@@ -64,7 +64,7 @@ describe('shared/mcp/install', () => {
       mcpServers: {
         'tempad-dev': {
           command: 'npx',
-          args: ['-y', '@tempad-dev/mcp@latest']
+          args: ['-y', '@tempad-dev/mcp@latest', '--runtime-updates=stable']
         }
       }
     })
@@ -80,7 +80,7 @@ describe('shared/mcp/install', () => {
       name: 'tempad-dev',
       type: 'stdio',
       command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@latest']
+      args: ['-y', '@tempad-dev/mcp@latest', '--runtime-updates=stable']
     })
 
     const cursorDeepLink = mcp.MCP_CLIENTS_BY_ID.cursor.deepLink
@@ -96,7 +96,7 @@ describe('shared/mcp/install', () => {
     ).toString('utf8')
     expect(JSON.parse(decodedCursorConfigJson)).toEqual({
       command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@latest']
+      args: ['-y', '@tempad-dev/mcp@latest', '--runtime-updates=stable']
     })
 
     expect(mcp.MCP_CLIENTS_BY_ID.trae.deepLink).toContain('trae://trae.ai-ide/mcp-import')
@@ -110,17 +110,17 @@ describe('shared/mcp/install', () => {
     expect(mcp.MCP_CLIENTS_BY_ID.codex.copyText).toContain('codex mcp add "tempad-dev"')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyKind).toBe('config')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyText).toBe(
-      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest"]\ntool_timeout_sec = 300'
+      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest", "--runtime-updates=stable"]\ntool_timeout_sec = 300'
     )
     expect(mcp.MCP_CLIENTS_BY_ID.gemini.copyText).toBe(
-      'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest'
+      'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest --runtime-updates=stable'
     )
     expect(JSON.parse(mcp.MCP_CLIENTS_BY_ID.opencode.copyText ?? '')).toEqual({
       $schema: 'https://opencode.ai/config.json',
       mcp: {
         'tempad-dev': {
           type: 'local',
-          command: ['npx', '-y', '@tempad-dev/mcp@latest']
+          command: ['npx', '-y', '@tempad-dev/mcp@latest', '--runtime-updates=stable']
         }
       }
     })
@@ -267,6 +267,7 @@ describe('shared/mcp/install', () => {
       ])
       expect(integration.actions[0]?.value).toBe(client.copyText)
       expect(integration.actions[0]?.value).toContain('@tempad-dev/mcp@latest')
+      expect(integration.actions[0]?.value).toContain('--runtime-updates=stable')
       if (client.copyKind === 'config') expect(integration.actions[0]?.hint).toBeTruthy()
       expect(integration.actions[1]?.value).toBe(`${SKILLS_INSTALL_COMMAND} --global --agent ${id}`)
     }
@@ -285,7 +286,7 @@ describe('shared/mcp/install', () => {
         '        serverName: tempad-dev',
         '        transport: stdio',
         '        command: npx',
-        '        args: ["-y","@tempad-dev/mcp@latest"]'
+        '        args: ["-y","@tempad-dev/mcp@latest","--runtime-updates=stable"]'
       ].join('\n')
     )
     expect(clients.deepseek.copyKind).toBe('config')
@@ -298,32 +299,46 @@ describe('shared/mcp/install', () => {
   it('uses the native CLI syntax for each harness', async () => {
     const { MCP_CLIENTS_BY_ID: clients, AGENT_INTEGRATIONS_BY_ID: integrations } =
       await importInstall()
-    expect(clients.amp.copyText).toBe('amp mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest')
-    expect(clients.grok.copyText).toBe('grok mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest')
+    expect(clients.amp.copyText).toBe(
+      'amp mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest --runtime-updates=stable'
+    )
+    expect(clients.grok.copyText).toBe(
+      'grok mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest --runtime-updates=stable'
+    )
     expect(clients['github-copilot'].copyText).toBe(
-      'copilot mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest'
+      'copilot mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest --runtime-updates=stable'
     )
     expect(clients.droid.copyText).toBe(
-      'droid mcp add tempad-dev "npx -y @tempad-dev/mcp@latest" --type stdio'
+      'droid mcp add tempad-dev "npx -y @tempad-dev/mcp@latest --runtime-updates=stable" --type stdio'
     )
     expect(clients['kimi-code-cli'].copyText).toBe(
-      'kimi mcp add --transport stdio tempad-dev -- npx -y @tempad-dev/mcp@latest'
+      'kimi mcp add --transport stdio tempad-dev -- npx -y @tempad-dev/mcp@latest --runtime-updates=stable'
     )
     expect(clients['qwen-code'].copyText).toBe(
-      'qwen mcp add --scope user tempad-dev npx -y @tempad-dev/mcp@latest'
+      'qwen mcp add --scope user tempad-dev npx -y @tempad-dev/mcp@latest --runtime-updates=stable'
     )
-    expect(clients.pi.copyText).toBe('pi mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest')
+    expect(clients.pi.copyText).toBe(
+      'pi mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest --runtime-updates=stable'
+    )
     expect(integrations.pi.actions[0]?.hint).toContain('Pi 0.99')
   })
 
   it('keeps host-specific configuration formats instead of assuming mcpServers everywhere', async () => {
     const { MCP_CLIENTS_BY_ID: clients } = await importInstall()
-    const command = { command: 'npx', args: ['-y', '@tempad-dev/mcp@latest'] }
+    const command = {
+      command: 'npx',
+      args: ['-y', '@tempad-dev/mcp@latest', '--runtime-updates=stable']
+    }
     for (const id of ['antigravity', 'augment', 'cline', 'junie', 'kiro-cli', 'qoder'] as const) {
       expect(JSON.parse(clients[id].copyText!)).toEqual({ mcpServers: { 'tempad-dev': command } })
     }
     expect(JSON.parse(clients.kilo.copyText!)).toEqual({
-      mcp: { 'tempad-dev': { type: 'local', command: ['npx', '-y', '@tempad-dev/mcp@latest'] } }
+      mcp: {
+        'tempad-dev': {
+          type: 'local',
+          command: ['npx', '-y', '@tempad-dev/mcp@latest', '--runtime-updates=stable']
+        }
+      }
     })
     expect(JSON.parse(clients.codebuddy.copyText!)).toEqual({
       mcpServers: { 'tempad-dev': { type: 'stdio', ...command } }
@@ -335,7 +350,7 @@ describe('shared/mcp/install', () => {
       mcp: { servers: { 'tempad-dev': command } }
     })
     expect(clients['hermes-agent'].copyText).toBe(
-      'mcp_servers:\n  tempad-dev:\n    command: npx\n    args: ["-y","@tempad-dev/mcp@latest"]'
+      'mcp_servers:\n  tempad-dev:\n    command: npx\n    args: ["-y","@tempad-dev/mcp@latest","--runtime-updates=stable"]'
     )
   })
 

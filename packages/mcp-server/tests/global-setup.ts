@@ -1,8 +1,8 @@
 import type { TestProject } from 'vitest/node'
 
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { rmSync } from 'node:fs'
+
+import { createPrivateTempDirectory } from '../src/runtime-platform'
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -10,8 +10,12 @@ declare module 'vitest' {
   }
 }
 
-export default function setup(project: TestProject) {
-  const directory = mkdtempSync(join(tmpdir(), 'tempad-mcp-tests-'))
+export default async function setup(project: TestProject) {
+  if (process.env.TEMPAD_RUNTIME_EVIDENCE_DIR) {
+    const diagnostics = '../scripts/runtime-startup-trace.mjs'
+    await import(diagnostics)
+  }
+  const directory = createPrivateTempDirectory('tempad-mcp-tests-')
   project.provide('mcpTestDirectory', directory)
   return () => rmSync(directory, { recursive: true, force: true })
 }

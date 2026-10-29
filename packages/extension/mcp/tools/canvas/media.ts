@@ -123,7 +123,7 @@ async function resolveVideoUrls(state: CanvasMediaState): Promise<void> {
       bytes = await readVideoBytes(response)
     } catch {
       throw createCodedError(
-        TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
         'Video download failed. Use a directly accessible public HTTPS video up to 100MB; redirects, HTTP errors, oversized responses, and timeouts are rejected.'
       )
     }

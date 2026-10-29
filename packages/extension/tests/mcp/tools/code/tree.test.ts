@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { suggestDepthLimit } from '@/mcp/semantic-tree'
+import { createGetCodeCacheContext, getNodeSemanticsCached } from '@/mcp/tools/code/cache'
 import { createCodeCheckpoint } from '@/mcp/tools/code/deadline'
 import { buildVisibleTree } from '@/mcp/tools/code/tree'
 
@@ -41,6 +42,85 @@ function createNode(
 }
 
 describe('mcp/tools/code/tree', () => {
+  it.each(['NONE', 'HORIZONTAL'] as const)(
+    'shares observed clipped overflow with semantics without eager work for %s layout',
+    (layoutMode) => {
+      vi.mocked(suggestDepthLimit).mockReturnValue(undefined)
+      const child = createNode('RECTANGLE', 'child')
+      const transform = vi.fn(() => [
+        [1, 0, 200],
+        [0, 1, 200]
+      ])
+      Object.defineProperty(child, 'relativeTransform', { get: transform })
+      const root = createNode(
+        'FRAME',
+        'root',
+        {
+          clipsContent: true,
+          layoutMode,
+          inferredAutoLayout: { layoutMode: 'HORIZONTAL' }
+        },
+        [child]
+      )
+      const cache = createGetCodeCacheContext()
+      const tree = buildVisibleTree([root], undefined, cache)
+      expect(transform).toHaveBeenCalledTimes(layoutMode === 'NONE' ? 1 : 0)
+      expect(tree.nodes.get(root.id)?.autoLayoutHint).toBeUndefined()
+      const semantics = getNodeSemanticsCached(root, cache)
+      expect(semantics.layout.childOverflow).toEqual({ x: true, y: true })
+      expect(transform).toHaveBeenCalledTimes(1)
+      transform.mockReturnValue([
+        [1, 0, 0],
+        [0, 1, 0]
+      ])
+      const nextRequest = createGetCodeCacheContext()
+      buildVisibleTree([root], undefined, nextRequest)
+      expect(getNodeSemanticsCached(root, nextRequest).layout.childOverflow).toEqual({
+        x: false,
+        y: false
+      })
+      expect(transform).toHaveBeenCalledTimes(2)
+    }
+  )
+
+  it('does not retain overflow from an interrupted scan', () => {
+    vi.mocked(suggestDepthLimit).mockReturnValue(undefined)
+    let interrupted = false
+    let left = 200
+    const child = createNode('RECTANGLE', 'child', { width: 10, height: 10 })
+    const transform = vi.fn(() => {
+      interrupted = true
+      return [
+        [1, 0, left],
+        [0, 1, 0]
+      ]
+    })
+    Object.defineProperty(child, 'relativeTransform', { get: transform })
+    const root = createNode(
+      'FRAME',
+      'root',
+      {
+        clipsContent: true,
+        layoutMode: 'NONE',
+        inferredAutoLayout: { layoutMode: 'HORIZONTAL' }
+      },
+      [child]
+    )
+    const cache = createGetCodeCacheContext()
+    expect(() =>
+      buildVisibleTree(
+        [root],
+        () => {
+          if (interrupted) throw new Error('deadline')
+        },
+        cache
+      )
+    ).toThrow('deadline')
+    left = 0
+    expect(getNodeSemanticsCached(root, cache).layout.childOverflow).toEqual({ x: false, y: false })
+    expect(transform).toHaveBeenCalledTimes(2)
+  })
+
   it.each([undefined, 0])('checks hidden children even at depth cap %s', (depthLimit) => {
     vi.mocked(suggestDepthLimit).mockReturnValue(depthLimit)
     let reads = 0

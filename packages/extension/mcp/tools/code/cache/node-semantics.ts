@@ -6,6 +6,19 @@ import type { GetCodeCacheContext, NodeSemanticSnapshot, PaintArrayState } from 
 import { getInferredAutoLayout, hasClippedOverflow } from '../layout-parent'
 import { computeChildOverflow } from '../styles/overflow'
 
+export function getChildOverflowCached(
+  node: SceneNode,
+  ctx: GetCodeCacheContext,
+  checkpoint = ctx.checkpoint
+): { x: boolean; y: boolean } {
+  checkpoint?.()
+  const cached = ctx.childOverflow.get(node)
+  if (cached) return cached
+  const overflow = computeChildOverflow(node, checkpoint)
+  ctx.childOverflow.set(node, overflow)
+  return overflow
+}
+
 export function getNodeSemanticsCached(
   node: SceneNode,
   ctx: GetCodeCacheContext
@@ -23,7 +36,7 @@ export function getNodeSemanticsCached(
   const strokesState = readPaintArrayState(node, 'strokes')
   const childOverflow =
     'clipsContent' in node && node.clipsContent
-      ? computeChildOverflow(node, ctx.checkpoint)
+      ? getChildOverflowCached(node, ctx)
       : { x: false, y: false }
   const clippedOverflow = hasClippedOverflow(node, childOverflow)
   const snapshot: NodeSemanticSnapshot = {

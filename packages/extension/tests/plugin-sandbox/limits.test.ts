@@ -42,6 +42,35 @@ describe('plugin sandbox payload limits', () => {
     })
   })
 
+  it('checks enumerable array properties preserved by structured clone', () => {
+    const withMetadata = structuredClone(Object.assign(['ok'], { metadata: { value: true } }))
+    expect(inspectSandboxValue(withMetadata)).toMatchObject({ ok: true })
+
+    const oversized = Object.assign([], {
+      metadata: 'x'.repeat(PLUGIN_SANDBOX_LIMITS.maxPayloadBytes + 1)
+    })
+    expect(inspectSandboxValue(structuredClone(oversized))).toEqual({
+      ok: false,
+      reason: 'payload-too-large'
+    })
+
+    const cyclic: unknown[] & { metadata?: unknown } = []
+    cyclic.metadata = cyclic
+    expect(inspectSandboxValue(structuredClone(cyclic))).toEqual({
+      ok: false,
+      reason: 'invalid-payload'
+    })
+  })
+
+  it('bounds repeated-reference graphs by the work their consumers must traverse', () => {
+    let value: unknown = 'leaf'
+    for (let depth = 0; depth < 20; depth += 1) value = [value, value]
+    expect(inspectSandboxValue(structuredClone(value))).toEqual({
+      ok: false,
+      reason: 'payload-too-large'
+    })
+  })
+
   it('bounds nesting depth and entry count', () => {
     let nested: Record<string, unknown> = {}
     for (let depth = 0; depth <= PLUGIN_SANDBOX_LIMITS.maxPayloadDepth; depth += 1) {

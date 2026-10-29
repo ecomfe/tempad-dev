@@ -71,6 +71,102 @@ function setupFigma({
 }
 
 describe('utils/variable-output', () => {
+  it('uses field bindings without guessing ownership of a duplicated code syntax', () => {
+    setupFigma({
+      variableById: {
+        a: createVariable('a', 'Width', 'shared'),
+        b: createVariable('b', 'Height', 'shared')
+      }
+    })
+    const node = {
+      type: 'FRAME',
+      boundVariables: { width: { id: 'a' }, height: { id: 'b' } }
+    } as unknown as SceneNode
+    expect(
+      formatNodeStyleForMcp({ width: 'shared', height: 'shared', color: 'shared' }, node)
+    ).toEqual({
+      width: 'var(--Width)',
+      height: 'var(--Height)',
+      color: 'shared'
+    })
+  })
+
+  it.each([
+    [
+      'UI',
+      (style: Record<string, string>, node: SceneNode) => formatNodeStyleForUi(style, node).style
+    ],
+    ['MCP', formatNodeStyleForMcp],
+    ['plugin', formatNodeStyleForPluginVariables]
+  ] as const)('preserves CSS literals while rewriting %s variable references', (_name, format) => {
+    setupFigma({
+      variableById: {
+        accent: createVariable('accent', 'Accent', 'theme.color.accent')
+      }
+    })
+    const node = {
+      type: 'FRAME',
+      boundVariables: { fills: [{ id: 'accent' }] }
+    } as unknown as FrameNode
+    const style = {
+      content: '"theme.color.accent var(--Accent, red)"',
+      background: 'url("https://assets.test/theme.color.accent.svg") theme.color.accent',
+      mask: 'url(https://assets.test/theme.color.accent.svg)',
+      'border-image': 'linear-gradient(theme.color.accent, var(--other, red))',
+      outline: '1px /* theme.color.accent */ solid theme.color.accent'
+    }
+
+    expect(format(style, node)).toEqual({
+      ...style,
+      background: 'url("https://assets.test/theme.color.accent.svg") var(--Accent)',
+      'border-image': 'linear-gradient(var(--Accent), var(--other, red))',
+      outline: '1px /* theme.color.accent */ solid var(--Accent)'
+    })
+  })
+
+  it('uses binding identity for quoted code syntax without rewriting matching literal content', () => {
+    setupFigma({
+      variableById: {
+        'font-body': createVariable('font-body', 'Body font', '"Brand Font"')
+      }
+    })
+    const node = createTextNode({ fills: [], boundVariables: {} })
+    const result = formatNodeStyleForUi(
+      { 'font-family': '"Brand Font"', content: '"Brand Font"' },
+      node
+    )
+
+    expect(result).toEqual({
+      style: { 'font-family': 'var(--Body-font)', content: '"Brand Font"' },
+      variableSyntax: { '--Body-font': '"Brand Font"' }
+    })
+  })
+
+  it.each(['0', 'theme.color.accent'])(
+    'does not confuse %s syntax or CSS identifiers with protected fragments',
+    (syntax) => {
+      setupFigma({ variableById: { accent: createVariable('accent', 'Accent', syntax) } })
+      const node = {
+        type: 'FRAME',
+        boundVariables: { fills: [{ id: 'accent' }] }
+      } as unknown as FrameNode
+      expect(
+        formatNodeStyleForMcp(
+          {
+            content: '"0"',
+            border: `1px solid ${syntax}`,
+            'font-family': '__VAR_0__, var(--Accent, red)'
+          },
+          node
+        )
+      ).toEqual({
+        content: '"0"',
+        border: '1px solid var(--Accent)',
+        'font-family': '__VAR_0__, var(--Accent)'
+      })
+    }
+  )
+
   it.each(['HORIZONTAL', 'VERTICAL'] as const)(
     'preserves explicitly synchronized cross-axis variables in %s wrap layouts',
     (layoutMode) => {

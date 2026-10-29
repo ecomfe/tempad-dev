@@ -116,6 +116,211 @@ afterEach(() => {
 })
 
 describe('mcp/broker/hub-client', () => {
+  it.each(['missing', 'release', 'foreign'] as const)(
+    'never probes any port when checkout identity is %s',
+    async (kind) => {
+      vi.useFakeTimers()
+      vi.stubGlobal('__TEMPAD_RUNTIME_PROFILE__', { kind: 'checkout', id: 'a'.repeat(16) })
+      installHubProbe()
+      const sockets: FakeWebSocket[] = []
+      const client = createClient(
+        sockets,
+        {},
+        kind === 'missing'
+          ? null
+          : {
+              type: 'runtimeHello',
+              protocolVersion: 15,
+              extensionVersion: '1',
+              extensionRuntimeFingerprint: 'a'.repeat(64),
+              ...(kind === 'foreign'
+                ? { runtimeProfile: { kind: 'checkout', id: 'b'.repeat(16) } }
+                : {})
+            }
+      )
+      client.start()
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(fetch).not.toHaveBeenCalled()
+      expect(sockets).toEqual([])
+      expect(client.getSnapshot()).toMatchObject({
+        status: 'error',
+        errorMessage: expect.stringContaining('Rebuild and reload')
+      })
+      client.stop()
+    }
+  )
+
+  it.each([false, true])(
+    'uses checkout ports and verifies identity before state (receipts: %s)',
+    async (receipts) => {
+      vi.useFakeTimers()
+      vi.stubGlobal('WebSocket', { OPEN: 1 })
+      installHubProbe()
+      const sockets: FakeWebSocket[] = []
+      const hello: RuntimeHelloMessage = {
+        type: 'runtimeHello',
+        protocolVersion: 15,
+        extensionVersion: '1',
+        extensionRuntimeFingerprint: 'a'.repeat(64),
+        runtimeProfile: { kind: 'checkout', id: 'a'.repeat(16) }
+      }
+      vi.stubGlobal('__TEMPAD_RUNTIME_PROFILE__', hello.runtimeProfile)
+      const client = createClient(sockets, {}, hello)
+      client.start()
+      await flushMicrotasks()
+      expect(sockets[0]?.url).toBe('ws://127.0.0.1:16220')
+      sockets[0]!.open()
+      sockets[0]!.receive({
+        type: 'registered',
+        id: 'other',
+        protocolVersion: 15,
+        runtimeProfile: { kind: 'checkout', id: 'b'.repeat(16) }
+      })
+      await flushMicrotasks()
+      expect(sockets[0]!.readyState).toBe(3)
+      expect(sockets[0]!.sent).toEqual([])
+      const matched = sockets[1]!
+      expect(matched.url).toBe('ws://127.0.0.1:17431')
+      matched.open()
+      matched.receive({
+        type: 'registered',
+        id: 'own',
+        protocolVersion: 15,
+        runtimeProfile: hello.runtimeProfile,
+        ...(receipts ? { terminalReceiptGeneration: 'generation' } : {})
+      })
+      expect(matched.sent.map((value) => JSON.parse(value))).toEqual([
+        { ...hello, ...(receipts ? { terminalReceipts: true } : {}) }
+      ])
+      matched.receive(stateMessage())
+      await flushMicrotasks()
+      expect(client.getSnapshot().status).toBe('connected')
+      expect(matched.sent).toHaveLength(1)
+      client.stop()
+    }
+  )
+
+  it('closes a failed checkout hello and continues discovery', async () => {
+    vi.useFakeTimers()
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const runtimeProfile = { kind: 'checkout' as const, id: 'a'.repeat(16) }
+    vi.stubGlobal('__TEMPAD_RUNTIME_PROFILE__', runtimeProfile)
+    const client = createClient(
+      sockets,
+      {},
+      {
+        type: 'runtimeHello',
+        protocolVersion: 15,
+        extensionVersion: '1',
+        extensionRuntimeFingerprint: 'a'.repeat(64),
+        runtimeProfile
+      }
+    )
+    client.start()
+    await flushMicrotasks()
+    const failed = sockets[0]!
+    failed.open()
+    vi.spyOn(failed, 'send').mockImplementation(() => {
+      throw new Error('Socket closed')
+    })
+    failed.receive({ type: 'registered', id: 'hub', protocolVersion: 15, runtimeProfile })
+    await flushMicrotasks()
+    expect(failed.readyState).toBe(3)
+    expect(sockets[1]!.url).toBe('ws://127.0.0.1:17431')
+    expect(client.getSnapshot().status).toBe('connecting')
+    client.stop()
+  })
+
+  it('rejects checkout registration on a release discovery port', async () => {
+    vi.useFakeTimers()
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const client = createClient(sockets)
+    client.start()
+    await flushMicrotasks()
+    sockets[0]!.receive({
+      type: 'registered',
+      id: 'dev',
+      protocolVersion: 15,
+      runtimeProfile: { kind: 'checkout', id: 'a'.repeat(16) }
+    })
+    await flushMicrotasks()
+    expect(sockets[0]!.readyState).toBe(3)
+    expect(sockets[1]!.url).toBe('ws://127.0.0.1:7431')
+    client.stop()
+  })
+
+  it.each([true, false])(
+    'negotiates durable receipts (%s) only when offered and handles failed sends',
+    async (durable) => {
+      vi.useFakeTimers()
+      vi.stubGlobal('WebSocket', { OPEN: 1 })
+      installHubProbe()
+      const sockets: FakeWebSocket[] = []
+      const onToolCompletionAck = vi.fn()
+      const onKeepalive = vi.fn()
+      const hello: RuntimeHelloMessage = {
+        type: 'runtimeHello',
+        protocolVersion: 15,
+        extensionVersion: '1',
+        extensionRuntimeFingerprint: 'a'.repeat(64)
+      }
+      const client = createClient(sockets, { onToolCompletionAck, onKeepalive }, hello)
+      const result = { id: 'call', type: 'toolResult' as const, payload: {} }
+      const completion = {
+        id: 'call',
+        type: 'toolCompletion' as const,
+        generation: 'hub',
+        receiptId: 'receipt'
+      }
+      expect(client.sendToolResult(result)).toBe(false)
+      client.start()
+      await flushMicrotasks()
+      const socket = sockets[0]!
+      socket.open()
+      socket.receive({
+        type: 'registered',
+        id: 'gateway',
+        protocolVersion: 15,
+        terminalReceiptGeneration: 'hub',
+        ...(durable ? { durableTerminalReceipts: true } : {})
+      })
+      socket.receive(stateMessage())
+      await flushMicrotasks()
+      expect(JSON.parse(socket.sent[0]!)).toEqual({
+        ...hello,
+        terminalReceipts: true,
+        ...(durable ? { durableTerminalReceipts: true } : {})
+      })
+      expect(client.sendToolResult(result)).toBe(true)
+      expect(client.sendToolCompletion(completion)).toBe(true)
+      expect(client.sendToolCompletion({ ...completion, generation: 'old-hub' })).toBe(durable)
+      socket.readyState = 2
+      expect(client.sendToolResult(result)).toBe(false)
+      expect(client.sendToolCompletion(completion)).toBe(false)
+      socket.readyState = 1
+      vi.spyOn(socket, 'send').mockImplementation(() => {
+        throw new Error('Socket write failed')
+      })
+      expect(client.sendToolResult(result)).toBe(false)
+      expect(client.sendToolCompletion(completion)).toBe(false)
+      await vi.advanceTimersByTimeAsync(20000)
+      expect(onKeepalive).toHaveBeenCalledOnce()
+      const ack = { ...completion, type: 'toolCompletionAck', accepted: true }
+      socket.receive(ack)
+      expect(onToolCompletionAck).toHaveBeenCalledWith(ack)
+      socket.closeFromRemote()
+      expect(client.getSnapshot().terminalReceiptGeneration).toBe('hub')
+      await vi.advanceTimersByTimeAsync(3000)
+      await flushMicrotasks()
+      completeHandshake(sockets[1]!) // Released Hub: no capability offer.
+      await flushMicrotasks()
+      expect(JSON.parse(sockets[1]!.sent[0]!)).toEqual(hello)
+      expect(client.getSnapshot().terminalReceiptGeneration).toBeUndefined()
+      client.stop()
+    }
+  )
   it('aborts a reachable HTTP probe after headers while still opening its WebSocket', async () => {
     vi.stubGlobal('WebSocket', { OPEN: 1 })
     let signal: AbortSignal | undefined
@@ -384,6 +589,50 @@ describe('mcp/broker/hub-client', () => {
     ])
     expect(snapshots.at(-1)?.errorMessage).toBe('socket failed')
     client.stop()
+  })
+
+  it('revokes a rejected socket immediately without waiting for its close handshake', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const onToolCall = vi.fn()
+    const client = createClient(sockets, { onToolCall })
+    try {
+      client.start()
+      await flushMicrotasks()
+      const rejected = sockets[0]!
+      completeHandshake(rejected, 'gateway-1')
+      await flushMicrotasks()
+      // Browser close() enters CLOSING before a later close event confirms teardown.
+      vi.spyOn(rejected, 'close').mockImplementation(() => {
+        rejected.readyState = 2
+      })
+      rejected.receiveRaw('{')
+
+      expect(client.getSnapshot()).toMatchObject({
+        activeId: null,
+        assetServerUrl: null,
+        registeredId: null,
+        status: 'connecting',
+        errorMessage: 'Received malformed message from MCP server'
+      })
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(sockets).toHaveLength(2)
+      completeHandshake(sockets[1]!, 'gateway-1')
+      await flushMicrotasks()
+      rejected.receive({
+        id: 'stale-call',
+        payload: { args: {}, name: 'get_code' },
+        type: 'toolCall'
+      })
+      rejected.closeFromRemote()
+      expect(onToolCall).not.toHaveBeenCalled()
+      expect(client.getSnapshot()).toMatchObject({ status: 'connected', errorMessage: null })
+      expect(sockets[1]!.readyState).toBe(1)
+    } finally {
+      client.stop()
+    }
   })
 
   it.each([

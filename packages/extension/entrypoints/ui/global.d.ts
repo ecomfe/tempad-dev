@@ -3,10 +3,6 @@ interface Window {
   readonly INITIAL_OPTIONS?: {
     readonly editor_type?: string
   }
-  DebuggingHelpers: {
-    logSelected?: () => string
-    logNode?: (id: string) => string
-  }
   Prism?: typeof import('prismjs')
 }
 

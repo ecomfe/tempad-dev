@@ -249,6 +249,13 @@ export const BeginDesignParametersSchema = z
       .uuid()
       .describe(
         'Generate a fresh UUID for this task. Reuse it only to retry the same begin request.'
+      ),
+    recoveryGeneration: z
+      .string()
+      .uuid()
+      .optional()
+      .describe(
+        'Required on every begin after storage recovery: use the recoveryGeneration returned in a rejected begin response. This requirement persists across sessions and restarts.'
       )
   })
   .strict()
@@ -317,6 +324,7 @@ export const ManageDesignTaskParametersSchema = z
     title: BeginDesignParametersSchema.shape.title.optional().describe('Required for begin.'),
     sessionId: BeginDesignParametersSchema.shape.sessionId,
     requestId: BeginDesignParametersSchema.shape.requestId.optional(),
+    recoveryGeneration: BeginDesignParametersSchema.shape.recoveryGeneration,
     taskId: DesignTaskIdSchema.optional().describe('Required except for begin.'),
     epoch: ResumeDesignParametersSchema.shape.epoch
       .optional()

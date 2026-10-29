@@ -51,9 +51,9 @@ it.each([undefined, 'plugin'])(
     })
     const report = vi.fn()
     const result = await processTokens({
-      code: '<span class="italic font-bold">Text</span>',
+      component: { name: 'span', props: { class: 'italic font-bold' }, children: ['Text'] },
+      serialize: (component) => stringifyComponent(component, 'jsx'),
       variableIds: new Set(variables.keys()),
-      usedCandidateIds: new Set(),
       fontStyleVariableIds: new Set(['face']),
       variableCache: variables,
       styles: new Map(),
@@ -76,9 +76,9 @@ it.each([undefined, 'plugin'])(
 it('reports an actually rendered face-name collision without picking either definition', async () => {
   const report = vi.fn()
   const result = await processTokens({
-    code: '<span>Text</span>',
+    component: { name: 'span', props: {}, children: ['Text'] },
+    serialize: (component) => stringifyComponent(component, 'jsx'),
     variableIds: new Set(['a', 'b']),
-    usedCandidateIds: new Set(),
     fontStyleVariableIds: new Set(['a']),
     variableCache: new Map([
       ['a', variable('a', 'Face', { base: 'Bold' })],

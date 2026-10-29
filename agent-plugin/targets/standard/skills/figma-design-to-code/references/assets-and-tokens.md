@@ -8,11 +8,13 @@ code, including references whose token metadata is missing.
 Follow the project's established asset and icon policy before TemPad delivery
 details.
 
-- Download bytes only from a TemPad-provided `asset.url`. Never substitute a
-  public internet asset.
+- Use the returned `asset.localPath` when accessible; otherwise download
+  `asset.url`. These are temporary Hub delivery locations: copy needed files
+  into the project's normal asset location. Never substitute a public internet
+  asset.
 - Treat assets as files to store or reference, not text evidence to parse.
 - If project policy forbids storing them, reference TemPad URLs only when the
-  user accepts the local-server dependency, and report it.
+  user accepts the temporary local-server dependency, and report it.
 - Treat emitted `<svg data-src="...">` markup as design truth for structure,
   size, and instance color. Refactor delivery only through an existing project
   SVG path.
@@ -61,8 +63,12 @@ Definitions and a consumer's rendered value need not have the same literal
 representation. Figma opacity variables store percentages (`50` means `0.5`
 opacity). Code output normalizes only the opacity consumer: resolved output uses
 the fraction, while unresolved output retains a token reference in `calc()` with
-the matching number or length denominator. Preserve that expression; do not divide
-the shared token definition, which may also serve spacing or other properties.
+the matching number or length denominator. Length division in opacity or font-weight
+expressions requires CSS typed arithmetic; preserve it only when the project's CSS
+targets support it. For portable output, follow the compatibility warning by
+rereading with `resolveTokens: true` and verifying the affected consumer literals.
+Unitless division does not require this compatibility fallback. Do not divide the
+shared token definition, which may also serve spacing or other properties.
 If definitions still contradict consumer output after accounting for aliases and
 effective modes, narrow the design evidence or ask which state is intended.
 For unavailable or ambiguous facts, follow the token warnings in

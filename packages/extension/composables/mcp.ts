@@ -37,7 +37,7 @@ import {
 import { getFeedbackDraftScope } from '@/mcp/design-feedback'
 import { PageDesignTasks } from '@/mcp/design-task'
 import { bytesToBase64 } from '@/mcp/encoding'
-import { coerceToolErrorPayload, createCodedError } from '@/mcp/errors'
+import { canvasAbortedError, coerceToolErrorPayload, createCodedError } from '@/mcp/errors'
 import { readFigmaSession } from '@/mcp/figma-session'
 import { getContainingPage, getNodeById } from '@/mcp/local-resources'
 import { MCP_LOCAL_HOST_PERMISSION_ERROR, MCP_PERMISSION_REQUEST_EVENT } from '@/mcp/permissions'
@@ -87,7 +87,10 @@ export const useMcp = createSharedComposable(() => {
     string,
     PendingRequest<DesignActionResult> & { local: boolean }
   >()
-  const pendingFeedbackDrafts = new Map<string, PendingRequest<FeedbackDraftSnapshot>>()
+  const pendingFeedbackDrafts = new Map<
+    string,
+    PendingRequest<FeedbackDraftSnapshot> & { action: string }
+  >()
   const sentDesignActions = new Set<string>()
   const designAnchor = shallowRef<SceneNode | null>(null)
   let anchorRevision = 0
@@ -196,7 +199,11 @@ export const useMcp = createSharedComposable(() => {
       })
     }
     rejectPending(pendingDesignActions, 'Agent disconnected.')
-    rejectPending(pendingFeedbackDrafts, 'Disconnected while saving.')
+    for (const [requestId, { action }] of pendingFeedbackDrafts) {
+      takePending(pendingFeedbackDrafts, requestId)?.reject(
+        new Error(`Disconnected while ${action.toLowerCase()}.`)
+      )
+    }
     sentDesignActions.clear()
     rejectPending(pendingAssetUploads, 'MCP disabled before asset upload completed.')
     rejectPending(pendingAssetDownloads, 'MCP disabled before asset download completed.')
@@ -329,6 +336,7 @@ export const useMcp = createSharedComposable(() => {
     let stopFeedback: (() => void) | undefined
     let result: unknown
     let error: ReturnType<typeof coerceToolErrorPayload> | undefined
+    let handlerStarted = false
     try {
       if (name === '__begin_design') {
         if (window.INITIAL_OPTIONS?.editor_type !== 'design') {
@@ -359,13 +367,16 @@ export const useMcp = createSharedComposable(() => {
             taskGuard.task
               ? { ...input, page: { ...page, id: taskGuard.task.target.pageId } }
               : args
+          handlerStarted = true
           result = await runMcpTool(name, pinnedArgs)
           if (name === 'apply_canvas' && route?.taskId && input?.mode === 'create')
             await recordCreatedAnchor(result, route.taskId)
         }
       }
     } catch (caught: unknown) {
-      error = coerceToolErrorPayload(caught)
+      error = coerceToolErrorPayload(
+        name === 'apply_canvas' && !handlerStarted ? canvasAbortedError(caught) : caught
+      )
     } finally {
       stopFeedback?.()
       finish?.()
@@ -382,6 +393,7 @@ export const useMcp = createSharedComposable(() => {
         ...pageMessageBase,
         callId,
         error: {
+          code: TEMPAD_MCP_ERROR_CODES.EXTENSION_RESULT_LOST,
           message:
             'The tool result could not be transferred. Inspect the canvas before retrying a write.'
         },
@@ -637,7 +649,7 @@ export const useMcp = createSharedComposable(() => {
           status: 'failed',
           message:
             action.action === 'stop'
-              ? 'Stop confirmation timed out.'
+              ? 'Stop acknowledgement timed out.'
               : action.action === 'done'
                 ? 'Finishing the review timed out.'
                 : 'Sending comments timed out.'
@@ -699,13 +711,20 @@ export const useMcp = createSharedComposable(() => {
     const session = readFigmaSession(sessionId, taskGuard.busy)
     if (!enabled || session?.fileKey !== request.scope.fileKey)
       return Promise.reject(new Error('Comments are unavailable in this file.'))
+    const action = {
+      load: 'Loading comments',
+      clear: 'Clearing comments',
+      comment: 'Saving comments',
+      save: 'Saving comments',
+      remove: 'Removing comments'
+    }[request.operation]
     return new Promise((resolve, reject) => {
       const requestId = crypto.randomUUID()
       const timer = setTimeout(() => {
         pendingFeedbackDrafts.delete(requestId)
-        reject(new Error('Saving timed out.'))
+        reject(new Error(`${action} timed out.`))
       }, 8000)
-      pendingFeedbackDrafts.set(requestId, { resolve, reject, timer })
+      pendingFeedbackDrafts.set(requestId, { resolve, reject, timer, action })
       try {
         postPageMessage({ ...pageMessageBase, type: 'mcp.feedbackDrafts', requestId, request })
       } catch (error) {

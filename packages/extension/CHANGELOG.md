@@ -1,35 +1,70 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 (unreleased)
 
-- Improved CSS exports for layered fills, stacking and blending, mixed fonts, variable opacity,
-  and SVG sizing and placement.
-- Fixed canvas updates involving components, grids, fonts, and variable modes. Invalid resource
-  changes are rejected earlier, with clearer errors when failed edits cannot be fully restored.
-- Improved responsiveness when reading large designs and exporting screenshots.
-- Fixed blank images with the extension enabled and improved Figma script loading and recovery.
-- Kept the selected Figma file active across reconnects and extension background restarts.
+### Code export
+
+- Fixed layered image backgrounds with variable colors, gradient opacity and stop positions,
+  Crop positioning, Tile sizing, and background repeat utilities.
+- Fixed cropped or misplaced SVGs and rotated vectors, stretched content-sized frames, and
+  absolute children positioned outside their parent. Preserved stacking, blending, and CSS
+  properties without a dedicated Tailwind utility.
+- Preserved literal JSX/Vue text, HTML/SVG attributes, token names, URLs, and font names during
+  escaping, unit conversion, and token processing.
+- Fixed mixed-font output, paragraph spacing and indentation, nested lists, soft line breaks,
+  and trailing empty or whitespace-only paragraphs.
+- Fixed token resolution for different layers and variable modes, including near-opaque colors.
+  Added compatibility warnings for token-based font weight and opacity.
+
+### Canvas editing
+
+- Fixed partial text updates clearing neighboring variable bindings or skipping unbound paragraphs.
+  Corrected interactions between native text styles, line breaks, and explicit binding removal.
+- Fixed component and Slot updates, grid settings, variable modes, SVG imports, and independent
+  Noise/Texture dimensions. Preserved valid resource and node keys during validation.
+- Rejected invalid resources and ownership conflicts before editing. Detected silently ignored
+  writes and reported incomplete rollback or unsupported text bindings instead of claiming success.
+- Preserved supplied text when decoding entities; unsupported entity names now produce warnings.
+
+### Tasks and interface
+
 - Stop now cancels immediately and discards unsent comments, including during disconnection.
-- Preserved feedback drafts after failed delivery and added a reload action for conflicting
-  comments saved in another tab.
-- Fixed stale selection code, incorrect unit conversions, and misleading copy or plugin-install
-  success messages. Added code-generation progress and Retry. Improved keyboard access.
-- Preserved independent preferences across tabs and allowed plugin deletion when storage is full.
-- Added Refresh links and documentation links for component sets.
+  Fixed repeated cleanup errors after cancellation.
+- Preserved feedback drafts after failed delivery and added a reload action for comments changed
+  in another tab. Clicking outside a nonempty comment editor first keeps it open with a shake.
+- Preserved preferences and plugin changes across tabs, added recovery for malformed saved plugins,
+  and avoided clearing code when an unrelated plugin changes.
+- Added code-generation progress and Retry, plus refresh and documentation links for component sets.
+  Copy and plugin installation no longer report success after failure; copy controls support keyboard use.
+- Restored selection and measurement tools after switching windows with keys held, and preserved
+  panel resizing when pointer capture is lost.
+
+### Performance and reliability
+
+- Kept development MCP connections on separate ports from installed releases.
+- Shared node CSS reads between plugin preparation and MCP export, reducing two reads to one on
+  that path. Reused variable and plugin results within each request and skipped unrelated text ranges.
+- Fixed traversal failures on very wide designs, with regression coverage for 150,000 sibling nodes.
+  Stopped further work at export deadlines while preserving completed results.
+- Prevented optional image-size lookups from holding up an export; fall back to Figma's CSS dimensions.
+- Fixed blank images with the extension enabled and improved Figma script loading and failure recovery.
+- Kept the active Figma file across reconnects and background restarts; reconnected after Chrome
+  local-host permission changes and rejected stale connections without disturbing replacements.
+- Hardened plugin isolation and payload limits, and kept asset access credentials out of export logs.
 
 ## 0.23.4
 
 - Simplified the dynamic script interceptor to use packaged matching rules directly, preserving
   Rspack chunk loading and existing failure recovery.
 
-## 0.23.3
+## 0.23.3 (not released)
 
 - Removed rewrite hot updates and the remote JSON endpoint. Use packaged rules and `figma.js`
   for both static scripts and dynamic chunks, and clear persisted rules from older versions.
 - Preserve clipped SVG placement and fractional viewport dimensions, including Boolean assets,
   rotated vectors, and inline fallbacks. Keep freeform clipping frames out of inferred flex layout.
 
-## 0.23.2
+## 0.23.2 (not released)
 
 - Fixed radial gradient centers and radii in generated styles, preserving native Figma geometry.
 - Fixed SVG export bounds to match generated node dimensions and preserved SVG attribute casing

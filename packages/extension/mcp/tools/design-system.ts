@@ -1117,7 +1117,7 @@ function exactCatalogPayload(
   }
 }
 
-function exactResultFits(result: DesignSystemResourcesResult): boolean {
+function resultFits(result: DesignSystemResourcesResult): boolean {
   return (
     measureCallToolResultBytes(buildGetDesignSystemToolResult(result)) <=
     MCP_TOOL_INLINE_BUDGET_BYTES
@@ -1126,6 +1126,19 @@ function exactResultFits(result: DesignSystemResourcesResult): boolean {
 
 function removeTailHalf<T>(items: T[]): T[] {
   return items.splice(Math.floor(items.length / 2))
+}
+
+function reducePropertyOptions(
+  properties: Record<string, { options?: string[]; omittedOptions?: number }> | undefined
+): number {
+  let removed = 0
+  for (const property of Object.values(properties ?? {})) {
+    if (!property.options?.length) continue
+    const count = removeTailHalf(property.options).length
+    property.omittedOptions = (property.omittedOptions ?? 0) + count
+    removed += count
+  }
+  return removed
 }
 
 function compactComponentDetailResult(
@@ -1156,7 +1169,7 @@ function compactComponentDetailResult(
   }
   const originalAnatomyCount = source.anatomy.nodes.length + (source.anatomy.omitted ?? 0)
   const result = () => exactCatalogPayload(catalogId, entry, detail)
-  const fits = () => exactResultFits(result())
+  const fits = () => resultFits(result())
 
   while (!fits() && detail.anatomy.nodes.length) {
     removeTailHalf(detail.anatomy.nodes)
@@ -1192,14 +1205,7 @@ function compactComponentDetailResult(
     detail.detailTruncated = true
   }
   while (!fits()) {
-    let removed = 0
-    for (const property of Object.values(mutableProperties ?? {})) {
-      if (!property.options?.length) continue
-      const removeCount = removeTailHalf(property.options).length
-      property.omittedOptions = (property.omittedOptions ?? 0) + removeCount
-      removed += removeCount
-    }
-    if (!removed) break
+    if (!reducePropertyOptions(mutableProperties)) break
     detail.detailTruncated = true
   }
   const propertyNames = Object.keys(mutableProperties ?? {})
@@ -1243,7 +1249,7 @@ function compactComponentDetailResult(
     ...(source.properties ? { omittedProperties: Object.keys(source.properties).length } : {})
   }
   const minimalResult = exactCatalogPayload(catalogId, entry, minimalDefinition)
-  if (!exactResultFits(minimalResult)) {
+  if (!resultFits(minimalResult)) {
     throw new Error(`Design-system component identity "${entry.ref}" exceeds the inline budget.`)
   }
   return minimalResult
@@ -1259,7 +1265,7 @@ async function exactCatalogResult(
   const definition =
     entry.kind === 'component' ? await describeComponentDetail(entry) : entry.definition
   const result = exactCatalogPayload(catalogId, entry, definition)
-  if (exactResultFits(result)) return result
+  if (resultFits(result)) return result
   if (entry.kind === 'component') {
     return compactComponentDetailResult(catalogId, entry, definition as ComponentDetail)
   }
@@ -1267,6 +1273,25 @@ async function exactCatalogResult(
 }
 
 type CatalogDisplayKind = Exclude<CatalogEntry['kind'], 'mode'>
+
+function boundCompactResult(result: DesignSystemResourcesResult): DesignSystemResourcesResult {
+  if (resultFits(result)) return result
+  for (const component of result.components) {
+    while (!resultFits(result)) {
+      if (!reducePropertyOptions(component.props)) break
+    }
+    const propertyNames = Object.keys(component.props)
+    while (!resultFits(result) && propertyNames.length) {
+      const removed = removeTailHalf(propertyNames)
+      for (const name of removed) delete component.props[name]
+      component.omittedProps = (component.omittedProps ?? 0) + removed.length
+    }
+  }
+  if (!resultFits(result)) {
+    throw new Error('Design-system catalog entry exceeds the 64 KiB inline result budget.')
+  }
+  return result
+}
 
 function orderEntries(entries: CatalogEntry[]): CatalogEntry[] {
   const interleave = (kinds: ReadonlyArray<CatalogDisplayKind>): CatalogEntry[] => {
@@ -1357,7 +1382,7 @@ function buildCompactResult(
     }
     break
   }
-  return build()
+  return boundCompactResult(build())
 }
 
 function continueCatalog(catalogId: string, cursor: number): DesignSystemResourcesResult {
@@ -1400,13 +1425,16 @@ async function createCatalog(pageId?: string): Promise<DesignSystemResourcesResu
   const orderedStyles = sortByName(styles.map(describeStyle))
   const orderedShaders = sortByName(shaders)
   const entries: CatalogEntry[] = []
-  const componentTags = new Set<string>(['Div', 'Span', 'Br'])
+  const componentTags = new Set<string>()
   for (const [index, family] of orderedComponents.entries()) {
     const component = family.item
-    const tag = uniqueName(
-      toIdentifier(component.componentSetName ?? component.name, `Component${index + 1}`, true),
-      componentTags
+    const baseTag = toIdentifier(
+      component.componentSetName ?? component.name,
+      `Component${index + 1}`,
+      true
     )
+    if (/^(div|span|br)$/i.test(baseTag)) componentTags.add(baseTag)
+    const tag = uniqueName(baseTag, componentTags)
     entries.push({
       kind: 'component',
       ref: `c${index + 1}`,

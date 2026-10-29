@@ -1,8 +1,8 @@
-import type { ConfigEnv } from 'wxt'
+import type { ConfigEnv, Wxt, WxtHooks } from 'wxt'
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import config, { getPluginSandboxCsp } from '../../wxt.config'
+import config, { extensionRuntimeProfile, getPluginSandboxCsp } from '../../wxt.config'
 
 const env = (command: ConfigEnv['command']): ConfigEnv => ({
   browser: 'chrome',
@@ -11,7 +11,37 @@ const env = (command: ConfigEnv['command']): ConfigEnv => ({
   mode: command === 'serve' ? 'development' : 'production'
 })
 
+afterEach(() => vi.unstubAllEnvs())
+
 describe('WXT plugin sandbox configuration', () => {
+  it.each([false, true])('only packages release profiles (checkout: %s)', async (checkout) => {
+    vi.stubEnv(
+      'TEMPAD_MCP_DEV_CHECKOUT',
+      checkout ? new URL('../../../../', import.meta.url).pathname : undefined
+    )
+    // WXT runs zip with command "build", including programmatic zip() calls.
+    const wxt = { config: { command: 'build' }, logger: { info: vi.fn() } } as unknown as Wxt
+    const hooks = config.hooks as Partial<WxtHooks>
+    await hooks['build:before']!(wxt)
+    expect(wxt.logger.info).toHaveBeenCalledWith(
+      expect.stringContaining(`TemPad MCP profile: ${checkout ? 'checkout' : 'release'}`)
+    )
+    const zip = () => hooks['zip:start']!(wxt)
+    if (checkout) expect(zip).toThrow('Unset TEMPAD_MCP_DEV_CHECKOUT')
+    else {
+      expect(zip).not.toThrow()
+      const vite = await config.vite?.(env('build'))
+      expect(JSON.parse(vite!.define!.__TEMPAD_RUNTIME_PROFILE__)).toEqual({ kind: 'release' })
+    }
+  })
+
+  it('separates release, development serving and explicitly pinned production builds', () => {
+    expect(extensionRuntimeProfile('build')).toEqual({ kind: 'release' })
+    const checkout = new URL('../../../../', import.meta.url).pathname
+    expect(extensionRuntimeProfile('build', checkout)).toEqual(extensionRuntimeProfile('serve'))
+    expect(extensionRuntimeProfile('serve').kind).toBe('checkout')
+    expect(() => extensionRuntimeProfile('build', '/')).toThrow('does not belong')
+  })
   it('allows only the local Vite server required during development', async () => {
     const csp = getPluginSandboxCsp(true)
     const vite = await config.vite?.(env('serve'))

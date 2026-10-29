@@ -1,19 +1,28 @@
 // Installed hooks exchange lifecycle identity and Stop notices with the existing Hub. They never
 // launch an agent, poll a model, change host trust, or unlock a stopped Figma file.
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { connect } from 'node:net'
-import { join } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import process from 'node:process'
 import { clearTimeout, setTimeout } from 'node:timers'
+import { pathToFileURL } from 'node:url'
 
 import { assertTrustedSocket, resolveDefaultRoot } from './runtime-paths.mjs'
+import {
+  checkoutProfile,
+  resolveRuntimeProfile,
+  runtimeDirectories,
+  runtimeSocketPath
+} from './runtime-profile.mjs'
 
 let socket
 const deadline = setTimeout(() => process.exit(0), 750)
 try {
   let text = ''
+  process.stdin.setEncoding('utf8')
   for await (const chunk of process.stdin) {
-    text += String(chunk)
+    text += chunk
     if (text.length > 1_000_000) process.exit(0)
   }
   const input = JSON.parse(text)
@@ -54,60 +63,128 @@ try {
     kind: process.argv[2] === 'claude' ? 'claude' : 'codex',
     sessionId: input.session_id
   }
-  const runtimeDir = process.env.TEMPAD_MCP_RUNTIME_DIR || join(resolveDefaultRoot(), 'run')
-  const path =
-    process.platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(runtimeDir, 'mcp.sock')
-  assertTrustedSocket(path)
-  socket = connect(path)
-  const pending = new Map()
-  let sequence = 0
-  let buffer = ''
-  socket.on('data', (data) => {
-    buffer += data.toString()
-    if (buffer.length > 1_000_000) {
-      socket.destroy()
-      return
+  let profile = { kind: 'release' }
+  let path
+  if (process.argv[3] === '--runtime-profile') {
+    const descriptorPath = process.argv[4]
+    const descriptor = JSON.parse(readFileSync(descriptorPath, 'utf8'))
+    if (typeof descriptor.serverName !== 'string' || !descriptor.serverName)
+      throw new Error('Missing checkout MCP server name.')
+    // Read the same generated configuration as MCP/preflight so directory overrides cannot drift.
+    const pluginRoot = resolve(dirname(descriptorPath), '../..')
+    const config = JSON.parse(readFileSync(join(pluginRoot, '.mcp.json'), 'utf8')).mcpServers?.[
+      descriptor.serverName
+    ]
+    if (
+      typeof config?.env?.TEMPAD_MCP_DEV_CHECKOUT !== 'string' ||
+      typeof config?.args?.[0] !== 'string'
+    )
+      throw new Error('Missing checkout MCP configuration.')
+    const runtimeDir = config.env.TEMPAD_MCP_RUNTIME_DIR
+    if (
+      runtimeDir !== undefined &&
+      (typeof runtimeDir !== 'string' || (runtimeDir && !isAbsolute(runtimeDir)))
+    )
+      throw new Error('Checkout runtime directory must be an absolute path.')
+    const env = {
+      ...process.env,
+      TEMPAD_MCP_DEV_CHECKOUT: config.env.TEMPAD_MCP_DEV_CHECKOUT,
+      ...(runtimeDir !== undefined ? { TEMPAD_MCP_RUNTIME_DIR: runtimeDir } : {})
     }
-    let index
-    while ((index = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, index)
-      buffer = buffer.slice(index + 1)
-      let message
-      try {
-        message = JSON.parse(line)
-      } catch {
-        continue
-      }
-      const entry = pending.get(message.id)
-      if (!entry) continue
-      pending.delete(message.id)
-      if (message.error) entry.reject(new Error('The Hub does not support this hook request.'))
-      else entry.resolve(message.result)
-    }
-  })
-  const disconnected = () => {
-    for (const entry of pending.values()) entry.reject(new Error('The Hub hook connection closed.'))
-    pending.clear()
+    profile = resolveRuntimeProfile(env, pathToFileURL(resolve(pluginRoot, config.args[0])))
+    if (
+      profile.kind !== 'checkout' ||
+      profile.id !== descriptor.id ||
+      checkoutProfile(descriptor.checkout).id !== profile.id
+    )
+      throw new Error('Invalid checkout hook profile.')
+    path = runtimeSocketPath(runtimeDirectories(env, profile).runtime, profile)
+  } else {
+    const runtimeDir = process.env.TEMPAD_MCP_RUNTIME_DIR || join(resolveDefaultRoot(), 'run')
+    path = process.platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(runtimeDir, 'mcp.sock')
   }
-  socket.on('error', disconnected)
-  socket.on('close', disconnected)
-  await new Promise((resolve, reject) => {
-    socket.once('connect', resolve)
-    socket.once('error', reject)
-  })
-  const request = (method, params) =>
-    new Promise((resolve, reject) => {
-      const id = ++sequence
-      pending.set(id, { resolve, reject })
-      socket.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
-    })
-  const result = await request('tempad/client-hook', {
+  assertTrustedSocket(path)
+  const lifecycle = {
     ...identity,
     event,
     invocationId: randomUUID(),
     ...(taskId ? { taskId } : {}),
     ...(typeof input.turn_id === 'string' ? { turnId: input.turn_id } : {})
-  })
+  }
+  const params = { ...lifecycle, version: 2, profile, issuedAt: Date.now() }
+  let legacy = false
+  async function request() {
+    socket = connect(path).setEncoding('utf8')
+    const connection = socket
+    let timer
+    try {
+      return await new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Hook reply timed out.')), 200)
+        let buffer = ''
+        socket.on('data', (data) => {
+          buffer += data
+          if (buffer.length > 1_000_000) {
+            socket.destroy()
+            return
+          }
+          let index
+          while ((index = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, index)
+            buffer = buffer.slice(index + 1)
+            let message
+            try {
+              message = JSON.parse(line)
+            } catch {
+              continue
+            }
+            if (message?.id !== 1) continue
+            if (message.error)
+              reject(
+                Object.assign(new Error('The Hub does not support this hook request.'), {
+                  code: message.error.code
+                })
+              )
+            else resolve(message.result)
+            return
+          }
+        })
+        socket.on('error', reject)
+        socket.once('close', () => reject(new Error('The Hub hook connection closed.')))
+        socket.once('connect', () => {
+          socket.write(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'tempad/client-hook',
+              params: legacy ? lifecycle : params
+            }) + '\n'
+          )
+        })
+      })
+    } finally {
+      clearTimeout(timer)
+      connection.destroy()
+    }
+  }
+  let result
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      result = await request()
+      if (legacy) break
+      const receipt = result?.receipt
+      if (receipt?.version !== 2 || receipt.invocationId !== params.invocationId)
+        throw new Error('Invalid lifecycle receipt.')
+      if (receipt.state === 'applied') break
+      if (receipt.state !== 'accepted') throw new Error('Invalid lifecycle receipt state.')
+      result = undefined
+    } catch (error) {
+      result = undefined
+      // Only a definite old-schema rejection permits fallback. A lost reply
+      // retries the same v2 invocation, never a second lifecycle effect.
+      if (error?.code === -32602 && !legacy) legacy = true
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  }
   // Old Hubs may still offer comment batches; never emit or acknowledge those.
   if (
     !result?.receiptId &&

@@ -82,6 +82,12 @@ export type CodegenConfig = {
   scale: number
 }
 
+type CodegenOptions = {
+  returnDevComponent?: boolean
+  variableDisplay?: VariableDisplayMode
+  readCss?: (node: SceneNode) => Promise<Record<string, string>>
+}
+
 export function workerUnitOptions(
   config: CodegenConfig
 ): Pick<SerializeOptions, 'useRem' | 'rootFontSize' | 'scale'> {
@@ -96,7 +102,7 @@ export async function generateCodeBlocksForNode(
   node: SceneNode,
   config: CodegenConfig,
   pluginCode?: string,
-  opts?: { returnDevComponent?: boolean; variableDisplay?: VariableDisplayMode }
+  opts?: CodegenOptions
 ): Promise<ResponsePayload> {
   const job = await prepareCodegenJobForNode(node, config, pluginCode, opts)
   return await requestCodegen(job, pluginCode)
@@ -106,11 +112,7 @@ export async function generateCodeBlocksForNodes(
   nodes: SceneNode[],
   config: CodegenConfig,
   pluginCode: string,
-  opts?: {
-    returnDevComponent?: boolean
-    variableDisplay?: VariableDisplayMode
-    signal?: AbortSignal
-  }
+  opts?: CodegenOptions & { signal?: AbortSignal }
 ): Promise<ResponsePayload[]> {
   const results: ResponsePayload[] = []
   for (const window of chunk(nodes, CODEGEN_JOB_WINDOW)) {
@@ -169,9 +171,9 @@ async function prepareCodegenJobForNode(
   node: SceneNode,
   config: CodegenConfig,
   pluginCode?: string,
-  opts?: { returnDevComponent?: boolean; variableDisplay?: VariableDisplayMode }
+  opts?: CodegenOptions
 ): Promise<CodegenJobPayload> {
-  const rawStyle = await node.getCSSAsync()
+  const rawStyle = { ...(await (opts?.readCss ? opts.readCss(node) : node.getCSSAsync())) }
 
   // UI and plugin codegen may emit style-name vars when one CSS value safely represents the style.
   const style = await resolveStylesFromNode(rawStyle, node, undefined, {

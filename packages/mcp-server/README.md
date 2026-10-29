@@ -13,7 +13,7 @@ Requires the TemPad Dev extension, an open panel, and **MCP access** enabled. Ca
   "mcpServers": {
     "tempad-dev": {
       "command": "npx",
-      "args": ["-y", "@tempad-dev/mcp@latest"]
+      "args": ["-y", "@tempad-dev/mcp@latest", "--runtime-updates=stable"]
     }
   }
 }
@@ -21,7 +21,44 @@ Requires the TemPad Dev extension, an open panel, and **MCP access** enabled. Ca
 
 For agent-specific setup, open TemPad Dev's **Preferences → Agent integration → Set up agents**. It provides guided paths for Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, and TRAE, plus **Other** for compatible clients not listed.
 
-Supported tools/resources:
+### Runtime updates (1.0.0+)
+
+Verified releases enable background downloads and compatible automatic Hub updates on
+macOS, Linux and Windows by default, including existing `npx @latest` configurations after they restart onto
+1.0.0 or later. The configuration above and Agent Plugin 1.0.0 select this policy explicitly
+with `--runtime-updates=stable`. First enrollment requires closing all existing TemPad MCP
+connections once, then restarting them. It preserves the release task and asset stores.
+Until that restart, new clients keep using an existing legacy Hub without interrupting it.
+Checkout development builds use a separate local configuration and never fetch release runtimes.
+
+In a terminal using the same runtime configuration:
+
+- `npx -y @tempad-dev/mcp@latest --runtime-update-status` shows the active/staged versions and blockers.
+- `npx -y @tempad-dev/mcp@latest --check-runtime-update` searches for the newest compatible stable
+  release, no newer than npm's `latest` tag. Large histories resume in bounded batches; status
+  reports the remaining search and why the latest version was skipped.
+- `npx -y @tempad-dev/mcp@latest --update-runtime <version>` asks you to confirm the exact version
+  and integrity before switching. Incompatible tool contracts/guidance, unfinished operations,
+  legacy Claude hooks, and attached clients without opt-in prevent activation.
+
+Automatic activation requires initialized MCP clients, all using the stable update policy and
+capable of waiting through a switch. Claude also requires a verified session with receipt/retry-capable
+hooks; unknown sessions and older hooks keep updates staged.
+After five seconds without calls, transfers or native actions, the supervisor rechecks eligibility
+and switches locally. New, undispatched requests wait up to ten seconds; dispatched writes are
+never replayed. Busy work defers the update, and downloads or network failures leave the Hub serving.
+Breaking release boundaries, incompatible contracts and guidance require an explicit update or restart.
+Existing MCP sessions retain their tool descriptions through a compatible switch;
+Figma reconnects and design tasks may require resume/read-back. The running edge and supervisor,
+Node, browser extension, and installed plugin still require their normal upgrade/restart.
+Use `--runtime-updates=off` to stop background checks when no enrolled
+client remains. To enforce the launch package's exact version, use `--runtime-updates=pinned`
+with a fixed npm version; a conflict reports a restart requirement instead of creating another Hub.
+Unverified local builds keep their bundled runtime and never download releases; explicit enrollment
+is rejected. Windows uses named pipes and ACL-checked private storage for managed updates. Its
+[process CI](../../TESTING.md#windows-runtime-ci) is separate from installed desktop-host acceptance.
+
+### Tools and resources
 
 - `get_code`: Tailwind-first JSX/Vue markup plus assets and token references.
 - `get_design_system`: An immutable, deterministic catalog. It returns compact pages of component
@@ -66,13 +103,12 @@ Notes:
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
 - `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
   editable. Dev Mode and view-only files remain read-only.
-- MCP **0.11.0** pairs with extension **0.23.0** and Agent Plugin **0.4.0**.
-  The node-set and token-definition semantics above require matching protocol 15 Hub and extension
+- The node-set and token-definition semantics above require matching protocol 15 Hub and extension
   builds. Extension 0.22.0 remains supported through protocol 13 for existing reads, sessions,
   tasks, and canvas writes. New read options prompt an upgrade, and responses identify older
   selection/token semantics. Update the extension and reload Figma for the new capabilities, update
   the plugin or installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
-  then reconnect the MCP client and start a new task. See the
+  then reconnect the MCP client and start a new task. For minimum versions and update steps, see the
   [upgrade guide](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#upgrading).
 - Assets are ephemeral and tool-linked. Local stdio clients receive `asset.localPath` when the Hub
   has the bytes and can open it without a loopback download; other clients use the
@@ -91,7 +127,7 @@ Optional environment variables:
 - `TEMPAD_MCP_GET_CODE_TIMEOUT`: `get_code` timeout in milliseconds (default `30000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set).
 - `TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT`: Initial `get_design_system` resource-discovery timeout in milliseconds (default `45000`; continuation, exact-ref, font, and page-list reads use the general timeout). Falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set.
 - `TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT`: `get_structure` timeout for an explicit page ID or key, which may require loading a cold Figma page (default `45000` milliseconds; node and selection reads use the general timeout). Falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set.
-- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`: `apply_canvas` slow-call warning threshold in milliseconds (default `120000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set). At twice this threshold, the Hub reports an unknown outcome and fences further writes until the result or session recovery resolves it. Inspect the canvas before retrying; the mutation may have completed.
+- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`: `apply_canvas` slow-call warning threshold in milliseconds (default `120000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set). At twice this threshold, the Hub reports an unknown outcome. Further writes require both definitive completion or session recovery and a read of that file returning at least one structure root or code result, or an exact `get_structure` page snapshot (including an empty page). Empty selections and failed node reads do not count. `CANVAS_APPLY_FAILED` also requires readback because rollback is unconfirmed, including with older extensions. `CANVAS_APPLY_ABORTED` confirms a preparation failure before writing and does not require an extra file read. Undo-boundary failures remain conservative because rollback verification covers only part of native state. The read requirement survives Hub restarts. Inspect the canvas before continuing; do not replay the write.
 - `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`: Delay before auto-activating the sole connected extension (default `1500`).
 - `TEMPAD_MCP_MAX_ASSET_BYTES`: Maximum upload size for captured assets/screenshots in bytes (default `8388608`).
 - `TEMPAD_MCP_MAX_ASSET_STORE_BYTES`: Maximum aggregate size of the local asset store in bytes (default `268435456`).
@@ -134,12 +170,29 @@ existing runtimes and correct ownership/permissions before reconnecting. Other p
 `<system temp>/tempad-dev`. Explicit directory overrides take precedence. Unix clients and lifecycle
 hooks check the socket inode, ownership, and private permissions before connecting; an untrusted
 socket is rejected without launching a replacement Hub. Correct its ownership/permissions or shut
-down the old runtime before reconnecting. Windows retains the released fixed named-pipe path;
-per-user pipe isolation is not yet implemented.
+down the old runtime before reconnecting. Windows retains the released compatibility pipe name;
+managed control/data pipes are scoped by user and runtime directory. Windows ACL checks restrict
+managed storage and endpoints to the current user, SYSTEM and Administrators rather than relying
+on Unix permission bits. Untrusted paths or permissions fail startup.
 
 The hub accepts WebSocket handshakes only from Chrome extension origins on its root path. For a locked-down installation, configure `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS` with the TemPad Dev extension origin shown by the browser. This origin check and the per-process asset capability reduce cross-origin loopback abuse, but do not authenticate local processes, including another OS user's process that binds the port first; see the [local MCP threat model](../../docs/security/local-mcp-threat-model.md).
 
 ## Task storage recovery
+
+An operation that may still be executing keeps its file blocked across Hub restarts. Reading
+or resuming does not release this exclusion. Reconnect the original Figma browser: a verified
+completion, tab closure or document replacement releases execution, followed by required readback.
+If that browser cannot return, run `npx -y @tempad-dev/mcp@latest --runtime-status` to inspect
+the file and executor, then `npx -y @tempad-dev/mcp@latest --resolve-runtime-block <block-id>`
+in an interactive terminal. Confirm only after closing the original execution environment.
+This command cannot stop remote code; it retires that execution, preserves Stop fences and
+requires an explicit task resume and readback. It does not replay a request or reset task storage.
+The CLI is the only operator recovery interface; no MCP tool or Figma page can perform this action.
+
+An incompatible saved task may have been written by a newer Hub. In that case, upgrade the MCP
+runtime and reconnect all clients. If the current version still rejects a record, preserve the
+snapshot for diagnosis or restore a verified complete backup containing the latest Stop fences.
+The recovery command deliberately refuses readable storage; do not delete it to bypass a block.
 
 If task storage cannot be read safely, the error names the affected snapshot. Reads remain
 available, but canvas writes stay blocked across restarts because the snapshot may contain
@@ -149,10 +202,22 @@ To recover, disconnect all MCP clients and wait for the Hub to exit before chang
 Keep copies of the snapshot and any `.corrupt` file. Restore a verified complete snapshot
 that includes the latest Stop fences to the original path using an atomic replacement, then
 reconnect a client. A valid restored snapshot is accepted while the `.corrupt` evidence remains.
+After upgrading from a version that quarantined newer data, `.corrupt` may itself be valid.
+Verify that it is the latest complete snapshot before restoring it; its filename alone is not proof.
 
 An older backup or leftover `.tmp` file may predate a Stop action. Without a trustworthy complete
-snapshot, automatic recovery cannot safely restore writes. Do not delete the quarantine marker
-or replace the snapshot with empty state to bypass the fence.
+snapshot, disconnect all MCP clients and run `npx -y @tempad-dev/mcp@latest --recover-task-storage`.
+Run it with the same `TEMPAD_MCP_STATE_DIR` and `TEMPAD_MCP_RUNTIME_DIR` environment overrides
+as the MCP client configuration; the command does not read that configuration. It prints the
+resolved snapshot path even when recovery is refused. Confirm that it names the affected storage.
+The command refuses an active writer or readable storage, preserves the original files in the
+reported backup directory, and starts a new task generation. Every old task stays retired:
+old reviews cannot restore execution, and taskless writes remain blocked. Every subsequent begin
+must include `recoveryGeneration`, including in new sessions and after Hub restarts. A rejected
+begin supplies it to clients in `_meta.recoveryGeneration` and to agents in the error text. Each new task
+must read its target before writing. This requirement does not expire. Reads remain available.
+Keep the backups; this operation does not recover task history.
+Do not delete the quarantine marker or replace the snapshot with empty state to bypass the fence.
 
 ## Requirements
 

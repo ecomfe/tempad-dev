@@ -107,6 +107,11 @@ watch(
   box-shadow: inset 0 0 0 0.0625rem var(--color-border);
 }
 
+.tp-segmented-control-input:focus-visible + .tp-segmented-control-icon {
+  outline: 2px solid var(--color-border-selected);
+  outline-offset: -2px;
+}
+
 .tp-segmented-control-input:not(:checked) + .tp-segmented-control-icon {
   --color-icon: var(--color-icon-secondary);
   --color-icon-tertiary: var(--color-icon-secondary);

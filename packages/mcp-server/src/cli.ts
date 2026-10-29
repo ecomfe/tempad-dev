@@ -5,16 +5,19 @@ import type { Socket } from 'node:net'
 
 import { spawn } from 'node:child_process'
 import { connect } from 'node:net'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { finished } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 
+import { captureHostContext, HostContextNotificationSchema } from './agent-clients/host-context'
 import { runtimeIdentity } from './agent-clients/identity'
 import {
   ClientBindingFilter,
   ClientBindingSubscribeSchema,
   type ClaudeBinding
 } from './client-binding'
+import { hubEnvironment } from './process-environment'
 import {
   HUB_BUSY_EXIT_CODE,
   HUB_LOCK_STALE_MS,
@@ -23,8 +26,10 @@ import {
   LOCK_PATH,
   RUNTIME_DIR,
   SOCK_PATH,
+  endLogging,
   ensureDir,
-  assertTrustedSocket
+  assertTrustedSocket,
+  resolveStateDir
 } from './shared'
 
 let activeSocket: Socket | null = null
@@ -55,15 +60,12 @@ function shutdownCli(reason: string) {
   process.exit(0)
 }
 
-process.on('SIGINT', () => shutdownCli('SIGINT received.'))
-process.on('SIGTERM', () => shutdownCli('SIGTERM received.'))
-process.stdin.once('end', () => shutdownCli('Consumer stream ended.'))
-
 const HUB_STARTUP_TIMEOUT = 5000
 const CONNECT_RETRY_DELAY = 200
 const FAILED_RESTART_DELAY = 5000
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 const HUB_ENTRY = join(HERE, 'hub.mjs')
+const hostContext = captureHostContext(process.env)
 
 ensureDir(RUNTIME_DIR)
 
@@ -87,21 +89,38 @@ function bridge(socket: Socket): Promise<boolean> {
       socket.destroy()
     })
 
-    const onSocketClose = () => {
+    const onSocketClose = async () => {
       log.warn('Connection to Hub lost. Attempting to reconnect...')
       activeSocket = null
       process.stdin.unpipe(socket)
       socket.unpipe(output)
+      socket.removeAllListeners()
+      // Complete frames can still be buffered behind a slow consumer. Drain
+      // them before reconnecting so responses are neither lost nor reordered.
+      output.end()
+      try {
+        await finished(output, { cleanup: true })
+      } catch (error) {
+        outputError ??= error instanceof Error ? error : new Error(String(error))
+      }
       output.unpipe(process.stdout)
       output.destroy()
-      socket.removeAllListeners()
       if (outputError) reject(outputError)
       else resolve(receivedOutput)
     }
-    socket.once('close', onSocketClose)
+    socket.once('close', () => {
+      void onSocketClose().catch(reject)
+    })
     socket.on('error', (err) => log.warn({ err }, 'Socket error occurred.'))
 
     const binding = claudeBinding ?? runtimeIdentity(process.env).client
+    socket.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: HostContextNotificationSchema.shape.method.value,
+        params: hostContext
+      }) + '\n'
+    )
     socket.write(
       JSON.stringify({
         jsonrpc: '2.0',
@@ -206,7 +225,8 @@ function startHub(): ChildProcess {
   log.info('Spawning new Hub process...')
   return spawn(process.execPath, [HUB_ENTRY], {
     detached: true,
-    stdio: 'ignore'
+    stdio: 'ignore',
+    env: hubEnvironment(process.env)
   })
 }
 
@@ -262,12 +282,69 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
 }
 
 async function main() {
+  try {
+    const { maybeManagedRuntime } = await import('./runtime-update/bootstrap')
+    if (await maybeManagedRuntime(process.argv.slice(2), join(HERE, '..'))) return
+  } catch (error) {
+    process.stderr.write(`TemPad runtime startup failed: ${String(error)}\n`)
+    process.exitCode = 1
+    process.stdin.destroy()
+    endLogging()
+    return
+  }
+  process.on('SIGINT', () => shutdownCli('SIGINT received.'))
+  process.on('SIGTERM', () => shutdownCli('SIGTERM received.'))
+  process.stdin.once('end', () => shutdownCli('Consumer stream ended.'))
+  if (
+    process.argv.includes('--runtime-status') ||
+    process.argv.includes('--resolve-runtime-block')
+  ) {
+    try {
+      const { runRuntimeRecovery } = await import('./runtime-recovery')
+      await runRuntimeRecovery(process.argv.slice(2), () =>
+        connectHub().catch((error: unknown) => {
+          if (!isHubUnavailable(error)) throw error
+          return tryBecomeLeaderAndStartHub()
+        })
+      )
+    } catch (error) {
+      process.stderr.write(
+        `Runtime recovery failed: ${error instanceof Error ? error.message : String(error)}\n`
+      )
+      process.exitCode = 1
+    }
+    process.stdin.destroy()
+    endLogging()
+    return
+  }
+  if (process.argv.includes('--recover-task-storage')) {
+    try {
+      const directory = resolve(resolveStateDir())
+      process.stdout.write(`Task storage: ${join(directory, 'design-tasks.json')}\n`)
+      if (process.argv.length !== 3)
+        throw new Error('Use --recover-task-storage without other arguments.')
+      const { recoverDesignTaskStorage } = await import('./task-storage-recovery')
+      const result = await recoverDesignTaskStorage(directory)
+      process.stdout.write(
+        `Task storage recovered. Old tasks remain retired; begin a fresh task to write.\nOriginal files: ${result.backupDirectory}\n`
+      )
+    } catch (error) {
+      process.stderr.write(
+        `Task storage recovery failed: ${error instanceof Error ? error.message : String(error)}\n`
+      )
+      process.exitCode = 1
+    }
+    process.stdin.destroy()
+    endLogging()
+    return
+  }
   log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Client starting...')
   // A killed Hub can leave valid lock leases behind. Allow their full stale
   // interval and a further startup attempt without weakening lock ownership.
   const startupDeadline = Date.now() + HUB_LOCK_STALE_MS + 2 * HUB_STARTUP_TIMEOUT
   let connected = false
   let failedAttempts = 0
+  let waitingReported = false
 
   while (true) {
     try {
@@ -293,10 +370,15 @@ async function main() {
         process.stderr.write(
           `Unable to connect to TemPad Hub after ${failedAttempts} ${connected ? 'reconnect' : 'startup'} attempts: ${reason} Reconnect the MCP client after resolving the connection error.\n`
         )
-        // No future bridge will consume stdin. Terminate even when a Node 22
-        // stream or logging worker keeps the event loop alive after this failure.
+        // No future bridge will consume stdin; release its read handle before exiting.
         process.stdin.destroy()
-        process.exit(1)
+        process.exitCode = 1
+        endLogging()
+        return
+      }
+      if (!connected && transient && !waitingReported) {
+        process.stderr.write('Waiting for TemPad Hub to become available. Retrying…\n')
+        waitingReported = true
       }
       log.error(
         { err },

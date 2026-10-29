@@ -117,6 +117,19 @@ describe('plugins sdk helpers', () => {
     expect(h('Box', null)).toEqual({ name: 'Box', props: {}, children: [] })
   })
 
+  it('treats the second argument as props when children are supplied explicitly', () => {
+    const componentProps = { name: 'nested', props: { role: 'presentation' }, children: [] }
+
+    for (const props of [componentProps, ['value']]) {
+      expect(h('Widget', props, 'body')).toEqual({ name: 'Widget', props, children: ['body'] })
+      expect(h('Widget', props, undefined)).toEqual({ name: 'Widget', props, children: [] })
+    }
+    for (const props of [null, undefined]) {
+      expect(h('Widget', props, 'body')).toEqual({ name: 'Widget', props: {}, children: ['body'] })
+    }
+    expect(h('Widget', componentProps).children).toEqual([componentProps])
+  })
+
   it('finds direct children with property and predicate queries', () => {
     const node = frame('Root', [text('Title', 'Hello'), vector('Icon', false), vector('Icon 2')])
 
@@ -140,6 +153,67 @@ describe('plugins sdk helpers', () => {
 
     expect(findAll(root, { type: 'TEXT' }).map((n) => n.name)).toEqual(['Title', 'CTA'])
     expect(findAll(root, (node) => node.type === 'VECTOR').map((n) => n.name)).toEqual(['Arrow'])
+  })
+
+  it('collects all matches from a broad nested subtree', () => {
+    const children = Array.from({ length: 150_000 }, (_, index) => text(`Label ${index}`, 'x'))
+    const root = frame('Root', [group('Labels', children)])
+    const result = findAll(root, { type: 'TEXT' })
+
+    expect(result).toHaveLength(children.length)
+    expect(result[0]).toBe(children[0])
+    expect(result.at(-1)).toBe(children.at(-1))
+  })
+
+  it('visits descendants in order without pruning unmatched containers or deduplicating', () => {
+    const first = text('First', 'a')
+    const duplicate = text('Repeated', 'b')
+    const skipped = group('Skipped', [duplicate], false)
+    const nested = vector('Nested')
+    const inner = frame('Inner', [nested, duplicate])
+    const last = text('Last', 'c')
+    const root = frame('Root', [first, skipped, inner, last])
+    const visited: DesignNode[] = []
+
+    expect(
+      findAll(root, (node) => {
+        visited.push(node)
+        return node !== skipped
+      })
+    ).toEqual([first, duplicate, inner, nested, duplicate, last])
+    expect(visited).toEqual([first, skipped, duplicate, inner, nested, duplicate, last])
+    expect(findAll(root, { type: 'TEXT' })).toEqual([first, duplicate, duplicate, last])
+
+    const failure = new Error('Query failed')
+    visited.length = 0
+    expect(() =>
+      findAll(root, (node) => {
+        visited.push(node)
+        if (node === duplicate) throw failure
+        return true
+      })
+    ).toThrow(failure)
+    expect(visited).toEqual([first, skipped, duplicate])
+  })
+
+  it.each(['g', 'y', 'gy'])('matches every node independently with a /%s query', (flags) => {
+    const titles = [text('Title', 'A'), text('Title', 'B'), text('Title', 'C')]
+    const direct = frame('Root', [...titles, text('Subtitle Title', 'D')])
+    const deep = frame('Root', [group('Group', direct.children)])
+    const name = new RegExp('Title', flags)
+    name.lastIndex = 2
+    Object.freeze(name)
+    const expected = flags.includes('y') ? titles : direct.children
+
+    for (let repeat = 0; repeat < 2; repeat++) {
+      expect(findChildren(direct, { name })).toEqual(expected)
+      expect(findChild(direct, { name })).toBe(titles[0])
+      expect(findAll(deep, { name })).toEqual(expected)
+      expect(findOne(deep, { name })).toBe(titles[0])
+      expect(queryAll(deep, [{ query: 'all', name }])).toEqual(expected)
+      expect(queryOne(deep, [{ query: 'one', name }])).toBe(titles[0])
+      expect(name.lastIndex).toBe(2)
+    }
   })
 
   it('runs chained queryAll/queryOne pipelines and deduplicates', () => {

@@ -52,6 +52,295 @@ afterEach(() => {
 })
 
 describe('mcp/tools/canvas font loading', () => {
+  it('shares collection reads across text consumers and the two mode preloading passes', async () => {
+    const fixture = createFixture()
+    const changed = figma.variables.createVariableCollection('Changed')
+    const alternate = changed.addMode('Alternate')
+    const unchanged = figma.variables.createVariableCollection('Unchanged')
+    const size = figma.variables.createVariable('Size', unchanged, 'FLOAT')
+    size.setValueForMode(unchanged.defaultModeId, 16)
+    for (let index = 0; index < 50; index++) {
+      const label = figma.createText()
+      label.characters = 'Unaffected'
+      label.setBoundVariable('fontSize', size)
+    }
+    const readCollection = vi.mocked(figma.variables.getVariableCollectionByIdAsync)
+    for (const mode of [alternate, changed.defaultModeId]) {
+      readCollection.mockClear()
+      await applyCanvasFromTool({
+        mode: 'update',
+        page: { id: fixture.page.id, variableModes: { [changed.id]: mode } }
+      })
+      expect(fixture.page.explicitVariableModes[changed.id]).toBe(mode)
+      expect(readCollection.mock.calls.filter(([id]) => id === changed.id)).toHaveLength(1)
+      expect(readCollection.mock.calls.filter(([id]) => id === unchanged.id)).toHaveLength(1)
+    }
+    expect(fixture.loadFontAsync).not.toHaveBeenCalled()
+  })
+
+  it('bounds missing collection reads to one per font-preloading scan', async () => {
+    const fixture = createFixture()
+    const changed = figma.variables.createVariableCollection('Changed')
+    const alternate = changed.addMode('Alternate')
+    const unchanged = figma.variables.createVariableCollection('Unchanged')
+    const size = figma.variables.createVariable('Size', unchanged, 'FLOAT')
+    size.setValueForMode(unchanged.defaultModeId, 16)
+    for (let index = 0; index < 50; index++) {
+      const label = figma.createText()
+      label.characters = 'Unaffected'
+      label.setBoundVariable('fontSize', size)
+      Object.assign(label.explicitVariableModes, { 'missing:collection': 'missing:mode' })
+    }
+    const readCollection = vi.mocked(figma.variables.getVariableCollectionByIdAsync)
+    await applyCanvasFromTool({
+      mode: 'update',
+      page: { id: fixture.page.id, variableModes: { [changed.id]: alternate } }
+    })
+    expect(fixture.page.explicitVariableModes[changed.id]).toBe(alternate)
+    // Recheck at the mutation boundary: an import may have made a missing collection available.
+    expect(readCollection.mock.calls.filter(([id]) => id === 'missing:collection')).toHaveLength(2)
+    expect(fixture.loadFontAsync).not.toHaveBeenCalled()
+  })
+
+  it.each(['variable', 'alias', 'collection'] as const)(
+    'ignores an unrelated unavailable metric %s during a page mode change',
+    async (missing) => {
+      const fixture = createFixture()
+      const changed = figma.variables.createVariableCollection('Changed')
+      const alternate = changed.addMode('Alternate')
+      const metrics = figma.variables.createVariableCollection('Metrics')
+      const size = figma.variables.createVariable('Size', metrics, 'FLOAT')
+      size.setValueForMode(metrics.defaultModeId, 16)
+      const label = figma.createText()
+      label.characters = 'Unresolved dependency'
+      label.setBoundVariable('fontSize', size)
+      if (missing === 'alias') {
+        size.setValueForMode(metrics.defaultModeId, { type: 'VARIABLE_ALIAS', id: 'missing' })
+      } else if (missing === 'variable') fixture.variables.delete(size.id)
+      else fixture.variableCollections.delete(metrics.id)
+
+      await applyCanvasFromTool({
+        mode: 'update',
+        page: { id: fixture.page.id, variableModes: { [changed.id]: alternate } }
+      })
+      expect(fixture.page.explicitVariableModes[changed.id]).toBe(alternate)
+      expect(fixture.loadFontAsync).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['alias', 'collection', 'lookup'] as const)(
+    'reports an affected unavailable metric %s as an existing canvas failure before writing',
+    async (missing) => {
+      const fixture = createFixture()
+      const changed = figma.variables.createVariableCollection('Changed')
+      const alternate = changed.addMode('Alternate')
+      const metrics = figma.variables.createVariableCollection('Metrics')
+      const alias = figma.variables.createVariable('Alias', metrics, 'FLOAT')
+      alias.setValueForMode(metrics.defaultModeId, 20)
+      const size = figma.variables.createVariable('Size', changed, 'FLOAT')
+      size.setValueForMode(changed.defaultModeId, 16)
+      size.setValueForMode(alternate, { type: 'VARIABLE_ALIAS', id: alias.id })
+      const label = figma.createText()
+      label.characters = 'Affected dependency'
+      label.setBoundVariable('fontSize', size)
+      if (missing === 'alias') fixture.variables.delete(alias.id)
+      else if (missing === 'collection') fixture.variableCollections.delete(metrics.id)
+      else
+        vi.mocked(figma.variables.getVariableByIdAsync).mockRejectedValue(new Error('Unavailable'))
+
+      await expect(
+        applyCanvasFromTool({
+          mode: 'update',
+          page: { id: fixture.page.id, variableModes: { [changed.id]: alternate } }
+        })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        message: expect.stringContaining(
+          `Cannot resolve text variable dependency "fontSize" on "${label.id}"`
+        )
+      })
+      expect(fixture.page.explicitVariableModes[changed.id]).toBeUndefined()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['alias', 'collection'] as const)(
+    'clears Page Auto with an unavailable %s in a possible mode',
+    async (missing) => {
+      const fixture = createFixture()
+      const collection = figma.variables.createVariableCollection('Size')
+      const alternate = collection.addMode('Alternate')
+      const unavailable = collection.addMode('Unavailable')
+      const size = figma.variables.createVariable('Size', collection, 'FLOAT')
+      size.setValueForMode(collection.defaultModeId, 16)
+      size.setValueForMode(alternate, 20)
+      const dependencies = figma.variables.createVariableCollection('Dependencies')
+      const alias = figma.variables.createVariable('Alias', dependencies, 'FLOAT')
+      alias.setValueForMode(dependencies.defaultModeId, 24)
+      size.setValueForMode(unavailable, { type: 'VARIABLE_ALIAS', id: alias.id })
+      if (missing === 'alias') fixture.variables.delete(alias.id)
+      else fixture.variableCollections.delete(dependencies.id)
+      const label = figma.createText()
+      label.characters = 'Auto'
+      label.setBoundVariable('fontSize', size)
+      fixture.page.setExplicitVariableModeForCollection(collection, alternate)
+      const clear = fixture.page.clearExplicitVariableModeForCollection.bind(fixture.page)
+      vi.spyOn(fixture.page, 'clearExplicitVariableModeForCollection').mockImplementation(
+        (owner) => {
+          expect(fixture.loadFontAsync).toHaveBeenCalledWith(label.fontName)
+          clear(owner)
+        }
+      )
+
+      const result = await applyCanvasFromTool({
+        mode: 'update',
+        page: { id: fixture.page.id, variableModes: { [collection.id]: null } }
+      })
+
+      expect(result.verification.status).toBe('passed')
+      expect(fixture.page.explicitVariableModes[collection.id]).toBeUndefined()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+      // Choosing that exact unavailable candidate still fails before a native write.
+      fixture.commitUndo.mockClear()
+      await expect(
+        applyCanvasFromTool({
+          mode: 'update',
+          page: { id: fixture.page.id, variableModes: { [collection.id]: unavailable } }
+        })
+      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED })
+      expect(fixture.page.explicitVariableModes[collection.id]).toBeUndefined()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['alias', 'font'] as const)(
+    'keeps simultaneous explicit base and extended modes strict for an unavailable %s',
+    async (missing) => {
+      const fixture = createFixture()
+      const collection = figma.variables.createVariableCollection('Typography')
+      const alternate = collection.addMode('Alternate')
+      const family = figma.variables.createVariable('Family', collection, 'STRING')
+      family.setValueForMode(collection.defaultModeId, 'Inter')
+      family.setValueForMode(alternate, 'Inter')
+      const extended = collection.extend('Extended typography')
+      const extendedAlternate = extended.modes.find(
+        (mode) => mode.parentModeId === alternate
+      )!.modeId
+      extended.variableOverrides[family.id] = {
+        [extendedAlternate]:
+          missing === 'alias'
+            ? { type: 'VARIABLE_ALIAS', id: 'missing:font-family' }
+            : 'Unavailable Font'
+      }
+      const label = figma.createText()
+      label.characters = 'Explicit dependency'
+      label.setBoundVariable('fontFamily', family)
+      fixture.page.setExplicitVariableModeForCollection(collection, alternate)
+
+      await expect(
+        applyCanvasFromTool({
+          mode: 'update',
+          page: { id: fixture.page.id, variableModes: { [extended.id]: extendedAlternate } }
+        })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        ...(missing === 'font'
+          ? { cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC } }
+          : {}),
+        message: expect.stringContaining(
+          missing === 'alias' ? 'missing:font-family' : 'Unavailable Font'
+        )
+      })
+      expect(fixture.page.explicitVariableModes).toEqual({ [collection.id]: alternate })
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([false, true])(
+    'scans retained missing text styles without dropping available bindings: bound=%s',
+    async (bound) => {
+      const fixture = createFixture()
+      const collection = figma.variables.createVariableCollection('Size')
+      const alternate = collection.addMode('Alternate')
+      const size = figma.variables.createVariable('Size', collection, 'FLOAT')
+      size.setValueForMode(collection.defaultModeId, 16)
+      size.setValueForMode(alternate, 20)
+      const style = figma.createTextStyle()
+      for (let index = 0; index < 10; index++) {
+        const label = figma.createText()
+        label.characters = 'Missing style'
+        await label.setTextStyleIdAsync(style.id)
+        if (bound) label.setBoundVariable('fontSize', size)
+      }
+      fixture.styles.delete(style.id)
+      const readStyle = vi.mocked(figma.getStyleByIdAsync)
+      readStyle.mockClear()
+
+      const result = await applyCanvasFromTool({
+        mode: 'update',
+        page: { id: fixture.page.id, variableModes: { [collection.id]: alternate } }
+      })
+
+      expect(result.verification.status).toBe('passed')
+      expect(fixture.page.explicitVariableModes[collection.id]).toBe(alternate)
+      // Misses are shared within a scan, then checked again before the native write.
+      expect(readStyle.mock.calls.filter(([id]) => id === style.id)).toHaveLength(2)
+      expect(fixture.loadFontAsync.mock.calls.length > 0).toBe(bound)
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it('preserves the scope error when Auto font candidates exceed the bounded budget', async () => {
+    const fixture = createFixture()
+    const collection = figma.variables.createVariableCollection('Many modes')
+    const size = figma.variables.createVariable('Size', collection, 'FLOAT')
+    size.setValueForMode(collection.defaultModeId, 1)
+    for (let value = 2; value <= 65; value++) {
+      size.setValueForMode(collection.addMode(`Mode ${value}`), value)
+    }
+    const label = figma.createText()
+    label.characters = 'Many candidates'
+    label.setBoundVariable('fontSize', size)
+    fixture.page.setExplicitVariableModeForCollection(collection, collection.defaultModeId)
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        page: { id: fixture.page.id, variableModes: { [collection.id]: null } }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE },
+      message: expect.stringContaining('bounded candidate budget')
+    })
+    expect(fixture.page.explicitVariableModes[collection.id]).toBe(collection.defaultModeId)
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+  })
+
+  it('bounds missing variable reads to one per font-preloading scan', async () => {
+    const fixture = createFixture()
+    const changed = figma.variables.createVariableCollection('Changed')
+    const alternate = changed.addMode('Alternate')
+    const metrics = figma.variables.createVariableCollection('Metrics')
+    const size = figma.variables.createVariable('Size', metrics, 'FLOAT')
+    size.setValueForMode(metrics.defaultModeId, 16)
+    for (let index = 0; index < 50; index++) {
+      const label = figma.createText()
+      label.characters = 'Unaffected'
+      label.setBoundVariable('fontSize', size)
+    }
+    fixture.variables.delete(size.id)
+    const readVariable = vi.mocked(figma.variables.getVariableByIdAsync)
+    readVariable.mockClear()
+    await applyCanvasFromTool({
+      mode: 'update',
+      page: { id: fixture.page.id, variableModes: { [changed.id]: alternate } }
+    })
+    expect(fixture.page.explicitVariableModes[changed.id]).toBe(alternate)
+    expect(readVariable.mock.calls.filter(([id]) => id === size.id)).toHaveLength(2)
+    expect(fixture.loadFontAsync).not.toHaveBeenCalled()
+  })
+
   it.each(['unbound', 'unbound style', 'other collection', 'overridden mode'] as const)(
     'does not load a missing font on %s text during a page mode change',
     async (binding) => {
@@ -383,14 +672,7 @@ describe('mcp/tools/canvas font loading', () => {
       const beforeStyles = [...fixture.styles.keys()]
       fixture.commitUndo.mockClear()
       fixture.triggerUndo.mockClear()
-      const started = Promise.withResolvers<void>()
-      const ready = Promise.withResolvers<void>()
-      fixture.loadFontAsync.mockImplementation(async (font: FontName) => {
-        if (font.family === 'Noto Serif' && font.style === 'SemiBold') {
-          started.resolve()
-          await ready.promise
-        }
-      })
+      const fonts = deferFont(fixture, { family: 'Noto Serif', style: 'SemiBold' })
       const pending = applyCanvasFromTool({
         mode: 'update',
         targetNodeId: created.rootNodeId!,
@@ -413,19 +695,14 @@ describe('mcp/tools/canvas font loading', () => {
       })
       void pending.catch(() => undefined)
       try {
-        await Promise.race([
-          started.promise,
-          pending.then(() => {
-            throw new Error('The desired font was not requested')
-          })
-        ])
+        await waitForDeferredFont(pending, fonts.requested)
         expect([...fixture.variableCollections.keys()]).toEqual(beforeCollections)
         expect([...fixture.styles.keys()]).toEqual(beforeStyles)
         expect(title.characters).toBe('Before')
         expect(title.fontName).toEqual({ family: 'Inter', style: 'Regular' })
         expect(fixture.commitUndo).not.toHaveBeenCalled()
       } finally {
-        ready.resolve()
+        fonts.release()
         await pending
       }
       expect(title.fontName).toEqual({ family: 'Noto Serif', style: 'SemiBold' })
@@ -508,7 +785,8 @@ describe('mcp/tools/canvas font loading', () => {
         styles: { fresh: { type: 'PAINT', name: 'Fresh paint', paints: [] } }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
       message: expect.stringContaining('Font "Noto Serif Regular" is unavailable')
     })
     expect([...fixture.variableCollections.keys()]).toEqual(beforeCollections)
@@ -570,18 +848,18 @@ describe('mcp/tools/canvas font loading', () => {
     })
     void update.catch(() => undefined)
     try {
-      await regularStarted.promise
+      await waitForDeferredFont(update, regularStarted.promise)
       expect(title.resize).not.toHaveBeenCalled()
       expect(setFontName).not.toHaveBeenCalled()
       regular.resolve()
-      await semiboldStarted.promise
+      await waitForDeferredFont(update, semiboldStarted.promise)
       expect(title.resize).not.toHaveBeenCalled()
       expect(setFontName).not.toHaveBeenCalled()
     } finally {
       regular.resolve()
       semibold.resolve()
+      await update
     }
-    await update
     expect(title.fontName).toEqual({ family: 'Poppins', style: 'SemiBold' })
     expect(title.width).toBe(160)
     expect(title.height).toBe(40)

@@ -2,18 +2,19 @@ import { copyFile, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { selectScenarios, selectThemes, type ScreenshotScenario } from './screenshot-plan'
+import {
+  parseScreenshotOptions,
+  selectionOptions,
+  selectScenarios,
+  selectThemes,
+  type ScreenshotScenario
+} from './screenshot-plan'
 
 type Scenario = ScreenshotScenario & { height: number; width: number }
 type Manifest = { capture: { themes: string[] }; scenarios: Scenario[] }
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const manifestPath = fileURLToPath(new URL('../screenshots/scenarios.json', import.meta.url))
-
-function readArgument(name: string): string | null {
-  const index = process.argv.indexOf(name)
-  return index >= 0 ? (process.argv[index + 1] ?? null) : null
-}
 
 function readPngSize(buffer: Buffer): { height: number; width: number } | null {
   const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
@@ -22,22 +23,27 @@ function readPngSize(buffer: Buffer): { height: number; width: number } | null {
 }
 
 async function main(): Promise<void> {
-  if (!process.argv.includes('--yes')) {
+  const options = parseScreenshotOptions({
+    ...selectionOptions,
+    'candidate-dir': { type: 'string' },
+    yes: { type: 'boolean' }
+  })
+  if (!options.yes) {
     throw new Error(
       'Promotion overwrites committed marketing assets. Review `pnpm screenshots compare` first, then rerun with --yes.'
     )
   }
 
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Manifest
-  const candidateDirArgument = readArgument('--candidate-dir')
+  const candidateDirArgument = options['candidate-dir']
   const candidateDir = candidateDirArgument
     ? resolve(repoRoot, candidateDirArgument)
     : `${repoRoot}.artifacts/marketing-screenshots`
   const selected = selectScenarios(manifest.scenarios, {
-    only: readArgument('--only'),
-    group: readArgument('--group')
+    only: options.only,
+    group: options.group
   })
-  const themes = selectThemes(manifest.capture.themes, readArgument('--themes'))
+  const themes = selectThemes(manifest.capture.themes, options.themes ?? null)
   const candidates: Array<{ source: string; target: string }> = []
 
   for (const scenario of selected) {

@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/mcp",
-  "version": "0.11.0",
+  "version": "1.0.0",
   "description": "Connect coding agents to Figma for design inspection, native canvas editing, and UI implementation.",
   "license": "MIT",
   "repository": {
@@ -31,7 +31,7 @@
     "lint:fix": "eslint . --fix --ext .ts,.mts,.cts,.js,.mjs,.cjs",
     "format": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore",
     "format:check": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore --check",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "node scripts/require-release-archive.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
@@ -52,6 +52,15 @@
     "unplugin-raw": "^0.8.0",
     "vitest": "5.0.5"
   },
+  "bundleDependencies": [
+    "@modelcontextprotocol/sdk",
+    "nanoid",
+    "pino",
+    "pino-pretty",
+    "proper-lockfile",
+    "ws",
+    "zod"
+  ],
   "engines": {
     "node": "^22 || ^24 || >=26"
   }

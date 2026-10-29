@@ -29,9 +29,9 @@ For contributor workflow and commands, see `TESTING.md`.
 
 - Coverage provider: `istanbul`.
 - Build artifacts are excluded from coverage (`**/dist/**`, `**/.output/**`).
-- Shared schemas and the plugin SDK retain their package-owned 100% thresholds. Shared installation
-  and response helpers are also reported; they participate in the root aggregate baseline rather
-  than being omitted from the shared report.
+- Shared schemas and the plugin SDK enforce the same per-file 100% thresholds in package and
+  workspace coverage runs. Shared installation and response helpers are also reported but only
+  participate in the root aggregate baseline.
 - Root, extension, and MCP report all TypeScript runtime modules in their node source scope,
   including untested modules. The shared agent/Hub runtime-path JavaScript helper also participates
   in the root and MCP reports and baseline. Their existing baseline groups retain the thresholds in
@@ -40,9 +40,9 @@ For contributor workflow and commands, see `TESTING.md`.
   behavioral coverage; do not remove baseline files or lower its floor to pass a change.
 - Every extension MCP module and Hub runtime module also has a per-file floor of 50% for
   lines/statements/functions and 40% for branches. Broad source globs include new modules
-  automatically, so aggregate coverage cannot hide a completely untested core file. The CLI and
-  Hub launchers remain reported but are excluded from this floor because their integration tests
-  run in child processes outside coverage instrumentation. These minimums supplement the existing
+  automatically, so aggregate coverage cannot hide a completely untested core file. The CLI,
+  Hub, isolated/managed runtime, and acquisition worker entry launchers remain reported but are excluded from this floor
+  because their integration tests run in child processes outside coverage instrumentation. These minimums supplement the existing
   baseline; meeting either gate is not evidence that every behavior is correct.
 - Browser behavior is verified separately in the browser suite. Browser-facing TypeScript still
   appears in the node coverage report; that report does not measure Vue templates or native host behavior.

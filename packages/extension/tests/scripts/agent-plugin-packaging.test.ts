@@ -6,7 +6,8 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
-  rmSync
+  rmSync,
+  writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -20,6 +21,9 @@ const PLUGINS_CLI = 'agent-plugin/targets/plugins-cli'
 const CODEX = 'agent-plugin/targets/codex'
 const CLAUDE = 'agent-plugin/targets/claude'
 const DEV = '.dev/plugins/tempad-dev-dev'
+const { runtimeSourceHash } = await import(
+  pathToFileURL(join(repository, 'packages/mcp-server/scripts/runtime-source-hash.mjs')).href
+)
 
 let root: string
 
@@ -40,6 +44,8 @@ beforeAll(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'tempad-plugin-packaging-')))
   for (const path of [
     'scripts/build-agent-plugin.mjs',
+    'scripts/native-runtime-fixture.mjs',
+    'packages/mcp-server/scripts/runtime-source-hash.mjs',
     'agent-plugin/src',
     'packages/extension/public/icon-128.png',
     '.agents/plugins/marketplace.json',
@@ -162,9 +168,9 @@ it.each([STANDARD, PLUGINS_CLI, CODEX, CLAUDE, DEV])(
   (target) => {
     expect(has(target, 'skills', 'figma-canvas-authoring')).toBe(target === STANDARD)
     for (const skill of SKILLS) {
-      expect(readFileSync(join(root, target, 'skills', skill, 'SKILL.md'), 'utf8')).toBe(
-        sourceFile(join('skills', skill, 'SKILL.md'))
-      )
+      const content = readFileSync(join(root, target, 'skills', skill, 'SKILL.md'), 'utf8')
+      expect(content).toBe(sourceFile(join('skills', skill, 'SKILL.md')))
+      expect(content.split('\n---\n', 1)[0]?.match(/^name: (.+)$/m)?.[1]).toBe(skill)
       expect(has(target, 'skills', skill, 'assets/icon.svg')).toBe(true)
     }
     expect(has(target, 'assets/icon.png')).toBe(true)
@@ -174,7 +180,7 @@ it.each([STANDARD, PLUGINS_CLI, CODEX, CLAUDE, DEV])(
 it('derives the standalone compatibility skill from the current authoring skill', () => {
   const alias = join(STANDARD, 'skills/figma-canvas-authoring')
   const content = readFileSync(join(root, alias, 'SKILL.md'), 'utf8')
-  expect(content).toContain('name: figma-canvas-authoring')
+  expect(content.split('\n---\n', 1)[0]?.match(/^name: (.+)$/m)?.[1]).toBe('figma-canvas-authoring')
   expect(content).toContain(
     'Use only when design-in-figma is not installed; otherwise use design-in-figma.'
   )
@@ -186,11 +192,15 @@ it('derives the standalone compatibility skill from the current authoring skill'
   )
 })
 
-it('pins releases to npm and the development build to this checkout', () => {
-  for (const target of [PLUGINS_CLI, CODEX, CLAUDE]) {
-    expect(read(join(target, '.mcp.json')).mcpServers['tempad-dev'].args).toEqual([
+it('enrolls release installs in stable updates while keeping development pinned to the checkout', () => {
+  for (const path of [
+    join(STANDARD, 'mcp.json'),
+    ...[PLUGINS_CLI, CODEX, CLAUDE].map((target) => join(target, '.mcp.json'))
+  ]) {
+    expect(read(path).mcpServers['tempad-dev'].args).toEqual([
       '-y',
-      '@tempad-dev/mcp@latest'
+      '@tempad-dev/mcp@latest',
+      '--runtime-updates=stable'
     ])
   }
   expect(read(join(DEV, '.mcp.json')).mcpServers['tempad-dev-dev'].args).toEqual([
@@ -201,6 +211,19 @@ it('pins releases to npm and the development build to this checkout', () => {
     'TemPad Dev (Dev)'
   )
   expect(read(join(DEV, '.claude-plugin/plugin.json')).hooks).toBe('./clients/claude/hooks.json')
+  const profile = read(join(DEV, 'clients/shared/runtime-profile.json'))
+  expect(profile).toEqual({
+    checkout: root,
+    id: expect.stringMatching(/^[a-f0-9]{16}$/),
+    serverName: read(join(DEV, '.claude-plugin/plugin.json')).name
+  })
+  expect(read(join(DEV, '.claude-plugin/plugin.json')).mcpServers).toBe('./.mcp.json')
+  expect(Object.keys(read(join(DEV, '.mcp.json')).mcpServers)).toEqual([profile.serverName])
+  const hooks = read(join(DEV, 'clients/claude/hooks.json')).hooks
+  expect(hooks.Stop[0].hooks[0].command).toContain(
+    '--runtime-profile "${CLAUDE_PLUGIN_ROOT}/clients/shared/runtime-profile.json"'
+  )
+  expect(has(CLAUDE, 'clients/shared/runtime-profile.json')).toBe(false)
 })
 
 it('gives Codex enough time to receive the bounded canvas outcome', () => {
@@ -216,4 +239,87 @@ it('gives Codex enough time to receive the bounded canvas outcome', () => {
   expect(read(join(STANDARD, 'mcp.json')).mcpServers['tempad-dev']).not.toHaveProperty(
     'tool_timeout_sec'
   )
+})
+
+it('limits the native runtime fixture to the ignored plugin and routes both hosts to it', () => {
+  for (const path of [
+    'packages/mcp-server/package.json',
+    'packages/mcp-server/tsdown.config.ts',
+    'packages/mcp-server/scripts/runtime-contract.mjs',
+    'packages/mcp-server/src/probe.ts',
+    'packages/shared/src/probe.ts',
+    'pnpm-lock.yaml'
+  ]) {
+    mkdirSync(dirname(join(root, path)), { recursive: true })
+    writeFileSync(join(root, path), '{}\n')
+  }
+  const fixtureRoot = realpathSync(mkdtempSync(join(root, 'native-fixture-')))
+  const registryUrl = 'http://127.0.0.1:34567'
+  const artifacts = ['0.12.0', '0.12.1'].map((version) => {
+    const directory = join(fixtureRoot, version)
+    mkdirSync(directory)
+    writeFileSync(
+      join(directory, 'package.json'),
+      JSON.stringify({
+        name: '@tempad-dev/mcp',
+        version,
+        private: true,
+        publishConfig: { registry: registryUrl }
+      })
+    )
+    return { version, directory, integrity: `sha512-${Buffer.alloc(64).toString('base64')}` }
+  })
+  const fixture = {
+    version: 1,
+    kind: 'native-runtime-fixture',
+    testOnly: true,
+    checkout: root,
+    sourceHash: runtimeSourceHash(root),
+    root: fixtureRoot,
+    registryUrl,
+    env: {
+      TEMPAD_MCP_RUNTIME_DIR: join(fixtureRoot, 'run'),
+      TEMPAD_MCP_STATE_DIR: join(fixtureRoot, 'state'),
+      TEMPAD_MCP_ASSET_DIR: join(fixtureRoot, 'assets'),
+      TEMPAD_MCP_LOG_DIR: join(fixtureRoot, 'logs')
+    },
+    initial: artifacts[0],
+    candidate: artifacts[1]
+  }
+  const descriptor = join(fixtureRoot, 'runtime-fixture.json')
+  writeFileSync(descriptor, JSON.stringify(fixture), { mode: 0o600 })
+  const released = [join(CODEX, '.mcp.json'), join(CLAUDE, 'clients/claude/hooks.json')]
+  const before = released.map((path) => read(path))
+  try {
+    execFileSync(process.execPath, [
+      join(root, 'scripts/build-agent-plugin.mjs'),
+      '--runtime-fixture',
+      descriptor
+    ])
+    expect(released.map((path) => read(path))).toEqual(before)
+    expect(read(join(DEV, '.mcp.json')).mcpServers['tempad-dev-dev']).toEqual({
+      command: 'node',
+      args: [join(artifacts[0]!.directory, 'dist/cli.mjs'), '--runtime-updates=stable'],
+      tool_timeout_sec: 300,
+      env: fixture.env
+    })
+    expect(read(join(DEV, 'runtime-fixture.json'))).toEqual({ descriptor })
+    expect(has(DEV, 'clients/shared/runtime-profile.json')).toBe(false)
+    expect(read(join(DEV, 'clients/claude/hooks.json')).hooks.Stop[0].hooks[0].command).toBe(
+      `TEMPAD_MCP_RUNTIME_DIR='${fixture.env.TEMPAD_MCP_RUNTIME_DIR}' node "\${CLAUDE_PLUGIN_ROOT}/clients/shared/lifecycle.mjs" claude`
+    )
+    writeFileSync(join(root, 'packages/mcp-server/src/probe.ts'), 'changed source')
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        [join(root, 'scripts/build-agent-plugin.mjs'), '--runtime-fixture', descriptor],
+        { stdio: 'pipe' }
+      )
+    ).toThrow(/Native fixture sources changed/)
+    expect(released.map((path) => read(path))).toEqual(before)
+  } finally {
+    execFileSync(process.execPath, [join(root, 'scripts/build-agent-plugin.mjs')])
+    rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+  expect(has(DEV, 'runtime-fixture.json')).toBe(false)
 })

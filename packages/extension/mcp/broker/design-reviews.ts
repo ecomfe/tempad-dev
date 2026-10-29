@@ -1,10 +1,22 @@
 import type { DesignTask } from '@tempad-dev/shared'
 
-import { DesignTaskSchema } from '@tempad-dev/shared'
+import {
+  AgentCapabilitiesSchema,
+  AgentClientSchema,
+  DesignTaskSchema,
+  DesignTaskTargetSchema
+} from '@tempad-dev/shared'
 
 import { createSerialQueue } from './serial'
 
 const KEY = 'tempad.design-reviews.v1'
+// Storage may contain additive fields from a newer version. Wire schemas stay strict.
+const StoredTaskSchema = DesignTaskSchema.strip().extend({
+  target: DesignTaskTargetSchema.strip(),
+  client: AgentClientSchema.strip().optional(),
+  capabilities: AgentCapabilitiesSchema.strip().optional()
+})
+type StoredReview = { value: unknown; task?: DesignTask }
 type Storage = {
   get(key: string): Promise<Record<string, unknown>>
   set(values: Record<string, unknown>): Promise<void>
@@ -16,11 +28,20 @@ export class DesignReviews {
   private loaded = false
   private pendingStop = false
   private readonly tasks = new Map<string, DesignTask>()
+  private stored: StoredReview[] = []
 
   constructor(private readonly storage: Storage) {}
 
   get(fileKey: string): DesignTask | undefined {
     return this.tasks.get(fileKey)
+  }
+
+  preserveFences(task: DesignTask): DesignTask {
+    const previous = this.tasks.get(task.target.fileKey)
+    if (previous?.taskId !== task.taskId) return task
+    if (previous.reviewClosed) task = { ...task, reviewClosed: true }
+    if (previous.status === 'cancelled') task = { ...task, status: 'cancelled', operation: null }
+    return task
   }
 
   ready(): Promise<void> {
@@ -48,12 +69,13 @@ export class DesignReviews {
     return this.serial(async () => {
       await this.load(task)
       const previous = this.tasks.get(task.target.fileKey)
-      if (previous?.taskId === task.taskId) {
-        if (previous.reviewClosed) task = { ...task, reviewClosed: true }
-        if (previous.status === 'cancelled')
-          task = { ...task, status: 'cancelled', operation: null }
-        if (!this.pendingStop && JSON.stringify(previous) === JSON.stringify(task)) return previous
-      }
+      task = this.preserveFences(task)
+      if (
+        previous?.taskId === task.taskId &&
+        !this.pendingStop &&
+        JSON.stringify(previous) === JSON.stringify(task)
+      )
+        return previous
       return this.commit(task)
     })
   }
@@ -80,7 +102,18 @@ export class DesignReviews {
     // Stop remains fenced in this worker even if storage fails. Done still needs a durable receipt.
     this.rememberStop(task)
     const next = new Map(this.tasks).set(task.target.fileKey, task)
-    await persist({ [KEY]: [...next.values()] })
+    const written = new Set<string>()
+    const stored = this.stored.flatMap((entry): StoredReview[] => {
+      if (!entry.task) return [entry]
+      const updated = next.get(entry.task.target.fileKey)!
+      if (updated.taskId !== entry.task.taskId) return []
+      written.add(updated.target.fileKey)
+      return [{ task: updated, value: mergeStoredTask(updated, entry.value) }]
+    })
+    for (const updated of next.values())
+      if (!written.has(updated.target.fileKey)) stored.push({ task: updated, value: updated })
+    await persist({ [KEY]: stored.map(({ value }) => value) })
+    this.stored = stored
     this.tasks.set(task.target.fileKey, task)
     this.pendingStop = false
     return task
@@ -109,7 +142,8 @@ export class DesignReviews {
     }
     if (Array.isArray(values))
       for (const value of values) {
-        const parsed = DesignTaskSchema.strip().safeParse(value)
+        const parsed = StoredTaskSchema.safeParse(value)
+        this.stored.push({ value, ...(parsed.success ? { task: parsed.data } : {}) })
         if (!parsed.success) continue
         const task = parsed.data
         const local = this.tasks.get(task.target.fileKey)
@@ -121,5 +155,30 @@ export class DesignReviews {
         )
       }
     this.loaded = true
+  }
+}
+
+function extraFields(value: unknown, known: object): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !Object.hasOwn(known, key)))
+}
+
+function mergeStoredTask(task: DesignTask, raw: unknown): unknown {
+  const previous = raw as Record<string, unknown>
+  return {
+    ...extraFields(previous, DesignTaskSchema.shape),
+    ...task,
+    target: { ...extraFields(previous.target, DesignTaskTargetSchema.shape), ...task.target },
+    ...(task.client
+      ? { client: { ...extraFields(previous.client, AgentClientSchema.shape), ...task.client } }
+      : {}),
+    ...(task.capabilities
+      ? {
+          capabilities: {
+            ...extraFields(previous.capabilities, AgentCapabilitiesSchema.shape),
+            ...task.capabilities
+          }
+        }
+      : {})
   }
 }

@@ -6,6 +6,7 @@ import type { ClientHook } from '../src/agent-clients/hooks'
 import type { DesignTaskSnapshot } from '../src/design-task-store'
 
 import { CodexAppFeedback } from '../src/agent-clients/codex-feedback'
+import { MISSING_HOST_CONTEXT_MESSAGE } from '../src/agent-clients/host-context'
 import {
   bindRequestMetadata,
   ClientEventSchema,
@@ -88,6 +89,102 @@ async function fixture(connected = true) {
 }
 
 describe('client identity and capabilities', () => {
+  it('keeps unbound and pending Claude connections visible to automatic-update admission', () => {
+    const clients = new AgentClients(new DesignTasks({ createId: () => 'unused' }))
+    expect(clients.needsClaudeHooks('codex')).toBe(false)
+    clients.event('codex', {
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'codex-app' }
+    })
+    expect(clients.needsClaudeHooks('codex')).toBe(false)
+    expect(clients.needsClaudeHooks('native', { name: 'claude-code' })).toBe(true)
+    clients.subscribeBinding('pending', () => {}, 'session-hint')
+    expect(clients.needsClaudeHooks('pending')).toBe(true)
+    clients.disconnect('pending')
+    expect(clients.needsClaudeHooks('pending')).toBe(false)
+    clients.event('claude', {
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'claude' }
+    })
+    expect(clients.needsClaudeHooks('claude')).toBe(true)
+    clients.disconnect('claude')
+    expect(clients.needsClaudeHooks('claude')).toBe(false)
+    clients.close()
+  })
+
+  it('requires fresh receipt-capable hooks for the exact Claude connection binding', async () => {
+    const clients = new AgentClients(new DesignTasks({ createId: () => 'unused' }))
+    const info = { name: 'claude-code' }
+    const legacy = {
+      version: 1 as const,
+      kind: 'claude' as const,
+      sessionId: 'session',
+      event: 'UserPromptSubmit' as const,
+      invocationId: '00000000-0000-4000-8000-000000000001'
+    }
+    const current = {
+      ...legacy,
+      version: 2 as const,
+      issuedAt: Date.now(),
+      profile: { kind: 'release' as const }
+    }
+    try {
+      clients.event('edge', {
+        method: 'notifications/tempad/client-event',
+        params: { event: 'connect', kind: 'claude', sessionId: 'session' }
+      })
+      clients.clientHook({ ...current, sessionId: 'other-session' })
+      await clients.owner('edge', undefined, info)
+      expect(clients.needsClaudeHooks('edge', info)).toBe(true)
+
+      clients.clientHook(legacy)
+      await clients.owner('edge', undefined, info)
+      expect(clients.needsClaudeHooks('edge', info)).toBe(true)
+      clients.clientHook(current)
+      expect(clients.needsClaudeHooks('edge', info)).toBe(false)
+
+      clients.subscribeBinding('reconnected', () => {}, 'session')
+      expect(clients.needsClaudeHooks('reconnected', info)).toBe(true)
+      await clients.owner('reconnected', undefined, info)
+      expect(clients.needsClaudeHooks('reconnected', info)).toBe(false)
+
+      clients.clientHook({ ...current, event: 'SessionEnd' })
+      expect(clients.needsClaudeHooks('edge', info)).toBe(true)
+      expect(clients.needsClaudeHooks('reconnected', info)).toBe(true)
+    } finally {
+      clients.close()
+    }
+  })
+
+  it('records the end of native queue work even when it completes between inspections', async () => {
+    let now = 100
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now)
+    const native = new CodexAppFeedback('/unused')
+    let finish!: () => void
+    const cancel = vi.spyOn(native, 'cancelQueued').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        })
+    )
+    const clients = new AgentClients(new DesignTasks({ createId: () => 'unused' }), native)
+    try {
+      now = 200
+      const pending = clients.cancelFeedback('task')
+      expect(clients.hasPendingActions).toBe(true)
+      expect(clients.lastActivity).toBe(200)
+      now = 300
+      finish()
+      await pending
+      expect(clients.hasPendingActions).toBe(false)
+      expect(clients.lastActivity).toBe(300)
+    } finally {
+      clients.close()
+      cancel.mockRestore()
+      clock.mockRestore()
+    }
+  })
+
   it.each([false, true])(
     'does not trust a browser-only review destination after restart=%s or an ordinary owner read',
     async (restart) => {
@@ -218,14 +315,16 @@ describe('client identity and capabilities', () => {
     async (inheritedSession, hookTurn, initialized) => {
       const tasks = new DesignTasks({ createId: () => 'claude-task', now: () => 1000 })
       const nativeOwner = vi.fn().mockResolvedValue('codex-owner')
-      const native = new CodexAppFeedback('/unused', async () => ({
-        owner: nativeOwner,
-        close: vi.fn(),
-        request: vi.fn(),
-        broadcast: vi.fn(),
-        onBroadcast: vi.fn(() => () => {}),
-        onDisconnect: vi.fn(() => () => {})
-      }))
+      const native = new CodexAppFeedback('/unused', {
+        open: async () => ({
+          owner: nativeOwner,
+          close: vi.fn(),
+          request: vi.fn(),
+          broadcast: vi.fn(),
+          onBroadcast: vi.fn(() => () => {}),
+          onDisconnect: vi.fn(() => () => {})
+        })
+      })
       const watch = vi.fn()
       const interrupt = vi.fn().mockResolvedValue(true)
       const clients = new AgentClients(tasks, native, () => ({
@@ -330,7 +429,7 @@ describe('client identity and capabilities', () => {
           expect(codex.client).toMatchObject({ kind: 'codex-app', sessionId: 'actual-thread' })
           expect(codex.capabilities).toMatchObject({ interrupt: true, queue: true, steer: true })
           expect(nativeOwner).toHaveBeenCalledWith('actual-thread', undefined, 2000)
-          expect(watch).toHaveBeenCalledWith('actual-thread')
+          expect(watch).toHaveBeenCalledWith('actual-thread', undefined)
         }
       } finally {
         clients.close()
@@ -547,7 +646,10 @@ describe('client identity and capabilities', () => {
 
   it('keeps local stop available without claiming reverse controls', async () => {
     const f = await fixture(false)
-    expect(f.record.task.capabilities).toEqual(CODEX_FEEDBACK_UNAVAILABLE)
+    expect(f.record.task.capabilities).toEqual({
+      ...CODEX_FEEDBACK_UNAVAILABLE,
+      reason: MISSING_HOST_CONTEXT_MESSAGE
+    })
     expect((await f.clients.action(f.action({ action: 'stop', feedback: undefined }))).status).toBe(
       'delivered'
     )
@@ -556,6 +658,36 @@ describe('client identity and capabilities', () => {
 })
 
 describe('bound client actions', () => {
+  it.each([false, true])(
+    'keeps native queue removal pending until it settles (failure=%s)',
+    async (failure) => {
+      const tasks = new DesignTasks({ createId: () => 'unused' })
+      const codex = new CodexAppFeedback('/unused')
+      let resolve!: () => void
+      let reject!: (error: Error) => void
+      vi.spyOn(codex, 'cancelQueued')
+        .mockResolvedValue(undefined)
+        .mockReturnValueOnce(
+          new Promise<void>((yes, no) => {
+            resolve = yes
+            reject = no
+          })
+        )
+      const clients = new AgentClients(tasks, codex)
+      expect(clients.hasPendingActions).toBe(false)
+      const cancelled = clients.cancelFeedback('task')
+      const settled = Promise.allSettled([cancelled])
+      expect(clients.hasPendingActions).toBe(true)
+      if (failure) reject(new Error('Native queue unavailable'))
+      else resolve()
+      expect((await settled)[0]!.status).toBe(failure ? 'rejected' : 'fulfilled')
+      expect(clients.hasPendingActions).toBe(false)
+      await clients.cancelFeedback('other')
+      expect(clients.hasPendingActions).toBe(false)
+      clients.close()
+    }
+  )
+
   it.each(['queue', 'steer', 'continue'] as const)(
     'rejects %s comments without native delivery even when hooks are active',
     async (mode) => {
@@ -650,13 +782,58 @@ describe('bound client actions', () => {
       true
     )
     const pending = f.clients.action(f.action({ action: 'stop', feedback: undefined }))
+    expect(f.clients.hasPendingActions).toBe(true)
     expect(f.record.task.status).toBe('stopping')
     expect((await pending).status).toBe('delivered')
+    expect(f.clients.hasPendingActions).toBe(false)
     f.tasks.finishOperation('write', 'extension-a')
     expect(f.record.task.status).toBe('cancelled')
     expect(() => f.tasks.resume(f.record.task.taskId, f.owner, 0, session)).toThrow(
       'begin a new task'
     )
+  })
+
+  it('cancels a completed Claude review without sending a Stop notice to its next turn', async () => {
+    const tasks = new DesignTasks({ createId: () => 'task', now: () => 1000 })
+    const clients = new AgentClients(tasks)
+    let invocation = 0
+    const hook = (event: ClientHook['event'], turnId: string) =>
+      clients.clientHook({
+        version: 1,
+        kind: 'claude',
+        sessionId: 'claude-session',
+        turnId,
+        event,
+        invocationId: `00000000-0000-4000-8000-${String(++invocation).padStart(12, '0')}`
+      })
+    clients.event('connection', {
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'claude', sessionId: 'claude-session' }
+    })
+    hook('UserPromptSubmit', 'turn-a')
+    const owner = await clients.owner('connection', undefined)
+    const record = tasks.begin(
+      owner,
+      'extension',
+      session,
+      'Review',
+      'begin',
+      (await clients.describe(owner)).client
+    )
+    tasks.stop(record.task.taskId, 'completed')
+    hook('UserPromptSubmit', 'turn-b')
+
+    const result = await clients.action({
+      requestId: 'stop',
+      taskId: record.task.taskId,
+      epoch: 0,
+      action: 'stop'
+    })
+    expect(result.status).toBe('delivered')
+    expect(record.task.status).toBe('cancelled')
+    expect(hook('PreToolUse', 'turn-b')).toEqual({})
+    expect(() => tasks.resume(record.task.taskId, owner, 0, session)).toThrow('cannot resume')
+    clients.close()
   })
 
   it('does not stop a new task for a delayed Stop from the old task', async () => {

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0
+
+- Enabled verified runtime downloads and compatible Hub updates between operations on macOS,
+  Linux and Windows with MCP 1.0.0. Claude requires a verified session and current lifecycle
+  hooks; development checkouts keep their bundled runtime.
+- Retried interrupted Claude lifecycle messages without repeating their effects, including
+  during runtime switches. Preserved Unicode text and tolerated malformed Hub replies.
+- Kept development Claude hooks connected to their own checkout while a release runtime is running.
+- Clarified recovery after failed or uncertain canvas writes, native text binding limits,
+  supported text entities, and browser compatibility for token-based CSS. Unsupported entity
+  warnings require extension 1.0.0 or later.
+- Corrected component sizing, asset storage, shadow inspection, and Chinese setup guidance.
+
 ## 0.5.1
 
 - Fixed Claude session binding so Figma Stop reaches the correct conversation.

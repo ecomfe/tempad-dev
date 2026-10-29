@@ -15,16 +15,11 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  publish:
-    name: Publish @tempad-dev/mcp
+  guard:
+    name: Validate release branch
     runs-on: ubuntu-latest
-    concurrency:
-      group: publish-mcp
-      cancel-in-progress: true
-
     steps:
       - name: Require main branch
         env:
@@ -35,6 +30,22 @@ jobs:
             exit 1
           fi
 
+  windows-runtime:
+    name: Validate Windows runtime
+    needs: guard
+    uses: ./.github/workflows/windows-runtime.yml
+
+  publish:
+    name: Publish @tempad-dev/mcp
+    needs: [guard, windows-runtime]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: publish-mcp
+      cancel-in-progress: false
+    steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
@@ -55,16 +66,39 @@ jobs:
       - name: Build package
         run: pnpm build:mcp
 
+      - name: Prepare dependency metadata for offline release packaging
+        run: pnpm mcp:prepare-release-dependencies
+
       - name: Validate package
         run: |
           pnpm --filter @tempad-dev/mcp... typecheck
           pnpm --filter @tempad-dev/mcp... test:run
           pnpm mcp:check-bridge
           pnpm --filter @tempad-dev/mcp check:logging
+          pnpm mcp:check-runtime-updates
+          pnpm mcp:check-runtime-switch
+
+      - name: Prepare and verify the immutable release
+        run: pnpm mcp:prepare-release --output "$RUNNER_TEMP/tempad-mcp.tgz" --verify-baseline
+
+      - name: Check the exact release archive
+        run: |
+          release_check_dir=$(mktemp -d "$RUNNER_TEMP/tempad-mcp-installed.XXXXXX")
+          trap 'rm -rf "$release_check_dir"' EXIT
+          tar -xzf "$RUNNER_TEMP/tempad-mcp.tgz" -C "$release_check_dir" --strip-components=1
+          node packages/mcp-server/scripts/check-bridge-compatibility.mjs "$release_check_dir"
+          node packages/mcp-server/scripts/check-log-transport.mjs "$release_check_dir"
+
+      - name: Archive the reviewed release and manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: tempad-mcp-release
+          path: |
+            ${{ runner.temp }}/tempad-mcp.tgz
+            ${{ runner.temp }}/tempad-mcp.tgz.json
 
       - name: Publish
-        working-directory: packages/mcp-server
-        run: npm publish --access public --tag "${{ inputs.tag }}"
+        run: npm publish "$RUNNER_TEMP/tempad-mcp.tgz" --ignore-scripts --access public --tag "${{ inputs.tag }}"
 
       - name: Verify published version
         working-directory: packages/mcp-server
@@ -72,10 +106,12 @@ jobs:
           NPM_DIST_TAG: ${{ inputs.tag }}
         run: |
           version=$(node -p "require('./package.json').version")
+          expected=$(node -p "require(process.env.RUNNER_TEMP + '/tempad-mcp.tgz.json').integrity")
           for attempt in {1..20}; do
             published=$(npm view "@tempad-dev/mcp@$version" version --prefer-online 2>/dev/null || true)
             tagged=$(npm view "@tempad-dev/mcp@$NPM_DIST_TAG" version --prefer-online 2>/dev/null || true)
-            if [[ "$published" == "$version" && "$tagged" == "$version" ]]; then
+            integrity=$(npm view "@tempad-dev/mcp@$version" dist.integrity --prefer-online 2>/dev/null || true)
+            if [[ "$published" == "$version" && "$tagged" == "$version" && "$integrity" == "$expected" ]]; then
               echo "Verified @tempad-dev/mcp@$version on $NPM_DIST_TAG"
               exit 0
             fi

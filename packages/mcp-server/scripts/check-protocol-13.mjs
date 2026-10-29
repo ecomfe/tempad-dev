@@ -24,7 +24,14 @@ export async function checkProtocol13({ port, peer, send, activate, until, call,
     busy: false
   }
   const connect = async () => {
-    const extension = await peer(port, false, MessageToExtensionSchema)
+    const extension = await peer(port, false, {
+      parse(message) {
+        const parsed = MessageToExtensionSchema.parse(message)
+        // Check additive fields on the raw envelope inside peer()'s guarded receiver.
+        if (parsed.type === 'toolCall') assert.equal(message.terminalReceipt, undefined)
+        return parsed
+      }
+    })
     assert.ok(extension.frames[0].supportedProtocolVersions.includes(13))
     // Exactly the old hello: no new protocol field, and no package-version inference.
     send(extension, {

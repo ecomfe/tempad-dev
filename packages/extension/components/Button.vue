@@ -70,13 +70,13 @@ withDefaults(
   outline-color: var(--color-border-onbrand-strong);
 }
 
-.tp-action-button-secondary:disabled {
+.tp-action-button-secondary:is(:disabled, [aria-disabled='true']) {
   background: transparent;
   color: var(--color-text-disabled);
   outline-color: var(--color-border-disabled);
 }
 
-.tp-action-button-primary:disabled {
+.tp-action-button-primary:is(:disabled, [aria-disabled='true']) {
   background: var(--color-bg-disabled);
   color: var(--color-text-ondisabled);
 }

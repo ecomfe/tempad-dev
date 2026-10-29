@@ -2,8 +2,9 @@ import type { DesignFeedback } from '@tempad-dev/shared'
 
 import { formatDesignFeedback } from '@tempad-dev/shared'
 import { readFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
+
+import type { HostContext } from './host-context'
 
 import { CodexIpc, CodexIpcError } from './codex-ipc'
 import { CodexQueueRpc } from './codex-queue-rpc'
@@ -26,8 +27,11 @@ function object(value: unknown): Value {
 export class CodexQueueUnavailable extends Error {}
 
 /** Read only. The native owner commits this file before acknowledging queue writes. */
-export async function readCodexQueue(conversationId: string): Promise<CodexQueuedMessage[]> {
-  const path = join(process.env.CODEX_HOME || join(homedir(), '.codex'), '.codex-global-state.json')
+export async function readCodexQueue(
+  conversationId: string,
+  home: string
+): Promise<CodexQueuedMessage[]> {
+  const path = join(home, '.codex-global-state.json')
   let state: Value
   try {
     state = object(JSON.parse(await readFile(path, 'utf8')))
@@ -139,13 +143,18 @@ async function conversationCwd(
 }
 
 export class CodexNativeQueue {
+  static forContext(context: HostContext): CodexNativeQueue {
+    return new CodexNativeQueue(
+      (id) => readCodexQueue(id, context.codexHome),
+      (id) => readCodexServerQueue(id, context.codexSqliteHome),
+      new CodexQueueRpc(context)
+    )
+  }
+
   constructor(
-    private readonly readLegacy: typeof readCodexQueue = readCodexQueue,
-    private readonly readServer: typeof readCodexServerQueue = readCodexServerQueue,
-    private readonly server: Pick<
-      CodexQueueRpc,
-      'list' | 'add' | 'remove' | 'close'
-    > = new CodexQueueRpc()
+    private readonly readLegacy: (id: string) => ReturnType<typeof readCodexQueue>,
+    private readonly readServer: (id: string) => ReturnType<typeof readCodexServerQueue>,
+    private readonly server: Pick<CodexQueueRpc, 'list' | 'add' | 'remove' | 'close'>
   ) {}
 
   async read(

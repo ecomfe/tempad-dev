@@ -1,4 +1,4 @@
-import { useColorMode } from '@vueuse/core'
+import { useColorMode, useStorage } from '@vueuse/core'
 import { computed, type ComputedRef } from 'vue'
 
 export type SiteColorMode = 'auto' | 'light' | 'dark'
@@ -13,12 +13,17 @@ type UseSiteColorModeResult = {
 const STORAGE_KEY = 'tempad-dev-site-color-mode'
 
 export function useSiteColorMode(): UseSiteColorModeResult {
+  const store = useStorage<SiteColorMode>(STORAGE_KEY, 'auto', undefined, {
+    serializer: {
+      read: (value) => (value === 'light' || value === 'dark' ? value : 'auto'),
+      write: (value) => value
+    }
+  })
   const colorMode = useColorMode<SiteColorMode>({
-    initialValue: 'auto',
-    storageKey: STORAGE_KEY
+    storageRef: store
   })
 
-  const selectedColorMode = computed(() => colorMode.store.value as SiteColorMode)
+  const selectedColorMode = computed(() => colorMode.store.value)
   const resolvedColorMode = computed<SiteResolvedColorMode>(() =>
     colorMode.value === 'dark' ? 'dark' : 'light'
   )

@@ -1,6 +1,6 @@
 import type { DevComponent } from '@/types/plugin'
 
-import { pruneInheritedTextStyles, stripDefaultTextStyles } from '@/utils/css'
+import { canonicalizeValue, pruneInheritedTextStyles, stripDefaultTextStyles } from '@/utils/css'
 import { resolveTextNodeVariableId, resolveTextSegmentVariable } from '@/utils/figma-variables'
 import { joinClassNames } from '@/utils/tailwind'
 
@@ -31,7 +31,7 @@ export async function renderTextSegments(
   segmentCount: number
   fontStyleVariableIds: Set<string>
 }> {
-  const { inheritedTextStyle, segments: providedSegments } = options
+  const { inheritedTextStyle, nodeTextStyle, segments: providedSegments } = options
 
   const rawSegments = providedSegments === undefined ? getStyledSegments(node) : providedSegments
   const fontStyleVariableIds = new Set<string>()
@@ -57,38 +57,58 @@ export async function renderTextSegments(
 
   const segmentCount = rawSegments.length
   const allRunStyles: Array<{ style: Record<string, string>; weight: number }> = []
+  const runs = blocks.flatMap((block) => block.lines.flatMap((line) => line.runs))
 
-  for (const block of blocks) {
-    for (const line of block.lines) {
-      for (const run of line.runs) {
-        const cleaned = stripDefaultTextStyles({ ...run.attrs })
-        pruneInheritedTextStyles(cleaned, inheritedTextStyle)
-        const resolved = ctx.resolveStyleVars ? ctx.resolveStyleVars(cleaned, node) : cleaned
+  for (const run of runs) {
+    const cleaned = stripDefaultTextStyles({ ...run.attrs })
+    pruneInheritedTextStyles(cleaned, inheritedTextStyle)
+    const resolved = ctx.resolveStyleVars ? ctx.resolveStyleVars(cleaned, node) : cleaned
 
-        const hoistableCandidate: Record<string, string> = {}
-        for (const [key, value] of Object.entries(resolved)) {
-          if (HOIST_ALLOWLIST.has(key)) {
-            hoistableCandidate[key] = value
-          }
-        }
-
-        if (Object.keys(hoistableCandidate).length > 0) {
-          allRunStyles.push({ style: hoistableCandidate, weight: run.text.length })
-        }
+    const hoistableCandidate: Record<string, string> = {}
+    for (const [key, value] of Object.entries(resolved)) {
+      if (HOIST_ALLOWLIST.has(key)) {
+        hoistableCandidate[key] = value
       }
+    }
+
+    if (Object.keys(hoistableCandidate).length > 0) {
+      allRunStyles.push({ style: hoistableCandidate, weight: run.text.length })
     }
   }
 
   const commonStyle = computeDominantStyle(allRunStyles)
+  const inheritedBaseStyle = { ...inheritedTextStyle, ...nodeTextStyle }
+  const sharedDefaults: Record<string, string> = {}
+  for (const [key, value] of [
+    ['line-height', 'normal'],
+    ['letter-spacing', '0']
+  ] as const) {
+    if (
+      runs.length &&
+      runs.every((run) => canonicalizeValue(key, run.attrs[key] ?? '') === value)
+    ) {
+      sharedDefaults[key] = value
+    }
+  }
+  // A uniform reset belongs on the text wrapper. Its single child can be
+  // flattened later, so emitting conflicting wrapper/run utilities is unsafe.
+  restoreDefaultTextMetrics(commonStyle, sharedDefaults, inheritedBaseStyle)
+  const inheritedRunStyle = { ...inheritedBaseStyle, ...commonStyle }
+  const renderRuns = (runs: TextRun[]) =>
+    buildInlineTree(runs, commonStyle, classProp, ctx, node, inheritedRunStyle)
 
   const outputSegments: Array<DevComponent | string> = []
 
-  for (const block of blocks) {
-    const renderedBlock = renderBlock(block, commonStyle, classProp, ctx, node)
-    if (renderedBlock) {
-      optimizeComponentTree(renderedBlock, classProp)
-      outputSegments.push(renderedBlock)
-    }
+  for (const [index, block] of blocks.entries()) {
+    const renderedBlock = renderBlock(
+      block,
+      classProp,
+      ctx.config,
+      index < blocks.length - 1,
+      renderRuns
+    )
+    optimizeComponentTree(renderedBlock, classProp)
+    outputSegments.push(renderedBlock)
   }
 
   return { segments: outputSegments, commonStyle, metas: [], segmentCount, fontStyleVariableIds }
@@ -96,25 +116,24 @@ export async function renderTextSegments(
 
 function renderBlock(
   block: TextBlock,
-  commonStyle: Record<string, string>,
   classProp: 'class' | 'className',
-  ctx: RenderContext,
-  node: TextNode
-): DevComponent | null {
+  config: RenderContext['config'],
+  hasFollowingBlock: boolean,
+  renderRuns: (runs: TextRun[]) => Array<DevComponent | string>
+): DevComponent {
   const { type, lines, attrs } = block
-  const { paragraphSpacing } = attrs
-  const { config } = ctx
+  const { paragraphIndent, paragraphSpacing } = attrs
 
   const isList = type === 'ordered-list' || type === 'unordered-list'
 
   const props: Record<string, string> = {}
   const blockClasses: string[] = []
 
-  if (Object.keys(commonStyle).length) {
-    blockClasses.push(...styleToClassNames(commonStyle, config))
+  if (block.paragraphLayout) {
+    blockClasses.push(...styleToClassNames({ 'text-indent': `${paragraphIndent}px` }, config))
   }
 
-  if (paragraphSpacing > 0) {
+  if (paragraphSpacing > 0 && hasFollowingBlock) {
     const mbStyle = { 'margin-bottom': `${paragraphSpacing}px` }
     blockClasses.push(...styleToClassNames(mbStyle, config))
   }
@@ -123,13 +142,36 @@ function renderBlock(
   if (cls) props[classProp] = cls
 
   if (!isList) {
-    const isMultiline = lines.length > 1
-    const tagName = isMultiline || paragraphSpacing > 0 ? 'p' : 'span'
+    const isMultiline =
+      lines.length > 1 || lines.some((line) => line.runs.some((run) => run.text.includes('\u2028')))
+    const tagName = block.paragraphLayout || isMultiline || paragraphSpacing > 0 ? 'p' : 'span'
     const container: DevComponent = { name: tagName, props, children: [] }
 
     lines.forEach((line, idx) => {
-      const lineNodes = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
-      container.children.push(...lineNodes)
+      if (paragraphIndent !== 0 && line.runs.some((run) => run.text.includes('\u2028'))) {
+        // Native forced lines repeat the indent, but automatic wraps do not.
+        // Separate line boxes inherit text-indent without adding paragraph gaps.
+        for (const runs of splitSoftLines(line.runs)) {
+          const children = renderRuns(runs)
+          if (isCollapsibleLine(runs)) {
+            children.push({ name: 'br', props: {}, children: [] })
+          }
+          container.children.push({
+            name: 'span',
+            props: { [classProp]: 'block' },
+            children
+          })
+        }
+      } else {
+        container.children.push(...renderRuns(line.runs))
+        if (
+          idx === lines.length - 1 &&
+          (isCollapsibleLine(line.runs) || endsWithEmptySoftLine(line.runs))
+        ) {
+          // A final br alone does not create the trailing empty line box.
+          container.children.push({ name: 'br', props: {}, children: [] })
+        }
+      }
       if (isMultiline && idx < lines.length - 1) {
         container.children.push({ name: 'br', props: {}, children: [] })
       }
@@ -153,46 +195,59 @@ function renderBlock(
 
   const rootStackItem: ListStackItem = {
     list: rootList,
-    level: lines[0]?.attrs.indentation || 1
+    // Native lists start at level 1; retain level 0 for existing segment sources.
+    level: lines.reduce((minimum, line) => Math.min(minimum, line.attrs.indentation), 1)
   }
   const stack: ListStackItem[] = [rootStackItem]
 
   for (const line of lines) {
     const currentIndent = line.attrs.indentation
-
+    const listTag = line.attrs.listType === 'ORDERED' ? 'ol' : 'ul'
     while (stack.length > 1) {
       const activeItem = stack.at(-1)
-      if (!activeItem || currentIndent >= activeItem.level) break
+      if (
+        !activeItem ||
+        currentIndent > activeItem.level ||
+        (currentIndent === activeItem.level && listTag === activeItem.list.name)
+      )
+        break
       stack.pop()
     }
 
-    const parentStackItem = stack.at(-1) ?? rootStackItem
-    if (currentIndent > parentStackItem.level) {
+    let parentStackItem = stack.at(-1) ?? rootStackItem
+    while (currentIndent > parentStackItem.level) {
       if (!parentStackItem.lastLi) {
-        const dummyLi: DevComponent = { name: 'li', props: {}, children: [] }
+        // Skipped levels need containers without extra visible markers or counters.
+        const dummyLi: DevComponent = {
+          name: 'li',
+          props: {
+            [classProp]: 'list-none',
+            ...(parentStackItem.list.name === 'ol' ? { value: '0' } : {})
+          },
+          children: []
+        }
         parentStackItem.list.children.push(dummyLi)
         parentStackItem.lastLi = dummyLi
       }
 
       const currentDepth = stack.length
       const newListTypeKey = line.attrs.listType === 'ORDERED' ? 'ORDERED' : 'UNORDERED'
-      const newListTag = newListTypeKey === 'ORDERED' ? 'ol' : 'ul'
-
       const newListStyle = getListStyleClass(newListTypeKey, currentDepth)
       const newListClasses = [newListStyle, 'list-outside', 'pl-[1.2em]']
 
       const newList: DevComponent = {
-        name: newListTag,
+        name: listTag,
         props: { [classProp]: joinClassNames(newListClasses) },
         children: []
       }
 
       parentStackItem.lastLi.children.push(newList)
-      stack.push({ list: newList, level: currentIndent })
+      parentStackItem = { list: newList, level: parentStackItem.level + 1 }
+      stack.push(parentStackItem)
     }
 
-    const lineChildren = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
-    if (lineChildren.length === 0) {
+    const lineChildren = renderRuns(line.runs)
+    if (isCollapsibleLine(line.runs) || endsWithEmptySoftLine(line.runs)) {
       lineChildren.push({ name: 'br', props: {}, children: [] })
     }
 
@@ -204,6 +259,26 @@ function renderBlock(
   }
 
   return rootList
+}
+
+function isCollapsibleLine(runs: TextRun[]): boolean {
+  // NBSP and zero-width spaces already create a line box.
+  return runs.every((run) => !/[^\t\n\f\r ]/.test(run.text))
+}
+
+function endsWithEmptySoftLine(runs: TextRun[]): boolean {
+  return /\u2028[\t\n\f\r ]*$/.test(runs.map((run) => run.text).join(''))
+}
+
+function splitSoftLines(runs: TextRun[]): TextRun[][] {
+  const lines: TextRun[][] = [[]]
+  for (const run of runs) {
+    for (const [index, text] of run.text.split('\u2028').entries()) {
+      if (index) lines.push([])
+      if (text) lines.at(-1)!.push({ ...run, text })
+    }
+  }
+  return lines
 }
 
 function getListStyleClass(type: 'ORDERED' | 'UNORDERED', depth: number): string {
@@ -270,7 +345,8 @@ function buildInlineTree(
   commonStyle: Record<string, string>,
   classProp: 'class' | 'className',
   ctx: RenderContext,
-  node: TextNode
+  node: TextNode,
+  inheritedRunStyle: Record<string, string>
 ): Array<DevComponent | string> {
   const root: { children: Array<DevComponent | string> } = { children: [] }
   const stack: StackNode[] = [{ container: root }]
@@ -319,6 +395,7 @@ function buildInlineTree(
     for (const key of ['font-weight', 'font-style']) {
       if (run.attrs[key] !== undefined) cleanedAttrs[key] = run.attrs[key]
     }
+    restoreDefaultTextMetrics(cleanedAttrs, run.attrs, inheritedRunStyle)
     const resolvedAttrs = ctx.resolveStyleVars
       ? ctx.resolveStyleVars(cleanedAttrs, node)
       : cleanedAttrs
@@ -328,19 +405,46 @@ function buildInlineTree(
     if (style['font-style'] === 'normal') classNames.push('not-italic')
     const cls = joinClassNames(classNames)
     const top = stack.at(-1)?.container ?? root
+    const children: Array<DevComponent | string> = []
+    for (const [index, text] of run.text.split('\u2028').entries()) {
+      if (index) children.push({ name: 'br', props: {}, children: [] })
+      if (text) children.push(text)
+    }
 
     if (cls) {
       top.children.push({
         name: 'span',
         props: { [classProp]: cls },
-        children: [run.text]
+        children
       })
     } else {
-      top.children.push(run.text)
+      top.children.push(...children)
     }
   }
 
   return root.children
+}
+
+function restoreDefaultTextMetrics(
+  style: Record<string, string>,
+  attrs: Record<string, string>,
+  inheritedStyle: Record<string, string>
+): void {
+  // AUTO line height and zero tracking must reset a nondefault ancestor,
+  // node CSS, or hoisted run value rather than inheriting it.
+  for (const key of ['line-height', 'letter-spacing']) {
+    const value = attrs[key]
+    const inherited = inheritedStyle[key]
+    if (
+      style[key] === undefined &&
+      value !== undefined &&
+      inherited !== undefined &&
+      !(key === 'letter-spacing' && inherited === 'normal') &&
+      canonicalizeValue(key, value) !== canonicalizeValue(key, inherited)
+    ) {
+      style[key] = value
+    }
+  }
 }
 
 function createMarkComponent(mark: TextMark, run: TextRun): DevComponent {

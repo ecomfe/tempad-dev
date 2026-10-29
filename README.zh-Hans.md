@@ -101,9 +101,11 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
 [Agent Plugin 指南](./agent-plugin/src/README.zh-Hans.md)。
 
 所有 plugin 和直接使用 `npx` 的配置路径都使用 `@tempad-dev/mcp@latest`。
+从 MCP 1.0.0 起，经过校验的正式包默认启用后台下载，并在 MCP 会话空闲时自动更新兼容的 Hub。
+Agent Plugin 1.0.0 和安装命令会明确选择此策略；既有客户端需重启到新版本后生效。
+适用范围和关闭方式见[运行时更新控制](./packages/mcp-server/README.zh-Hans.md#运行时更新100)。
 
-本次版本应配套使用扩展 **0.23.4**、MCP server **0.11.0** 和 Agent Plugin
-**0.5.1**。更新既有安装时，请参阅 [升级指南](./agent-plugin/src/README.zh-Hans.md#升级)。
+最低版本要求和既有安装的更新步骤请参阅[升级指南](./agent-plugin/src/README.zh-Hans.md#升级)。
 
 使用期间请保持 TemPad Dev 打开并启用 MCP。如果连接了多个 Figma 文件，请点击目标文件面板中的 MCP 徽标；该文件会成为 agent 当前访问的上下文。Agent 也可以列出已连接的会话，在独立只读调用中传入精确的 `sessionId`，无需切换激活徽标。
 
@@ -119,7 +121,7 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
     <img alt="MCP 状态徽标，显示为 Unavailable。" src="packages/site/public/marketing/mcp-unavailable-light.png" width="360">
   </picture>
 
-- **Inactive**：TemPad Dev 已连接到本地 MCP 服务器，但由于打开了多个 Figma 标签页，此标签页当前未激活。点击徽标即可为当前标签页激活 MCP（同时会停用其他标签页的 MCP）。
+- **Inactive**：TemPad Dev 已连接到本地 MCP 服务器，但此标签页不是默认文件。点击徽标可将其设为默认文件；其他已连接文件仍可通过精确会话读取。
 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-inactive-dark.png">
@@ -164,7 +166,7 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
 - `get_screenshot`：为每个请求的节点返回有大小限制的渲染 PNG，用于按需视觉验证。
 - `get_structure`：精确节点、精确托管页面或当前选中的一个或多个可见节点的结构信息（id、类型、几何数据）。
 - `upload_asset`：将生成的 PNG/JPEG/GIF 存入本地 Hub，并返回供画布创作使用的 `assetHash`。
-- 二进制资源会通过工具响应中的元数据 + HTTP 下载地址（`asset.url`）提供；MCP 不再暴露 asset 资源模板。
+- 二进制资源通过工具响应中的元数据提供，包含临时 HTTP 下载地址（`asset.url`），可用时也附带本地文件路径（`asset.localPath`）。MCP 不再暴露 asset 资源模板。
 
 ---
 
@@ -328,15 +330,15 @@ sandboxed extension page 内启动一个全新的 Worker，并在完成或五秒
 <!-- availablePlugins:start -->
 | 插件名称 | 描述 | 作者 | 仓库 |
 | -- | -- | -- | -- |
-| `@kong` | Kong Design System | [@Justineo](https://github.com/@Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-kong) |
-| `@kong/advanced` | Kong Design System（高级版） | [@Justineo](https://github.com/@Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-kong) |
-| `@fubukicss/unocss` | FubukiCSS 的 UnoCSS | [@zouhangwithsweet](https://github.com/@zouhangwithsweet) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/zouhangwithsweet/fubukicss-tool) |
-| `@nuxt` | Nuxt UI | [@Justineo](https://github.com/@Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
-| `@nuxt/pro` | Nuxt UI Pro | [@Justineo](https://github.com/@Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
-| `@baidu-health/wz-style` | 百度健康 wz-style 自定义样式 | [@KangXinzhi](https://github.com/@KangXinzhi) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-wz-style) |
-| `@baidu-health/med-style` | 百度健康 med-style 自定义样式 | [@KangXinzhi](https://github.com/@KangXinzhi) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-med-style) |
-| `@tailwind` | CSS 转 Tailwind CSS | [@haydenull](https://github.com/@haydenull) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/haydenull/tempad-dev-plugin-tailwind) |
-| `@react-native` | CSS 转 React Native StyleSheet | [@CANntyield](https://github.com/@CANntyield) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/CANntyield/tempad-dev-plugin-react-native) |
+| `@kong` | Kong Design System | [@Justineo](https://github.com/Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-kong) |
+| `@kong/advanced` | Kong Design System（高级版） | [@Justineo](https://github.com/Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-kong) |
+| `@fubukicss/unocss` | FubukiCSS 的 UnoCSS | [@zouhangwithsweet](https://github.com/zouhangwithsweet) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/zouhangwithsweet/fubukicss-tool) |
+| `@nuxt` | Nuxt UI | [@Justineo](https://github.com/Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
+| `@nuxt/pro` | Nuxt UI Pro | [@Justineo](https://github.com/Justineo) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
+| `@baidu-health/wz-style` | 百度健康 wz-style 自定义样式 | [@KangXinzhi](https://github.com/KangXinzhi) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-wz-style) |
+| `@baidu-health/med-style` | 百度健康 med-style 自定义样式 | [@KangXinzhi](https://github.com/KangXinzhi) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-med-style) |
+| `@tailwind` | CSS 转 Tailwind CSS | [@haydenull](https://github.com/haydenull) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/haydenull/tempad-dev-plugin-tailwind) |
+| `@react-native` | CSS 转 React Native StyleSheet | [@CANntyield](https://github.com/CANntyield) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/CANntyield/tempad-dev-plugin-react-native) |
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
 
@@ -354,37 +356,9 @@ sandboxed extension page 内启动一个全新的 Worker，并在完成或五秒
 <details>
 <summary><h2><a id="quirks-mode"></a>Quirks 模式</h2></summary>
 
-> [!CAUTION]
-> 自 2025.04.01 起，Quirks 模式已不可用。Figma 移除了用于提取样式数据的 `window.DebuggingHelpers.logSelected` API。
-
-> [!NOTE]
-> TemPad Dev v0.1.0 新增
-
-Quirks 模式是在 TemPad Dev v0.1.0 中引入的，当 `window.figma` 不可用时，你仍然可以使用该工具。该模式通过解析 Figma 的调试日志来提取样式数据，从而生成基础样式代码，但会存在一定限制。
-
-当前已知无法生成或存在差异的功能包括：
-
-- Effects 中添加的样式，对应的 CSS 属性如 `box-shadow`、`filter: blur()`、`backdrop-filter: blur()`。
-- 渐变填充样式。TemPad Dev 只能检测到渐变的存在，并输出为 `linear-gradient(<color-stops>)`。
-- 填充样式的混合模式，对应 CSS 的 `background-blend-mode`。
-- 文本节点的 `font-family`，该值通过启发式方式获取，可能不准确。
-- 除数字样式之外的高级 OpenType 配置，通常在实际中较少使用。
-- [“将选中项滚动到视图中”](#将选中项滚动到视图中) 功能在该模式下不可用。
-
-除上述限制外，其余功能与标准模式基本一致。如果 Quirks 模式能够满足你的使用场景，就可以避免复制到草稿文件等繁琐操作，直接在只读视图中使用。但需要注意的是，该模式同样依赖于 Figma 全局暴露的调试接口，无法保证长期可用性。如果 Figma 再次移除相关接口，该模式也会随之失效。
-
-<details>
-<summary><h3>兼容性更新</h3></summary>
-
-**2025.04.01**：Figma 移除了用于提取样式数据的 `window.DebuggingHelpers.logSelected` API，Quirks 模式因此不可用。
-
-**2024.11.04**：TemPad Dev 成功在只读模式下重新获取了 `window.figma` API，但仍无法保证该能力的长期有效性。如果 Figma 再次移除相关接口，该模式也将不可用。
-
-**2024.04.08**：TemPad Dev 通过当前尚未被封禁的调试接口，成功获取了大部分样式信息，并引入了新的 [Quirks 模式](#quirks-mode)。该模式不依赖 `window.figma`，而是通过解析调试日志生成样式代码，与标准模式存在少量差异。
-
-**2024.03.20**：在我们向 Figma 社区论坛提交反馈后，Figma 团队表示将在未来几周内恢复只读模式下的 `window.figma` 接口。你可以在这个 [讨论帖](https://forum.figma.com/t/figma-removed-window-figma-on-view-only-pages-today/67292) 中跟踪该问题的进展。
-
-</details>
+Quirks 模式曾通过 Figma 调试日志提取样式。所需 API 被 Figma 移除后，该模式失效，
+并在 TemPad Dev 0.12.0 中被删除，当前版本已不可用。历史记录见
+[扩展更新日志](./packages/extension/CHANGELOG.md)，当前功能见[检查设计](#检查设计)。
 
 </details>
 

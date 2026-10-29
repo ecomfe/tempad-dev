@@ -13,7 +13,7 @@ import type {
 
 import { rgbToHex } from './color'
 import { prune } from './object'
-import { camelToKebab, escapeHTML, looseEscapeHTML, stringify, indentAll } from './string'
+import { camelToKebab, escapeHTML, stringify, indentAll } from './string'
 
 type ComponentPropertyData = {
   type: string
@@ -31,20 +31,24 @@ export function getDesignComponent(node: SceneNode): DesignComponent | null {
   for (const [name, data] of Object.entries(componentProperties)) {
     const key = name.split('#')[0]
     if (!key) continue
+    let value = data.value as ComponentPropertyValue
     if (data.type === 'INSTANCE_SWAP') {
       const component = figma.getNodeById(data.value as string)
-      if (component?.type === 'COMPONENT') {
-        properties[key] = {
-          name: component.name,
-          type: 'INSTANCE',
-          properties: {},
-          children: [],
-          visible: true
-        }
+      if (component?.type !== 'COMPONENT') continue
+      value = {
+        name: component.name,
+        type: 'INSTANCE',
+        properties: {},
+        children: [],
+        visible: true
       }
-    } else {
-      properties[key] = data.value as ComponentPropertyValue
     }
+    Object.defineProperty(properties, key, {
+      value,
+      enumerable: true,
+      configurable: true,
+      writable: true
+    })
   }
 
   const main = getMainComponentSummary(node)
@@ -190,9 +194,14 @@ export function stringifyComponent(
 
 const INDENT_UNIT = '  '
 
+export function escapeComponentText(text: string): string {
+  // Entities stay literal text in both JSX and Vue, unlike their template delimiters.
+  return escapeHTML(text).replace(/[{}]/g, (brace) => (brace === '{' ? '&#123;' : '&#125;'))
+}
+
 function stringifyBaseComponent(
   component: DevComponent,
-  stringifyProp: (key: string, value: unknown, inSvg: boolean) => string,
+  stringifyProp: (key: string, value: unknown, inSvg: boolean, isCustomTag: boolean) => string,
   indentLevel = 0,
   isInline?: (tagName: string) => boolean,
   parentIsSvg = false
@@ -201,6 +210,7 @@ function stringifyBaseComponent(
   const { name, props, children: rawChildren } = component
   const inSvg = name === 'svg' || parentIsSvg
   const childrenInSvg = inSvg && name !== 'foreignObject'
+  const isCustomTag = isCustomComponentTag(name)
 
   if (name === RAW_TAG_NAME) {
     const content = String(props.content || '')
@@ -214,7 +224,7 @@ function stringifyBaseComponent(
 
   const propItems = Object.entries(props)
     .filter(([, value]) => value != null)
-    .map(([key, value]) => stringifyProp(key, value, inSvg))
+    .map(([key, value]) => stringifyProp(key, value, inSvg, isCustomTag))
     .filter(Boolean)
 
   let propsString = ''
@@ -236,7 +246,7 @@ function stringifyBaseComponent(
     childrenString = children
       .map((child): string => {
         if (typeof child === 'string') {
-          return escapeHTML(child)
+          return escapeComponentText(child)
         }
         return stringifyBaseComponent(child, stringifyProp, 0, isInline, childrenInSvg)
       })
@@ -249,7 +259,7 @@ function stringifyBaseComponent(
     childrenString = `\n${children
       .map((child): string => {
         if (typeof child === 'string') {
-          const content = escapeHTML(child)
+          const content = escapeComponentText(child)
           return `${indent + INDENT_UNIT}${content}`
         }
         return stringifyBaseComponent(
@@ -265,7 +275,6 @@ function stringifyBaseComponent(
 
   const appendFinalNewline = indentLevel === 0 && !shouldCompact
   const isVoidTag = VOID_HTML_TAGS.has(name.toLowerCase())
-  const isCustomTag = isCustomComponentTag(name)
 
   let opening: string
   let closing: string
@@ -309,6 +318,71 @@ const VOID_HTML_TAGS = new Set([
 ])
 
 const EVENT_HANDLER_RE = /^on[A-Z]/
+// Native HTML names are case-insensitive, but these DOM/JSX properties have no hyphen.
+const HTML_CAMEL_CASE_ATTRIBUTES = new Set([
+  'accessKey',
+  'allowFullScreen',
+  'autoCapitalize',
+  'autoComplete',
+  'autoFocus',
+  'autoPlay',
+  'cellPadding',
+  'cellSpacing',
+  'charSet',
+  'colSpan',
+  'contentEditable',
+  'contextMenu',
+  'controlsList',
+  'crossOrigin',
+  'dateTime',
+  'dirName',
+  'disablePictureInPicture',
+  'disableRemotePlayback',
+  'encType',
+  'enterKeyHint',
+  'fetchPriority',
+  'formAction',
+  'formEncType',
+  'formMethod',
+  'formNoValidate',
+  'formTarget',
+  'frameBorder',
+  'hrefLang',
+  'imageSizes',
+  'imageSrcSet',
+  'inputMode',
+  'isMap',
+  'itemID',
+  'itemProp',
+  'itemRef',
+  'itemScope',
+  'itemType',
+  'marginHeight',
+  'marginWidth',
+  'maxLength',
+  'minLength',
+  'noModule',
+  'noValidate',
+  'playsInline',
+  'popoverTarget',
+  'popoverTargetAction',
+  'readOnly',
+  'referrerPolicy',
+  'rowSpan',
+  'shadowRootMode',
+  'spellCheck',
+  'srcDoc',
+  'srcLang',
+  'srcSet',
+  'useMap'
+])
+const HTML_ENUMERATED_BOOLEAN_ATTRIBUTES = new Set(['contenteditable', 'draggable', 'spellcheck'])
+// Vue's attribute fallback does not recognize these presence-only Boolean attributes.
+const HTML_PRESENCE_BOOLEAN_ATTRIBUTES = new Set([
+  'disablepictureinpicture',
+  'disableremoteplayback',
+  'playsinline'
+])
 const SVG_CASE_SENSITIVE_ATTRIBUTES = new Set([
   'viewBox',
   'preserveAspectRatio',
@@ -381,6 +455,19 @@ function getEventName(key: string) {
   return null
 }
 
+function getVueAttributeName(key: string, inSvg: boolean, isCustomTag: boolean): string {
+  if (key === 'className') return 'class'
+  if (key === 'tabIndex') return 'tabindex'
+  if (key === 'htmlFor') return 'for'
+
+  if (!isCustomTag) {
+    if (inSvg && key === 'xlinkHref') return 'xlink:href'
+    if (!inSvg && HTML_CAMEL_CASE_ATTRIBUTES.has(key)) return key.toLowerCase()
+  }
+
+  return inSvg && SVG_CASE_SENSITIVE_ATTRIBUTES.has(key) ? key : camelToKebab(key)
+}
+
 function stringifyVueComponent(
   component: DevComponent,
   indentLevel = 0,
@@ -388,29 +475,31 @@ function stringifyVueComponent(
 ) {
   return stringifyBaseComponent(
     component,
-    (key, value, inSvg) => {
+    (key, value, inSvg, isCustomTag) => {
       const eventName = getEventName(key)
       if (eventName) {
-        const callback = typeof value === 'string' ? looseEscapeHTML(value) : '() => {}'
+        const callback = typeof value === 'string' ? escapeHTML(value) : '() => {}'
         return `@${camelToKebab(eventName)}="${callback.trim()}"`
       }
 
+      // A static __proto__ attribute becomes an object-literal prototype setter.
       const name =
-        key === 'className'
-          ? 'class'
-          : key === 'tabIndex'
-            ? 'tabindex'
-            : key === 'htmlFor'
-              ? 'for'
-              : inSvg && SVG_CASE_SENSITIVE_ATTRIBUTES.has(key)
-                ? key
-                : camelToKebab(key)
+        key === '__proto__' ? "['__proto__']" : getVueAttributeName(key, inSvg, isCustomTag)
 
-      if (typeof value === 'string') {
-        return `${name}="${escapeHTML(value).trim()}"`
+      if (typeof value === 'string' && key !== '__proto__') {
+        return `${name}="${escapeHTML(value)}"`
       }
 
-      if (typeof value === 'boolean') {
+      if (typeof value === 'boolean' && key !== '__proto__') {
+        if (!inSvg && !isCustomTag && HTML_PRESENCE_BOOLEAN_ATTRIBUTES.has(name)) {
+          return value ? name : ''
+        }
+        if (
+          name.startsWith('aria-') ||
+          (!inSvg && !isCustomTag && HTML_ENUMERATED_BOOLEAN_ATTRIBUTES.has(name))
+        ) {
+          return `:${name}="${value}"`
+        }
         return value ? name : `:${name}="false"`
       }
 
@@ -419,10 +508,10 @@ function stringifyVueComponent(
         if (pruned == null) {
           return ''
         }
-        return `:${name}="${looseEscapeHTML(stringify(pruned)).trim()}"`
+        return `:${name}="${escapeHTML(stringify(pruned)).trim()}"`
       }
 
-      return `:${name}="${looseEscapeHTML(stringify(value)).trim()}"`
+      return `:${name}="${escapeHTML(stringify(value)).trim()}"`
     },
     indentLevel,
     isInline
@@ -442,23 +531,23 @@ function stringifyJSXComponent(
         return `${key}={${callback}}`
       }
 
-      if (typeof value === 'string') {
-        return `${key}="${escapeHTML(value).trim()}"`
+      if (typeof value === 'string' && key !== '__proto__') {
+        return `${key}="${escapeHTML(value)}"`
       }
 
-      if (typeof value === 'boolean') {
+      if (typeof value === 'boolean' && key !== '__proto__') {
         return value ? key : `${key}={false}`
       }
 
       if (typeof value === 'object' && value != null) {
-        const pruned = prune(value)
-        if (pruned == null) {
+        value = prune(value)
+        if (value == null) {
           return ''
         }
-        return `${key}={${stringify(pruned)}}`
       }
 
-      return `${key}={${stringify(value)}}`
+      const expression = stringify(value)
+      return key === '__proto__' ? `{...{['__proto__']: ${expression}}}` : `${key}={${expression}}`
     },
     indentLevel,
     isInline
@@ -500,7 +589,7 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
   while (i < code.length && /[a-zA-Z0-9\-_:.]/.test(code.charAt(i))) i++
   const tagNameEnd = i
 
-  const existingAttrs = new Map<string, { valueStart: number; valueEnd: number; quote: string }>()
+  const existingAttrs = new Map<string, { valueStart: number; valueEnd: number; quote?: string }>()
 
   while (i < code.length) {
     // Skip whitespace
@@ -520,6 +609,8 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
     const attrNameStart = i
     while (i < code.length && /[^=\s/>]/.test(code.charAt(i))) i++
     const attrName = code.slice(attrNameStart, i)
+    if (!attrName) return code
+    const attrNameEnd = i
 
     // Skip whitespace after name
     while (i < code.length && /\s/.test(code.charAt(i))) i++
@@ -555,9 +646,8 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
     } else {
       // Boolean attribute
       existingAttrs.set(attrName, {
-        valueStart: i,
-        valueEnd: i,
-        quote: ''
+        valueStart: attrNameEnd,
+        valueEnd: attrNameEnd
       })
     }
   }
@@ -587,13 +677,14 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
 
     const { valueStart, valueEnd, quote } = existing
     const isClass = key === 'class' || key === 'className'
-    const content = escapeHTML(
-      isClass ? mergeClasses(code.slice(valueStart, valueEnd), String(value)) : String(value)
-    )
+    // Existing source is already entity-encoded. Escape only the injected value.
+    let content = escapeHTML(String(value))
+    if (isClass) content = mergeClasses(code.slice(valueStart, valueEnd), content)
+    if (quote === "'") content = content.replaceAll("'", '&#39;')
     let replacement = content
     if (!quote) {
       replacement = `"${content}"`
-      if (!isClass && valueStart === valueEnd) replacement = `=${replacement}`
+      if (quote === undefined) replacement = `=${replacement}`
     }
     replacements.push({ start: valueStart, end: valueEnd, content: replacement })
   }

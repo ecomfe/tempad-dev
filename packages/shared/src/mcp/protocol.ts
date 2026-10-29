@@ -2,6 +2,7 @@ import type { ZodType } from 'zod'
 
 import { z } from 'zod'
 
+import { MCP_CHECKOUT_PORT_CANDIDATES, MCP_PORT_CANDIDATES } from './constants'
 import {
   DesignTaskSchema,
   DesignToolRouteSchema,
@@ -12,6 +13,21 @@ import {
 import { TempadMcpErrorPayloadSchema } from './errors'
 import { hasToolResultOutcome, TOOL_RESULT_OUTCOME_ERROR } from './tool-result'
 
+export const RuntimeProfileSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('release') }).strict(),
+  z.object({ kind: z.literal('checkout'), id: z.string().regex(/^[a-f0-9]{16}$/) }).strict()
+])
+export type RuntimeProfile = z.infer<typeof RuntimeProfileSchema>
+
+export function sameRuntimeProfile(left?: RuntimeProfile, right?: RuntimeProfile): boolean {
+  if (left?.kind === 'checkout') return right?.kind === 'checkout' && left.id === right.id
+  return right?.kind !== 'checkout'
+}
+
+export function runtimePortCandidates(profile?: RuntimeProfile): readonly number[] {
+  return profile?.kind === 'checkout' ? MCP_CHECKOUT_PORT_CANDIDATES : MCP_PORT_CANDIDATES
+}
+
 // Messages from hub to extension. These envelopes stay open to unknown keys: a newer Hub reaches an
 // older installed extension, and rejecting an added envelope field would drop the whole message.
 // The extension decides compatibility from the announced versions, not from the envelope shape.
@@ -21,7 +37,25 @@ export const RegisteredMessageSchema = z.object({
   type: z.literal('registered'),
   id: z.string().min(1),
   protocolVersion: z.number().int().positive(),
-  supportedProtocolVersions: z.array(z.number().int().positive()).min(1).optional()
+  supportedProtocolVersions: z.array(z.number().int().positive()).min(1).optional(),
+  runtimeProfile: RuntimeProfileSchema.optional(),
+  terminalReceiptGeneration: z.string().min(1).max(128).optional(),
+  durableTerminalReceipts: z.literal(true).optional()
+})
+
+export const TerminalReceiptSchema = z
+  .object({ generation: z.string().min(1).max(128), receiptId: z.string().min(1).max(128) })
+  .strict()
+
+export const ToolCompletionMessageSchema = TerminalReceiptSchema.extend({
+  type: z.literal('toolCompletion'),
+  id: z.string().min(1).max(128)
+}).strict()
+
+export const ToolCompletionAckMessageSchema = z.object({
+  ...ToolCompletionMessageSchema.shape,
+  type: z.literal('toolCompletionAck'),
+  accepted: z.boolean()
 })
 
 export const StateMessageSchema = z.object({
@@ -39,6 +73,7 @@ export const ToolCallMessageSchema = z.object({
   type: z.literal('toolCall'),
   id: z.string().min(1),
   route: DesignToolRouteSchema.optional(),
+  terminalReceipt: TerminalReceiptSchema.optional(),
   payload: ToolCallPayloadSchema
 })
 
@@ -62,6 +97,7 @@ export const DesignActionMessageSchema = z
   .strict()
 
 export const MessageToExtensionSchema = z.discriminatedUnion('type', [
+  ToolCompletionAckMessageSchema,
   DesignActionResultMessageSchema,
   RegisteredMessageSchema,
   StateMessageSchema,
@@ -96,8 +132,11 @@ export const PingMessageSchema = z
 export const RuntimeHelloMessageSchema = z
   .object({
     type: z.literal('runtimeHello'),
+    runtimeProfile: RuntimeProfileSchema.optional(),
     // Released protocol 13 peers omit this field. The Hub treats omission conservatively as 13.
     protocolVersion: z.number().int().positive().optional(),
+    terminalReceipts: z.literal(true).optional(),
+    durableTerminalReceipts: z.literal(true).optional(),
     extensionVersion: z.string().min(1),
     extensionRuntimeFingerprint: z.string().regex(/^[a-f0-9]{64}$/)
   })
@@ -118,6 +157,7 @@ export const FigmaSessionsMessageSchema = z
   .strict()
 
 export const MessageFromExtensionSchema = z.union([
+  ToolCompletionMessageSchema,
   DesignActionMessageSchema,
   ActivateMessageSchema,
   ToolResultMessageSchema,
@@ -134,6 +174,9 @@ export const LegacyMessageFromExtensionSchema = z.union([
 ])
 
 export type RegisteredMessage = z.infer<typeof RegisteredMessageSchema>
+export type TerminalReceipt = z.infer<typeof TerminalReceiptSchema>
+export type ToolCompletionMessage = z.infer<typeof ToolCompletionMessageSchema>
+export type ToolCompletionAckMessage = z.infer<typeof ToolCompletionAckMessageSchema>
 export type StateMessage = z.infer<typeof StateMessageSchema>
 export type ToolCallPayload = z.infer<typeof ToolCallPayloadSchema>
 export type ToolCallMessage = z.infer<typeof ToolCallMessageSchema>

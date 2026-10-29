@@ -51,12 +51,13 @@ import { resolvePluginComponents } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
 import {
   createTokenConsumerResolver,
+  createTokenNameRewriter,
   createStyleVarResolver,
   processTokens,
-  resolveStyleMap,
-  rewriteTokenNamesInCode
+  resolveStyleMap
 } from './tokens'
 import { createTokenDiagnostics } from './tokens/diagnostics'
+import { mapTokenValues } from './tokens/markup'
 import { addVariableModeHints } from './tokens/modes'
 import { addSubtreeIds, buildVisibleTree } from './tree'
 
@@ -126,7 +127,6 @@ type PipelineInput = {
   rootTag?: string
   lang?: CodeLanguage
   variableIds: Set<string>
-  usedCandidateIds: Set<string>
   variableCache: Map<string, Variable | null>
   tokenContext: TokenReadContext
   resolveTokens?: boolean
@@ -147,6 +147,14 @@ export type GetCodeRuntimeOptions = {
 }
 
 type RenderStep = 'render' | 'stringify' | 'transform'
+
+type RenderedMarkup = {
+  component: DevComponent
+  serialize: (component: DevComponent) => string
+  lang: CodeLanguage
+  fontStyleVariableIds: Set<string>
+  textStyleInputs: Array<{ style: Record<string, string>; node?: SceneNode }>
+}
 
 export async function handleGetCode(
   nodes: SceneNode[],
@@ -172,9 +180,11 @@ export async function handleGetCode(
   const t = now()
   const fullTimeoutMs = (MCP_GET_CODE_TIMEOUT_MS * 2) / 3
   const startedAt = performance.now()
+  const cache = runtimeOptions.cache ?? createGetCodeCacheContext(undefined, { metrics: measure })
   const tree = buildVisibleTree(
     nodes,
-    runtimeOptions.unbounded ? undefined : createCodeCheckpoint(fullTimeoutMs)
+    runtimeOptions.unbounded ? undefined : createCodeCheckpoint(fullTimeoutMs),
+    cache
   )
   stamp('tree', t)
   const rootId = tree.rootIds[0]
@@ -186,7 +196,6 @@ export async function handleGetCode(
     logger.warn(`[get_code] Tree depth capped at ${depth}; output may be incomplete.`)
   }
 
-  const cache = runtimeOptions.cache ?? createGetCodeCacheContext(undefined, { metrics: measure })
   const tokenContext = (cache.tokens ??= createTokenReadContext(
     currentCodegenConfig(),
     activePlugin.value?.code,
@@ -285,7 +294,8 @@ async function generateCode({
     : preflightGetCodeBudget(tree, rootId, {
         maxResultBytes,
         pluginEnabled: !!pluginCode,
-        unbounded: !!runtimeOptions.unbounded
+        unbounded: !!runtimeOptions.unbounded,
+        checkpoint
       })
   const earlyShell = forceShell || budgetPreflight?.kind === 'shell'
   checkpoint?.()
@@ -293,9 +303,8 @@ async function generateCode({
   let t = now()
   const variableCache = cache.variables
   const nodeVariableIds = new Map<string, ReadonlySet<string>>()
-  const mappings = collectCandidateVariableIds(
+  const variableIds = collectCandidateVariableIds(
     earlyShell ? nodes : [...tree.nodes.values()].map((snapshot) => snapshot.node),
-    variableCache,
     cache.readers,
     {
       checkpoint,
@@ -307,10 +316,9 @@ async function generateCode({
   stamp('vars', t)
   checkpoint?.()
 
-  const { pluginComponents, pluginSkipped } =
-    pluginCode && !earlyShell
-      ? await collectPluginOutput(tree, config, pluginCode, preferredLang, cache.signal)
-      : { pluginComponents: undefined, pluginSkipped: new Set<string>() }
+  const { pluginComponents, pluginSkipped } = pluginCode
+    ? await collectPluginOutput(tree, config, pluginCode, preferredLang, cache, earlyShell)
+    : { pluginComponents: undefined, pluginSkipped: new Set<string>() }
   cache.signal?.throwIfAborted()
   checkpoint?.()
 
@@ -345,11 +353,9 @@ async function generateCode({
     ensureEarlyShellRootPositioning(rootId, tree, collected.styles)
   }
 
-  const { usedCandidateIds, layout: layoutStyles } = prepareStyles({
+  const { layout: layoutStyles } = prepareStyles({
     tree,
     styles: collected.styles,
-    mappings,
-    variableCache,
     vectorRoots: plan.vectorRoots,
     cache,
     trace: traceInfo
@@ -393,8 +399,7 @@ async function generateCode({
     vectorRoots: plan.vectorRoots,
     rootTag,
     lang: preferredLang,
-    variableIds: mappings.variableIds,
-    usedCandidateIds,
+    variableIds,
     variableCache,
     tokenContext,
     resolveTokens,
@@ -524,9 +529,10 @@ async function tryRenderPipeline(input: PipelineInput): Promise<PipelineOutput |
   const diagnostics = createTokenDiagnostics()
   addVariableModeHints(
     input.tree,
-    new Set([...input.variableIds, ...input.usedCandidateIds]),
+    input.variableIds,
     input.tokenContext,
-    diagnostics.report
+    diagnostics.report,
+    input.checkpoint
   )
   const rendered = await renderMarkup(input)
   if (!rendered) {
@@ -559,7 +565,7 @@ async function renderPipeline(input: PipelineInput): Promise<PipelineOutput> {
 
 async function finalizeRenderedOutput(
   input: PipelineInput,
-  rendered: { code: string; lang: CodeLanguage; fontStyleVariableIds: Set<string> },
+  rendered: RenderedMarkup,
   diagnostics: ReturnType<typeof createTokenDiagnostics>
 ): Promise<PipelineOutput> {
   const collected = getTokenCollectedContext(input)
@@ -573,9 +579,9 @@ async function finalizeRenderedOutput(
     resolveNodeIds,
     rewriteMap
   } = await processTokens({
-    code: rendered.code,
+    component: rendered.component,
+    serialize: rendered.serialize,
     variableIds: input.variableIds,
-    usedCandidateIds: input.usedCandidateIds,
     fontStyleVariableIds: rendered.fontStyleVariableIds,
     variableCache: input.variableCache,
     styles: collected.styles,
@@ -606,6 +612,7 @@ async function finalizeRenderedOutput(
         ...input,
         collected,
         lang: rendered.lang,
+        textStyleInputs: rendered.textStyleInputs,
         sourceIndex,
         resolveNodeIds,
         tokenMatcher,
@@ -620,7 +627,12 @@ async function finalizeRenderedOutput(
         report: diagnostics.report
       })
       if (resolved) {
-        outputCode = rewriteTokenNamesInCode(stripFallback(resolved.code), rewriteMap ?? new Map())
+        const rewriteNames = createTokenNameRewriter(rewriteMap ?? new Map())
+        outputCode = resolved.serialize(
+          mapTokenValues(resolved.component, (value, syntax) =>
+            rewriteNames(stripFallback(value, syntax), syntax)
+          )
+        )
       }
     }
     if (stamp && now) {
@@ -662,6 +674,7 @@ async function rerenderResolvedOutput({
   resolveNodeIds,
   tokenMatcher,
   styleResolver,
+  textStyleInputs,
   report,
   ...input
 }: {
@@ -669,10 +682,11 @@ async function rerenderResolvedOutput({
   resolveNodeIds?: Set<string>
   tokenMatcher?: (value: string) => boolean
   styleResolver?: StyleVarResolver
+  textStyleInputs: RenderedMarkup['textStyleInputs']
   report: ReturnType<typeof createTokenDiagnostics>['report']
 } & PipelineInput & {
     lang: CodeLanguage
-  }): Promise<{ code: string } | null> {
+  }): Promise<RenderedMarkup | null> {
   const resolveStyleVars =
     styleResolver ??
     createStyleVarResolver(
@@ -689,7 +703,7 @@ async function rerenderResolvedOutput({
   if (
     !resolvedEntriesChanged(input.collected.styles, resolvedStyles) &&
     !resolvedEntriesChanged(input.ctx.svgs, resolvedSvgs) &&
-    !input.collected.textSegments.size
+    !textStyleInputs.some(({ style, node }) => resolveStyleVars(style, node) !== style)
   ) {
     return null
   }
@@ -753,15 +767,16 @@ async function collectPluginOutput(
   tree: VisibleTree,
   config: CodegenConfig,
   pluginCode: string,
-  preferredLang?: CodeLanguage,
-  signal?: AbortSignal
+  preferredLang: CodeLanguage | undefined,
+  cache: GetCodeCacheContext,
+  rootOnly: boolean
 ): Promise<{
   pluginComponents: Map<string, PluginComponent | null>
   pluginSkipped: Set<string>
 }> {
   const pluginComponents = new Map<string, PluginComponent | null>()
   const instances: Array<{ id: string; node: InstanceNode }> = []
-  for (const id of tree.order) {
+  for (const id of rootOnly ? tree.rootIds : tree.order) {
     const snapshot = tree.nodes.get(id)
     if (snapshot?.node.type === 'INSTANCE') {
       instances.push({ id: snapshot.id, node: snapshot.node })
@@ -773,7 +788,7 @@ async function collectPluginOutput(
     config,
     pluginCode,
     preferredLang,
-    signal
+    cache
   )
   instances.forEach(({ id }, resultIndex) => {
     pluginComponents.set(id, components[resultIndex] ?? null)
@@ -804,34 +819,6 @@ function buildNodeMap(nodes: Map<string, { node: SceneNode }>): Map<string, Scen
   return out
 }
 
-function normalizeRootString(
-  content: string,
-  fallbackTag: string | undefined,
-  nodeId: string,
-  lang: CodeLanguage
-) {
-  return stringifyComponent(
-    {
-      name: fallbackTag || 'div',
-      props: { 'data-hint-id': nodeId },
-      children: [content]
-    },
-    createStringifyOptions(lang)
-  )
-}
-
-function stringifyComponentTree(
-  component: DevComponent | string,
-  rootTag: string | undefined,
-  nodeId: string,
-  lang: CodeLanguage
-) {
-  if (typeof component === 'string') {
-    return normalizeRootString(component, rootTag, nodeId, lang)
-  }
-  return stringifyComponent(component, createStringifyOptions(lang))
-}
-
 async function renderMarkup({
   mode,
   rootId,
@@ -844,12 +831,24 @@ async function renderMarkup({
   checkpoint
 }: PipelineInput & {
   transform?: (markup: string) => string
-}): Promise<{ code: string; lang: CodeLanguage; fontStyleVariableIds: Set<string> } | null> {
+}): Promise<RenderedMarkup | null> {
   const clock = trace?.now
   let t = clock ? clock() : 0
   checkpoint?.()
   const fontStyleVariableIds = new Set<string>()
-  const renderContext = { ...ctx, fontStyleVariableIds }
+  const textStyleInputs: RenderedMarkup['textStyleInputs'] = []
+  const renderContext: RenderContext = {
+    ...ctx,
+    fontStyleVariableIds,
+    // Capture the actual run styles while rendering, including inheritance pruning
+    // and normal-weight resets. Token checks can reuse them without native reads.
+    resolveStyleVars:
+      ctx.resolveStyleVars ??
+      ((style, node) => {
+        textStyleInputs.push({ style, node })
+        return style
+      })
+  }
   const rendered = await renderTreeForMode(mode, rootId, tree, renderContext)
   checkpoint?.()
   if (!rendered) {
@@ -859,22 +858,24 @@ async function renderMarkup({
 
   const resolvedLang = lang ?? renderContext.detectedLang ?? 'jsx'
   t = clock ? clock() : 0
-  const markup = stringifyComponentTree(rendered, rootTag, rootId, resolvedLang)
-  stampRenderPhase(trace, mode, 'stringify', t)
-
-  t = clock ? clock() : 0
-  const output = transform ? transform(markup) : markup
+  const component: DevComponent =
+    typeof rendered === 'string'
+      ? { name: rootTag || 'div', props: { 'data-hint-id': rootId }, children: [rendered] }
+      : rendered
+  const transformed = transform ? mapTokenValues(component, transform) : component
   stampRenderPhase(trace, mode, 'transform', t)
-  return { code: output, lang: resolvedLang, fontStyleVariableIds }
-}
-
-function createStringifyOptions(lang: CodeLanguage): {
-  lang: CodeLanguage
-  isInline: (tag: string) => boolean
-} {
+  const serialize = (value: DevComponent) => {
+    const start = clock ? clock() : 0
+    const code = stringifyComponent(value, { lang: resolvedLang, isInline: isCompactTag })
+    stampRenderPhase(trace, mode, 'stringify', start)
+    return code
+  }
   return {
-    lang,
-    isInline: isCompactTag
+    component: transformed,
+    serialize,
+    lang: resolvedLang,
+    fontStyleVariableIds,
+    textStyleInputs
   }
 }
 

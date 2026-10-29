@@ -8,6 +8,8 @@ import {
 } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { processTokens } from '@/mcp/tools/code/tokens/process'
+
 import { readNodeBatch } from '@/mcp/node-reads'
 import { handleGetCode } from '@/mcp/tools/code'
 import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
@@ -16,10 +18,7 @@ import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 
 const mocks = vi.hoisted(() => ({
   currentCodegenConfig: vi.fn(() => ({ cssUnit: 'px', rootFontSize: 16, scale: 1 })),
-  collectCandidateVariableIds: vi.fn(() => ({
-    variableIds: new Set<string>(),
-    rewrites: new Map()
-  })),
+  collectCandidateVariableIds: vi.fn(() => new Set<string>()),
   planAssets: vi.fn(() => ({ vectorRoots: new Set<string>(), skippedIds: new Set<string>() })),
   collectNodeData: vi.fn(),
   prepareStyles: vi.fn(),
@@ -71,7 +70,7 @@ vi.mock('@/mcp/tools/code/tokens', async () => ({
   createTokenConsumerResolver: (await import('@/mcp/tools/code/tokens/resolve'))
     .createTokenConsumerResolver,
   resolveStyleMap: mocks.resolveStyleMap,
-  rewriteTokenNamesInCode: (await import('@/mcp/tools/code/tokens/rewrite')).rewriteTokenNamesInCode
+  createTokenNameRewriter: (await import('@/mcp/tools/code/tokens/rewrite')).createTokenNameRewriter
 }))
 
 vi.mock('@/mcp/tools/code/render', () => ({
@@ -102,6 +101,10 @@ function asset(
   }
 }
 
+async function stringifyTokens({ component, serialize }: Parameters<typeof processTokens>[0]) {
+  return { code: serialize(component), tokensByCanonical: {}, sourceIndex: new Map() }
+}
+
 function mockAssetCollection(
   tree: ReturnType<typeof createTree>,
   assets: AssetDescriptor[],
@@ -121,18 +124,46 @@ function mockAssetCollection(
   })
   mocks.prepareStyles.mockReturnValue({
     styles: new Map(),
-    layout: new Map(),
-    usedCandidateIds: new Set<string>()
+    layout: new Map()
   })
-  mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-    code,
-    tokensByCanonical: {},
-    sourceIndex: new Map()
-  }))
+  mocks.processTokens.mockImplementation(stringifyTokens)
   vi.stubGlobal('__DEV__', false)
 }
 
 describe('mcp/code handleGetCode', () => {
+  it('stops descendant text preflight at the deadline before reading the remaining text', async () => {
+    let elapsed = 0
+    let reads = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => elapsed)
+    const children = Array.from({ length: 100 }, (_, index) => {
+      const child = createSnapshot({ id: `text-${index}`, type: 'TEXT', parentId: 'root' })
+      Object.defineProperty(child.node, 'characters', {
+        get() {
+          elapsed = ++reads * 10_000
+          return 'text'
+        }
+      })
+      return child
+    })
+    const root = createSnapshot({ id: 'root', children: children.map(({ id }) => id) })
+    const tree = createTree([root, ...children])
+    mockAssetCollection(tree, [], new Set())
+    mocks.getOrderedChildIds.mockReturnValue(root.children)
+    mocks.renderShellTree.mockResolvedValue(raw('<div>shell</div>'))
+
+    const result = await handleGetCode([root.node])
+
+    expect(reads).toBe(2)
+    expect(result.warnings?.map(({ type }) => type)).toEqual(['shell'])
+    expect(mocks.collectCandidateVariableIds).toHaveBeenCalledOnce()
+    expect(mocks.collectCandidateVariableIds).toHaveBeenCalledWith(
+      [root.node],
+      expect.any(Object),
+      expect.objectContaining({ traverseChildren: false })
+    )
+    expect(mocks.renderTree).not.toHaveBeenCalled()
+  })
+
   it('does not leak full-render font metadata into the shell retry', async () => {
     const root = createSnapshot({ id: 'root', children: ['child'] })
     const tree = createTree([root, createSnapshot({ id: 'child', parentId: 'root' })])
@@ -198,7 +229,7 @@ describe('mcp/code handleGetCode', () => {
       } else {
         mocks.prepareStyles.mockImplementationOnce(() => {
           elapsed = 20_000
-          return { usedCandidateIds: new Set(), layout: new Map() }
+          return { layout: new Map() }
         })
       }
       mocks.getOrderedChildIds.mockReturnValue(['child'])
@@ -314,6 +345,37 @@ describe('mcp/code handleGetCode', () => {
     await rejected
     expect(vi.getTimerCount()).toBe(0)
   })
+
+  it.each(['full', 'shell'])(
+    'retains a completed %s result when final response formatting overruns the deadline',
+    async (phase) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      let elapsed = 0
+      vi.spyOn(performance, 'now').mockImplementation(() => elapsed)
+      const root = createSnapshot({ id: 'root', children: ['child'] })
+      const tree = createTree([root, createSnapshot({ id: 'child', parentId: 'root' })])
+      mockAssetCollection(tree, [], new Set())
+      mocks.renderTree.mockResolvedValue(raw('<div>full</div>'))
+      if (phase === 'shell') {
+        mocks.renderTree.mockRejectedValueOnce(
+          new PluginSandboxError('timeout', 'Plugin timed out')
+        )
+      }
+      mocks.getOrderedChildIds.mockReturnValue(['child'])
+      mocks.renderShellTree.mockResolvedValue(raw('<div>shell</div>'))
+
+      const result = await handleGetCode([root.node], 'jsx', false, 'smart', {
+        formatResult: (output) => {
+          elapsed += phase === 'full' ? 20_001 : 5_001
+          return buildGetCodeToolResult(output)
+        }
+      })
+
+      expect(result.code).toContain(`<div>${phase}</div>`)
+      expect(mocks.renderShellTree).toHaveBeenCalledTimes(phase === 'shell' ? 1 : 0)
+      expect(vi.getTimerCount()).toBe(0)
+    }
+  )
 
   it('keeps a depth-capped root under the deadline even without snapshot children', async () => {
     vi.useFakeTimers()
@@ -453,15 +515,10 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles: input }: { styles: Map<string, Record<string, string>> }) => ({
         styles: input,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.renderTree.mockResolvedValue(
       raw('<div><span className="text-white">A</span><span className="text-white">B</span></div>')
     )
@@ -537,15 +594,10 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
         styles,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.renderTree.mockResolvedValue(raw('X'.repeat(90000)))
     mocks.getOrderedChildIds.mockReturnValue(['c', 'b'])
     mocks.renderShellTree.mockResolvedValue(
@@ -658,15 +710,10 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles: input }: { styles: Map<string, Record<string, string>> }) => ({
         styles: input,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code: input }: { code: string }) => ({
-      code: input,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.renderTree.mockResolvedValue(raw(code))
     mocks.getOrderedChildIds.mockReturnValue(children.map((child) => child.id))
     mocks.renderShellTree.mockResolvedValue(
@@ -700,15 +747,10 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
         styles,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.getOrderedChildIds.mockReturnValue(['copy'])
     mocks.renderShellTree.mockResolvedValue(
       raw('<div className="relative flex">{/* omitted direct children: copy */}</div>')
@@ -720,7 +762,6 @@ describe('mcp/code handleGetCode', () => {
     expect(result.warnings?.map((warning) => warning.type)).toEqual(['shell'])
     expect(mocks.collectCandidateVariableIds).toHaveBeenCalledWith(
       expect.any(Array),
-      expect.any(Map),
       expect.any(Object),
       {
         checkpoint: expect.any(Function),
@@ -763,15 +804,10 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
         styles,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.renderTree.mockResolvedValue(raw('X'.repeat(90000)))
     mocks.getOrderedChildIds.mockReturnValue(['b'])
     mocks.renderShellTree.mockResolvedValue(null)
@@ -819,15 +855,10 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
         styles,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.renderTree.mockResolvedValue(
       raw(`<div data-hint-auto-layout="inferred">${'X'.repeat(40000)}</div>`)
     )
@@ -869,8 +900,7 @@ describe('mcp/code handleGetCode', () => {
     mocks.prepareStyles.mockImplementation(
       ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
         styles,
-        layout: new Map(),
-        usedCandidateIds: new Set<string>()
+        layout: new Map()
       })
     )
     mocks.exportVectorAssets.mockResolvedValue(
@@ -924,7 +954,7 @@ describe('mcp/code handleGetCode', () => {
     mockAssetCollection(tree, [], new Set())
     const styles = new Map([['opacity', { opacity: 'var(--shared)', gap: 'var(--shared)' }]])
     mocks.collectNodeData.mockResolvedValue({ nodes: tree.nodes, styles, textSegments: new Map() })
-    mocks.prepareStyles.mockReturnValue({ styles, layout: new Map(), usedCandidateIds: new Set() })
+    mocks.prepareStyles.mockReturnValue({ styles, layout: new Map() })
     const tokens = { '--plugin-shared': { kind: 'number', value: { Light: '50px', Dark: '0px' } } }
     mocks.processTokens.mockResolvedValue({
       code: '<div />',
@@ -948,6 +978,74 @@ describe('mcp/code handleGetCode', () => {
     expect(mocks.createStyleVarResolver).not.toHaveBeenCalled()
   })
 
+  it('retains encoded token names and removes every fallback after a token rerender', async () => {
+    const root = createSnapshot({ id: 'opacity' })
+    const tree = createTree([root])
+    mockAssetCollection(tree, [], new Set())
+    const styles = new Map([['opacity', { opacity: 'var(--source_token)' }]])
+    mocks.collectNodeData.mockResolvedValue({ nodes: tree.nodes, styles, textSegments: new Map() })
+    mocks.prepareStyles.mockReturnValue({ styles, layout: new Map() })
+    mocks.processTokens.mockResolvedValue({
+      code: '<div />',
+      tokensByCanonical: { '--next_token': { kind: 'number', value: '50px' } },
+      sourceIndex: new Map([['--source_token', 'v']]),
+      rewriteMap: new Map([['--source_token', '--next_token']])
+    })
+    mocks.resolveStyleMap.mockImplementation(
+      (await import('@/mcp/tools/code/tokens/resolve')).resolveStyleMap
+    )
+    mocks.renderTree.mockImplementation(async (_id, _tree, ctx) => ({
+      name: 'div',
+      props: {
+        style: ctx.styles.get('opacity'),
+        className: String.raw`w-[calc(var(--source\_token,_8px)_+_var(--source\_token,_4px))] h-(--source_token)`
+      },
+      children: []
+    }))
+
+    const result = await handleGetCode([root.node], 'jsx', false)
+    expect(mocks.renderTree).toHaveBeenCalledTimes(2)
+    expect(result.code).toContain(
+      String.raw`w-[calc(var(--next\_token)_+_var(--next\_token))] h-(--next\_token)`
+    )
+    expect(result.code).toContain('var(--next_token)')
+    expect(result.code).not.toContain('--source')
+  })
+
+  it.each([{ segments: null }, { segments: [] }])(
+    'skips an unchanged token rerender with $segments text segments',
+    async ({ segments }) => {
+      const root = createSnapshot({ id: 'text', type: 'TEXT' })
+      const tree = createTree([root])
+      mockAssetCollection(tree, [], new Set())
+      const styles = new Map([['text', { color: 'var(--color)' }]])
+      mocks.collectNodeData.mockResolvedValue({
+        nodes: tree.nodes,
+        styles,
+        textSegments: new Map([['text', segments]])
+      })
+      mocks.prepareStyles.mockReturnValue({
+        styles,
+        layout: new Map()
+      })
+      const code = '<span className="text-(--color)">Text</span>'
+      mocks.processTokens.mockResolvedValue({
+        code,
+        tokensByCanonical: { '--color': { kind: 'color', value: '#F00' } },
+        sourceIndex: new Map([['--color', 'v']])
+      })
+      mocks.resolveStyleMap.mockImplementation(
+        (await import('@/mcp/tools/code/tokens/resolve')).resolveStyleMap
+      )
+      mocks.renderTree.mockResolvedValue(raw(code))
+
+      const result = await handleGetCode([root.node], 'jsx', false)
+      expect(result.code).toBe(code)
+      expect(result.tokens).toEqual({ '--color': { kind: 'color', value: '#F00' } })
+      expect(mocks.renderTree).toHaveBeenCalledTimes(1)
+    }
+  )
+
   it('rerenders unresolved font-weight tokens present only in text runs', async () => {
     const root = createSnapshot({ id: 'text', type: 'TEXT' })
     const tree = createTree([root])
@@ -955,7 +1053,7 @@ describe('mcp/code handleGetCode', () => {
     mocks.collectNodeData.mockResolvedValue({
       nodes: tree.nodes,
       styles: new Map(),
-      textSegments: new Map([['text', []]])
+      textSegments: new Map([['text', [{ characters: 'Text', start: 0, end: 4, fontWeight: 600 }]]])
     })
     mocks.processTokens.mockResolvedValue({
       code: '<span className="font-(--weight)">Text</span>',
@@ -975,14 +1073,14 @@ describe('mcp/code handleGetCode', () => {
     expect(mocks.renderTree).toHaveBeenCalledTimes(2)
   })
 
-  it('rerenders tokens present only in text runs and preserves names for failed resolutions', async () => {
+  it('reports failed text-run resolutions and retains rewritten names without rerendering', async () => {
     const text = createSnapshot({ id: 'text', type: 'TEXT' })
     const tree = createTree([text])
     mockAssetCollection(tree, [], new Set())
     mocks.collectNodeData.mockResolvedValue({
       nodes: tree.nodes,
       styles: new Map(),
-      textSegments: new Map([['text', []]])
+      textSegments: new Map([['text', [{ characters: 'Text', start: 0, end: 4, fontSize: 12 }]]])
     })
     mocks.processTokens.mockImplementation(async ({ report }) => {
       report('token-definition', 'Alias definition unavailable.')
@@ -1009,7 +1107,7 @@ describe('mcp/code handleGetCode', () => {
       )
     })
     const result = await handleGetCode([text.node], 'jsx', true)
-    expect(mocks.renderTree).toHaveBeenCalledTimes(2)
+    expect(mocks.renderTree).toHaveBeenCalledTimes(1)
     expect(result.code).toContain('var(--renamed)')
     expect(result.code).not.toContain('12px')
     expect(result.warnings?.map((warning) => warning.type)).toEqual([
@@ -1026,9 +1124,9 @@ describe('mcp/code handleGetCode', () => {
     mockAssetCollection(createTree([root]), [], new Set())
     mocks.renderTree.mockResolvedValue(raw('<div />'))
     let fail = true
-    mocks.processTokens.mockImplementation(async ({ code, report }) => {
+    mocks.processTokens.mockImplementation(async ({ component, serialize, report }) => {
       if (fail) report('token-definition', 'First root only.')
-      return { code, tokensByCanonical: {}, sourceIndex: new Map() }
+      return { code: serialize(component), tokensByCanonical: {}, sourceIndex: new Map() }
     })
     mocks.activePlugin.value = { name: 'first', code: 'first-code' }
     const cache = createGetCodeCacheContext()
@@ -1064,15 +1162,10 @@ describe('mcp/code handleGetCode', () => {
     })
     mocks.prepareStyles.mockReturnValue({
       styles: new Map(),
-      layout: new Map(),
-      usedCandidateIds: new Set<string>()
+      layout: new Map()
     })
     mocks.renderTree.mockResolvedValue(raw('<div />'))
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     vi.stubGlobal('__DEV__', false)
 
     await handleGetCode([instances[0]?.node as SceneNode], 'jsx', false)
@@ -1083,7 +1176,7 @@ describe('mcp/code handleGetCode', () => {
       { cssUnit: 'px', rootFontSize: 16, scale: 1 },
       'plugin-code',
       'jsx',
-      undefined
+      expect.objectContaining({ rawCss: expect.any(Map), pluginResponses: expect.any(Map) })
     )
   })
 })

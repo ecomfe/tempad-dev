@@ -1,11 +1,12 @@
 import { useEventListener, useMutationObserver } from '@vueuse/core'
-import { shallowRef, watch } from 'vue'
+import { onScopeDispose, shallowRef, watch } from 'vue'
 
 import { layoutReady, options } from '@/ui/state'
 import { getCanvas, setLockAltKey, setLockMetaKey } from '@/utils'
 
 let spacePressed = false
 let altPressed = false
+let windowActive = true
 let duplicateClass: string | null = null
 let classSnapshot = new Set<string>()
 const cursorHost = shallowRef<HTMLElement | null>(null)
@@ -30,14 +31,11 @@ function pause() {
   setLockAltKey(false)
 }
 
-function isCanvasHovered() {
-  return !!canvas.value?.matches(':hover')
+function canLockCanvas() {
+  return layoutReady.value && windowActive && !spacePressed && !!canvas.value?.matches(':hover')
 }
 
 function resume() {
-  if (spacePressed || !isCanvasHovered()) {
-    return
-  }
   syncMetaLock()
   syncAltLock()
 }
@@ -51,7 +49,21 @@ function pauseDeepSelect() {
 }
 
 let resuming: ReturnType<typeof setTimeout> | null = null
+let pointerPause: ReturnType<typeof setTimeout> | null = null
+
+function resetInteraction() {
+  spacePressed = false
+  altPressed = false
+  if (resuming != null) clearTimeout(resuming)
+  if (pointerPause != null) clearTimeout(pointerPause)
+  resuming = null
+  pointerPause = null
+  pause()
+  if (cursorHost.value) clearCursorCover(cursorHost.value)
+}
+
 function pauseMetaThenResume() {
+  if (!windowActive || !layoutReady.value) return
   if (resuming != null) {
     clearTimeout(resuming)
   }
@@ -60,14 +72,12 @@ function pauseMetaThenResume() {
 
   resuming = setTimeout(() => {
     resuming = null
-    if (!spacePressed) {
-      syncMetaLock()
-    }
+    syncMetaLock()
   }, 200)
 }
 
 function keydown(e: KeyboardEvent) {
-  if (!layoutReady.value) {
+  if (!layoutReady.value || !windowActive) {
     return
   }
   if (!options.value.measureOn && e.key === 'Alt') {
@@ -81,14 +91,12 @@ function keydown(e: KeyboardEvent) {
   if (!spacePressed && e.key === ' ') {
     spacePressed = true
     pause()
+    reconcileCursor()
   }
 }
 
 function keyup(e: KeyboardEvent) {
   if (!layoutReady.value) {
-    return
-  }
-  if (!options.value.measureOn && e.key === 'Alt') {
     return
   }
   if (altPressed && e.key === 'Alt') {
@@ -99,17 +107,16 @@ function keyup(e: KeyboardEvent) {
   if (spacePressed && e.key === ' ') {
     spacePressed = false
     resume()
+    reconcileCursor()
   }
 }
 
 function syncAltLock() {
-  const hovered = isCanvasHovered()
-  setLockAltKey(hovered && !altPressed && options.value.measureOn)
+  setLockAltKey(canLockCanvas() && !altPressed && options.value.measureOn)
 }
 
 function syncMetaLock() {
-  const hovered = isCanvasHovered()
-  setLockMetaKey(hovered && options.value.deepSelectOn)
+  setLockMetaKey(canLockCanvas() && options.value.deepSelectOn)
 }
 
 function isDuplicateCursor(host: HTMLElement) {
@@ -140,7 +147,13 @@ function clearCursorCover(host: HTMLElement) {
 function reconcileCursor(host?: HTMLElement | null) {
   const target = host ?? cursorHost.value
   if (!target) return
-  if (!options.value.measureOn || altPressed) {
+  if (
+    !layoutReady.value ||
+    !windowActive ||
+    !options.value.measureOn ||
+    altPressed ||
+    spacePressed
+  ) {
     clearCursorCover(target)
     classSnapshot = new Set(target.classList)
     return
@@ -155,6 +168,32 @@ function reconcileCursor(host?: HTMLElement | null) {
 }
 
 export function useKeyLock() {
+  windowActive = document.visibilityState !== 'hidden' && document.hasFocus()
+  resetInteraction()
+
+  function deactivate() {
+    windowActive = false
+    resetInteraction()
+  }
+
+  function syncWindowActivity() {
+    windowActive = document.visibilityState !== 'hidden' && document.hasFocus()
+    if (!windowActive) {
+      resetInteraction()
+      return
+    }
+    resume()
+    reconcileCursor()
+  }
+
+  function clearTargets() {
+    resetInteraction()
+    canvas.value = null
+    cursorHost.value = null
+    duplicateClass = null
+    classSnapshot = new Set()
+  }
+
   function syncTargets() {
     canvas.value = getCanvas()
     cursorHost.value = canvas.value?.parentElement?.parentElement as HTMLElement | null
@@ -176,12 +215,7 @@ export function useKeyLock() {
         reconcileCursor(cursorHost.value)
         return
       }
-      setLockMetaKey(false)
-      setLockAltKey(false)
-      canvas.value = null
-      cursorHost.value = null
-      duplicateClass = null
-      classSnapshot = new Set()
+      clearTargets()
     },
     { immediate: true }
   )
@@ -190,12 +224,20 @@ export function useKeyLock() {
   useEventListener(canvas, 'mouseenter', resume)
   useEventListener(canvas, 'pointerdown', pauseMeasure, { capture: true })
   useEventListener(canvas, 'pointerdown', () => {
-    setTimeout(pauseDeepSelect, 0)
+    if (pointerPause != null) clearTimeout(pointerPause)
+    pointerPause = setTimeout(() => {
+      pointerPause = null
+      pauseDeepSelect()
+    }, 0)
   })
   useEventListener('pointerup', resume, { capture: true })
   useEventListener(canvas, 'wheel', pauseMetaThenResume)
   useEventListener('keydown', keydown)
   useEventListener('keyup', keyup)
+  useEventListener('blur', deactivate)
+  useEventListener('focus', syncWindowActivity)
+  useEventListener(document, 'visibilitychange', syncWindowActivity)
+  onScopeDispose(clearTargets)
 
   useMutationObserver(
     cursorHost,
@@ -214,6 +256,7 @@ export function useKeyLock() {
   watch(
     () => options.value.deepSelectOn,
     () => {
+      if (!options.value.deepSelectOn && !options.value.measureOn) resetInteraction()
       if (!layoutReady.value) return
       syncMetaLock()
     }
@@ -222,6 +265,8 @@ export function useKeyLock() {
   watch(
     () => options.value.measureOn,
     () => {
+      if (!options.value.measureOn) altPressed = false
+      if (!options.value.deepSelectOn && !options.value.measureOn) resetInteraction()
       if (!layoutReady.value) return
       syncAltLock()
       reconcileCursor(cursorHost.value)

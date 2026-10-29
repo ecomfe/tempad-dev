@@ -379,8 +379,9 @@ complete private native schema after short refs are expanded.
 `bg-(--surface)`, `gap-(--content-gap)`, `font-(family-name:--body-family)`, and
 `text-(length:--body-size)` use Tailwind custom-property shorthand; bracketed `var(...)` forms
 are equivalent. The bounded subset covers fills/strokes, dimensions, gaps, padding, corner radii,
-stroke width, opacity, and typography metrics. FLOAT measurements use native pixel units; opacity
-uses 0–1 and weight uses 1–1000. No expression evaluation, `calc()`, CSS fallback, cascade, or
+stroke width, opacity, and typography metrics. FLOAT measurements use native pixel units; bound
+opacity variables use 0–100 (literal CSS opacity uses 0–1), and weight uses 1–1000.
+No expression evaluation, `calc()`, CSS fallback, cascade, or
 project stylesheet execution is introduced. Ordinary scale utilities remain literals.
 
 Catalog aliases use valid WEB custom-property syntax when present, otherwise a normalized name.
@@ -418,11 +419,11 @@ supported utility table. Other native fields and explicit unlinks retain inline/
 
 One markup tree is bounded to 160 elements and 12 levels. The element ceiling covers currently
 observed complete screen sections up to 129 elements with bounded headroom; it is not a target for
-packing unrelated work. The independent 200 KiB markup, 32-asset, and 4 MiB transport limits remain
-in force. These limits are part of the public tool description and Canvas HTML reference so an
-agent can split a larger composition before calling the tool. The syntax parser rejects an
-oversized tree before utility, layout, or native-state compilation, so the global split requirement
-is reported before repairable node-local errors and before any mutation.
+packing unrelated work. The independent markup limit of 200,000 Unicode code points, 32-asset limit,
+and 4 MiB transport limit remain in force. These limits are part of the public tool description and
+Canvas HTML reference so an agent can split a larger composition before calling the tool. The syntax
+parser rejects an oversized tree before utility, layout, or native-state compilation, so the global
+split requirement is reported before repairable node-local errors and before any mutation.
 
 Local collection, variable, and style authoring keys persist as file-wide identities. They must be
 rooted in one collision-resistant prefix for the independent system rather than a generic product
@@ -626,7 +627,7 @@ subject to stronger constraints:
 1. correct native result;
 2. scope and ownership safety;
 3. dependency-safe ordering;
-4. one Undo boundary and rollback on failure;
+4. one Undo boundary and guarded rollback on failure;
 5. no-op convergence;
 6. only then, fewer Plugin API calls.
 
@@ -648,6 +649,14 @@ path.
 
 ## Reconciliation
 
+`mcp/tools/canvas/reconcile.ts` owns public dispatch and tree-update orchestration. Its internal
+`reconcile/` modules group node identity and request state, Undo protection, resource preparation,
+node-property application, tree and page operations, removals, and result checks. `tree.ts` keeps
+recursive container staging together and orders the layout, appearance, text, binding, and component
+setters. `native-update.ts` owns updates without markup. Strict verification and advisory warnings
+remain separate. Internal modules do not import the public entrypoint; shared request-state types
+use type-only imports so these responsibilities have no runtime import cycles.
+
 The local deterministic pipeline is:
 
 1. parse and validate the public input;
@@ -661,7 +670,7 @@ The local deterministic pipeline is:
 9. apply late references and stabilize deterministic geometry after derived-layout setters;
 10. remove explicitly absent owned state;
 11. verify the live result;
-12. commit one Undo boundary, or undo the whole attempt on failure.
+12. commit one Undo boundary, or attempt rollback when retained changes justify Undo.
 
 Preflight is staged: identity, vector paths, known text-range bounds, incompatible local or same-call
 variable types in nodes, styles, paints, effects, grids, and component property definitions, missing
@@ -683,8 +692,10 @@ the Undo boundary, including when the same call declares resources. Existing Tex
 fonts also preload for their current consumers when the call declares no variable collections and
 does not import font variables. The full resource preflight still rechecks those consumers.
 Both preflight paths share the same font resolution and request-local load cache. Empty resource declarations use the complete
-preflight before that boundary. Key-only library references retain their later import and validation
-path. Existing result pages and pages needed for declared variable, mode, or collection removals are
+preflight before that boundary. Key-only component references also import before that boundary,
+including when resources are declared; the full preflight reuses their request-local identities.
+Other key-only library references retain their later import and validation path.
+Existing result pages and pages needed for declared variable, mode, or collection removals are
 loaded before opening the Undo boundary. Node removal uses `loadAllPagesAsync()` once per document
 when other pages exist; Figma also [automatically loads pages added later by other clients](https://developers.figma.com/docs/plugins/migrating-to-dynamic-loading/#accessing-all-pages).
 Variable removal loads pages individually and caches successful loads only within the request,
@@ -697,9 +708,45 @@ creation, and library/media preparation is not a guarantee of native transaction
 Typography variable setters apply one field at a time. Preload the font faces reached by each
 binding in its actual application order, including intermediate family/style combinations, for
 Text nodes, text ranges, and Text styles. Reuse the request-local font cache across those paths.
+Rich-text style references with explicit typography overrides compare the current style defaults,
+literal overrides, and final variable bindings in the consumer's mode. Figma can detach the style
+link after an override, so repeated requests compare effective typography rather than restoring
+the link on every call. Pure style references still require the native style identity. Native
+semantic overrides are detected before mutation; those ranges and variable-weight compositions
+retain their existing application path until their interaction with explicit typography has
+native acceptance.
+Numeric character metrics (font size, line height, and letter spacing) can extend to the immediately
+following `\n` in Figma's native setter. Reconciliation distinguishes that physical write extent
+from the range's final ownership when a later declared range starts at the newline. An unchanged
+range does not repair a later owner's newline. A necessary write that would damage a retained
+TextStyle without a proven safe restoration is rejected with the conflicting range and style.
+Explicit numeric range bindings are checked after all ranges have been applied. A range starting
+on `\n` can leave that separator's alias unchanged even when the visible text acquires the
+requested binding; this was observed with font size. Such a mismatch fails rather than reporting
+success or repeatedly rebinding. Preserve the separator's existing formatting, or start the
+range at the following content only when that matches the intended design.
+U+2028 and CRLF setter extension is not inferred from the observed `\n` behavior.
+
+Paragraph indent, paragraph spacing, and list spacing use paragraph-wide comparison scopes but
+literal setters target each affected paragraph's content, excluding its terminal newline to avoid
+changing the next paragraph. Native spill was confirmed for indent and paragraph spacing;
+list spacing uses the same conservative bounds without assuming identical native behavior.
+Explicit variable null is read back. If native paragraph unlinking
+retains an alias, a content-only literal fallback preserves the current value and must verify
+that the alias disappeared. Empty paragraphs without a safe setter/fallback reject required
+changes rather than silently skipping them or writing into another paragraph. Identical supported
+requests still converge without writes. These checks do not imply support for conflicting values
+assigned to the same native paragraph.
+Clearing a character-metric range alias does not guarantee independence from later node-level
+typography changes. Native font size can still inherit the node's value when the range alias reads
+back as absent. For a fixed local value, author the intended literal and verify its independence
+from retained node bindings; a successful `null` unlink or equal-valued readback alone is insufficient.
 Mode changes prepare fonts only for affected typography, text-content, or size bindings, including
 aliases and extended collections. Unbound text and descendant mode overrides do not require unrelated
 fonts to load. Affected text metrics still require the current fonts even without a font-family binding.
+Unavailable native bindings in unrelated collections do not block a mode change. Alias traversal
+still finds affected dependencies across collections; an unavailable value reached by the changed
+mode fails before mutation as an existing canvas dependency error.
 Updates to existing pages preload fonts for the first changed variable mode before opening the
 Undo boundary or changing page properties, including calls with markup but no declared resources.
 Each mode setter still rechecks the live font requirements; later transitions may depend on
@@ -749,24 +796,43 @@ belongs to the same set and the requested variant property values or bindings re
 Omitted instance sizing axes preserve their native modes, including modes produced by variant
 selection. Explicit size or grow utilities override only the axes they describe.
 
+Slot property identities are stored on their slot nodes, separately from authored component-property
+keys. Adopting a slot records that identity even when its metadata already matches. Older owner-map
+identities remain readable; preflight retains the resolved slot name for the current apply so a normal
+property using the same stable key cannot redirect the slot update. Slot creation and metadata edits
+protect their definition owner before mutation, including a component set outside the update root.
+
 Figma may normalize Text auto-resize while truncation and maximum-line state changes. Reconciliation
 therefore applies truncation state before the declared auto-resize mode, so fixed text boxes remain
 fixed while still supporting native ending truncation.
 
-After a failed mutation, reconciliation commits the partial attempt as the newest history entry
-before triggering Undo. This keeps rollback scoped to that attempt in a long-lived plugin session
-instead of consuming the preceding successful apply. Rollback verifies that the update root remains
+After a failed mutation, reconciliation attempts Undo only when a created node, page, or resource
+still exists, a known resource was removed, or a touched pre-existing node/resource has an observable
+retained change. Resource IDs are recorded immediately after creation, before ownership claims or
+later preparation can fail. Counted setters alone do not establish
+a history entry: no-op setters and changes that cancel each other out can otherwise make Undo consume
+the preceding successful apply. Unrelated protected roots do not justify Undo. Unreadable state or no
+observable change skips automatic Undo and retains the uncertain-failure readback requirement.
+An unavailable read does not negate independent confirmed changes. Partial snapshots cannot certify
+that uncaptured state stayed unchanged. When a change
+is observed, reconciliation commits the partial attempt before triggering Undo. This is a conservative
+guard, not a guarantee of isolation from concurrent edits. Rollback verifies that the update root remains
 resolvable. Exact pre-existing node/component references and unrelated top-level roots on the result
 page also retain their type, parent, canvas key, geometry, direct child identities, and common
-content fields (including paints, effects, and whole-node text content/style), local transforms,
-clipping, supported layout settings, and size constraints. These content snapshots copy native values
+content fields (including paints, effects, binding identities, stroke/corner geometry, component
+properties, and text metrics), local transforms, clipping, supported layout settings, and size
+constraints. Mutable text nodes also snapshot native styled segments; unrelated text references do
+not require a full range read. Selected existing local resources snapshot their authored fields,
+and rollback checks that newly created resources no longer exist. These snapshots copy native values
 so in-place changes cannot mutate the expected state. Existing pages also retain their name,
 background, guides, explicit variable modes, authoring key, page order, and direct child identities.
 Page-only updates snapshot unrelated roots after font preloading, so edits made during preparation
 are not mistaken for rollback corruption.
 Losing or changing one is reported as rollback failure instead of masking partial corruption with the original validation
 error. This detects selected rollback corruption; it does not prove restoration of every native field,
-mixed text run, resource, unrelated descendant, or concurrent user edit.
+unreadable text range, imported library resource, unrelated descendant, or concurrent user edit.
+If Undo is skipped or restoration is unconfirmed, inspect affected canvas and resource state before
+repairing. Do not advise manual Undo without confirming which history entry it would revert.
 
 The result budget is checked inside this rollback boundary, reserving 2 KiB of the shared 64 KiB
 limit for runtime evidence. The Hub checks that evidence against the reservation before dispatch
@@ -796,6 +862,14 @@ Structural verification is mandatory. It checks:
 - direct layout grids and frame guides;
 - mask and managed SVG state.
 
+Paint, effect, and layout-grid comparisons preserve the exact declared variable aliases.
+They do not compare fallback literals for fields owned by those bindings: Figma may return
+the resolved variable value instead. This includes SOLID color and opacity, bound gradient
+stop colors, shadow color/radius/spread and each bound offset axis, blur radius, and bound
+grid measurements. Unbound fields, paint/stop counts and geometry, effect types, visibility,
+blend modes, and grid patterns remain checked. Reconciliation and verification use the same
+comparators; a missing or different alias is still a mismatch.
+
 `apply_canvas` returns counts and factual warnings:
 
 ```ts
@@ -812,6 +886,10 @@ type Verification = {
 }
 ```
 
+A named HTML entity outside the supported set remains literal and produces one
+`unknown-html-entity` warning per request. Numeric references and explicitly escaped entity
+syntax keep their existing behavior; use Unicode or a numeric reference for an intended glyph.
+
 A variable or style newly created by the call but not referenced by the same desired result produces
 an `unbound-created-variable` or `unbound-created-style` warning. This is intentionally non-fatal
 because a multi-call design-system workflow may stage definitions, but the authoring skill requires
@@ -825,6 +903,11 @@ is reached; unresolved external aliases are skipped. This warning catches contra
 state without rejecting legitimate multi-mode fallbacks, because matching any authored mode is
 sufficient. Font-weight comparison retains the explicit utility's numeric value, including
 non-hundred weights; it does not infer a weight from native style names or default fonts.
+
+A requested literal that an existing variable or style binding prevents from taking effect
+produces `literal-ignored-by-binding`, identifying the affected node key and fields. Preserve
+the binding when it owns the intended value. To replace it with a literal, explicitly clear
+the corresponding supported variable or style link with `null`; omission retains the link.
 
 A visible component-property reference that can alter Auto Layout flow produces
 `layout-affecting-visibility-property`. It is also non-fatal because optional content may be

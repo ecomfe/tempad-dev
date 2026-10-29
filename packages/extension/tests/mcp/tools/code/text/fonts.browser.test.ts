@@ -113,13 +113,15 @@ it.each([
       if (!rendered || typeof rendered === 'string') throw new Error('Expected text component')
       return stringifyComponent(rendered, { lang: 'vue' })
     }
-    const first = stringify(await renderTree('text', tree, ctx))
+    const rendered = await renderTree('text', tree, ctx)
+    if (!rendered || typeof rendered === 'string') throw new Error('Expected text component')
+    const first = stringify(rendered)
     const cache = new Map([['face', variable]])
     const processed = await processTokens({
       ...ctx,
-      code: first,
+      component: rendered,
+      serialize: stringify,
       variableIds: new Set(['face']),
-      usedCandidateIds: new Set(),
       variableCache: cache,
       resolveTokens
     })
