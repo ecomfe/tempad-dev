@@ -29,9 +29,9 @@ Then run:
 Use this sequence as the default pre-PR verification. Also run `pnpm test:coverage` when changing
 pure utilities or coverage configuration, as detailed below. CI enforces the coverage floor.
 
-Push a validation branch under `ci/` to run the full Linux build and Windows runtime matrices
-without publishing `main`. Validation branches compare plugin payload versions against
-`origin/main`; ordinary main pushes retain their previous-commit baseline.
+Push a validation branch under `ci/` to run CI without publishing `main`; manual build dispatch
+forces all matrices regardless of changed paths. Validation branches compare plugin payload
+versions against `origin/main`; ordinary main pushes retain their previous-commit baseline.
 
 ## Command reference
 
@@ -73,6 +73,10 @@ Root:
   pending Claude Stop notices surviving both switching and rollback with durable hook retries.
   New edges also attach during a delayed handoff and after real stale writer leases expire;
   the fixture's initialization deadline exceeds the edge's 90-second recovery bound.
+  Process fixtures use the shorter lease/idle settings in `RUNTIME_TEST_ENV` from
+  `packages/mcp-server/scripts/runtime-test-platform.mjs`; production defaults and startup
+  deadlines are unchanged. Cold recovery asserts that live writer leases cannot be replaced
+  before expiry, then verifies that clients reconnect after expiry.
   `TEMPAD_SWITCH_CASES` selects comma-separated cases for diagnosis; `TEMPAD_KEEP_PROTOTYPE=1`
   retains isolated evidence. It never downloads or updates installed runtimes. CI runs the full
   matrix on Linux and Windows with Node 22 and 24; native host behavior remains outside this harness.
@@ -122,13 +126,21 @@ Root:
 - `pnpm agent-eval:log <start|finish|abandon|check|summary>` (retain the small amount
   of provenance needed to trust a live authoring run)
 
-### Windows runtime CI
+### Runtime CI
 
-The [Windows runtime workflow](.github/workflows/windows-runtime.yml) runs the runtime unit
-tests and all three supervisor/switch/acquisition process harnesses on Node 22 and 24. It
+The [runtime workflow](.github/workflows/runtime.yml) runs Linux and Windows process checks
+on Node 22 and 24. Contracts, two complementary switch shards, and acquisition run in parallel;
+Windows contracts include runtime unit tests, and both platforms include the supervisor harness. It
 preserves LF source bytes for the reviewed manifest hash, asserts the selected Node version,
 and uploads per-step logs. Push a validation branch under `ci/` to run it without publishing
-`main`; it also runs for `main`, pull requests and manual dispatch.
+`main`. The build workflow selects runtime checks for changes outside the extension, SDK, site,
+and contributor documentation; manual build dispatch and MCP publication run the full selected
+platform matrix. Runtime manual dispatch selects Linux or Windows.
+
+Build checks retain both Node versions. Node 24 runs Node tests once with coverage, then browser
+and built-extension checks; Node 22 runs the package-owned suites. Static checks run separately.
+The `ci` job is the aggregate check to require in branch protection, including intentionally
+skipped jobs. New pushes cancel outdated build runs for the same branch or pull request.
 
 All Windows matrix jobs must pass on the candidate before release. These checks exercise real
 named pipes, ACLs, child processes, downloads, concurrent edges, in-flight requests, automatic

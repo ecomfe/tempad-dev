@@ -11,7 +11,7 @@ import { execFile } from 'node:child_process'
 import console from 'node:console'
 import { createHash, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { connect, createServer } from 'node:net'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -28,6 +28,7 @@ import { runtimeEndpoint } from '../src/runtime-platform.ts'
 import config from '../tsdown.prototype.config.ts'
 import {
   FIXTURE_INITIALIZE_TIMEOUT_MS,
+  RUNTIME_TEST_ENV,
   fixtureEnvironment,
   fixtureNodeArguments,
   fixtureProcesses,
@@ -270,6 +271,7 @@ async function scenario(a, b, mode, incompatible) {
   let stderr = ''
   const command = (...args) =>
     exec(process.execPath, [a, '--root', root, ...args], {
+      env: { ...process.env, ...RUNTIME_TEST_ENV },
       timeout: 390000,
       maxBuffer: 4 * 1024 * 1024
     })
@@ -280,6 +282,7 @@ async function scenario(a, b, mode, incompatible) {
       stderr: 'pipe',
       env: {
         ...fixtureEnvironment(root),
+        ...RUNTIME_TEST_ENV,
         TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS: origin,
         TEMPAD_MCP_AUTO_ACTIVATE_GRACE: '10'
       }
@@ -758,7 +761,7 @@ async function coldAttachment(entry) {
       command: process.execPath,
       args: fixtureNodeArguments([entry, '--root', root]),
       stderr: 'pipe',
-      env: fixtureEnvironment(root)
+      env: { ...fixtureEnvironment(root), ...RUNTIME_TEST_ENV }
     })
     transport.stderr.on('data', (chunk) => {
       stderr = (stderr + chunk).slice(-20000)
@@ -779,10 +782,33 @@ async function coldAttachment(entry) {
     process.kill(initial.pid, 'SIGKILL')
     process.kill(initial.hubPid, 'SIGKILL')
     await until(() => !alive(initial.pid) && !alive(initial.hubPid), 'cold process exit')
+    const locks = await Promise.all(
+      ['run/hub.lock.lock', 'state/.tempad-hub-writer.lock', 'assets/.tempad-hub-writer.lock'].map(
+        async (path) => ({ path: join(root, path), mtime: (await stat(join(root, path))).mtimeMs })
+      )
+    )
+    const staleMs = Number(RUNTIME_TEST_ENV.TEMPAD_MCP_HUB_LOCK_STALE_MS)
+    const expiresAt = Math.max(...locks.map(({ mtime }) => mtime)) + staleMs
+    assert.ok(Date.now() < expiresAt, 'cold recovery must start with an unexpired writer lease')
     const started = performance.now()
-    const second = await openClient()
+    const connecting = openClient().then((second) => {
+      assert.ok(Date.now() >= expiresAt, 'cold recovery must respect writer expiry')
+      return second
+    })
+    void connecting.catch(() => {})
+    // A replacement must not overwrite any still-owned writer lock. Measure
+    // the real heartbeat, including the filesystem's timestamp precision.
+    while (Date.now() < expiresAt) {
+      for (const { path, mtime } of locks) {
+        const observed = await stat(path).catch((error) => {
+          if (error.code !== 'ENOENT') throw error
+        })
+        if (Date.now() < mtime + staleMs) assert.equal(observed?.mtimeMs, mtime)
+      }
+      await delay(25)
+    }
+    const second = await connecting
     const elapsed = performance.now() - started
-    assert.ok(elapsed > 5000, `Cold recovery did not exercise the endpoint wait: ${elapsed}ms`)
     assert.deepEqual(await second.client.listTools(), catalog)
     await second.client.ping()
     results.push({
@@ -813,10 +839,17 @@ try {
   const a = await artifact('0.11.0')
   const b = await artifact('0.11.1')
   const incompatible = await artifact('0.11.2', true)
-  for (const mode of (
+  const cases = (
     process.env.TEMPAD_SWITCH_CASES ??
     'normal,orphan,preparing,old-stopped,candidate-ready,committed,port-conflict,claude-stop,claude-stop-rollback,initial-attach,cold-attach'
-  ).split(',')) {
+  ).split(',')
+  const shard = process.env.TEMPAD_SWITCH_SHARD
+  assert.ok(!shard || shard === '1' || shard === '2', 'TEMPAD_SWITCH_SHARD must be 1 or 2')
+  // Balance lifecycle checks against crash recovery and cold attachment. New
+  // cases join the recovery shard automatically instead of disappearing from CI.
+  const lifecycle = new Set(['normal', 'orphan', 'claude-stop', 'claude-stop-rollback'])
+  const selected = shard ? cases.filter((mode) => lifecycle.has(mode) === (shard === '1')) : cases
+  for (const mode of selected) {
     if (mode === 'cold-attach') await coldAttachment(a)
     else await scenario(a, b, mode, incompatible)
     console.log(`Runtime switch case passed: ${mode}`)

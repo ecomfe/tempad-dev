@@ -33,7 +33,7 @@ jobs:
   windows-runtime:
     name: Validate Windows runtime
     needs: guard
-    uses: ./.github/workflows/windows-runtime.yml
+    uses: ./.github/workflows/runtime.yml
 
   publish:
     name: Publish @tempad-dev/mcp

@@ -102,7 +102,8 @@ function launch(
   runtime: string,
   preload?: string,
   stores = directory,
-  args: string[] = []
+  args: string[] = [],
+  runtimeEnv: NodeJS.ProcessEnv = {}
 ) {
   const child = spawn(
     process.execPath,
@@ -110,6 +111,7 @@ function launch(
     {
       env: {
         ...process.env,
+        ...runtimeEnv,
         TEMPAD_MCP_RUNTIME_DIR: runtime,
         TEMPAD_MCP_STATE_DIR: join(stores, 'state'),
         TEMPAD_MCP_ASSET_DIR: join(stores, 'assets'),
@@ -336,7 +338,12 @@ it.skipIf(process.platform === 'win32')(
   async () => {
     const runtime = join(directory, 'orphaned')
     const stores = join(directory, 'orphaned-stores')
-    const old = launch('hub.mjs', runtime, undefined, stores)
+    const staleMs = 3000
+    const runtimeEnv = {
+      TEMPAD_MCP_HUB_LOCK_STALE_MS: String(staleMs),
+      TEMPAD_MCP_HUB_LOCK_UPDATE_MS: '1000'
+    }
+    const old = launch('hub.mjs', runtime, undefined, stores, [], runtimeEnv)
     await vi.waitFor(() => expect(old.stdout(), old.stderr()).toContain('ready'), {
       timeout: 5000
     })
@@ -348,19 +355,22 @@ it.skipIf(process.platform === 'win32')(
       join(stores, 'state/.tempad-hub-writer.lock'),
       join(stores, 'assets/.tempad-hub-writer.lock')
     ]
-    // Keep 30s of the real 60s lease: longer than the former 25s CLI retry
-    // window, without spending a full minute aging the killed Hub's locks.
-    const lastHeartbeat = new Date(Date.now() - 30000)
+    const lastHeartbeat = new Date()
     for (const lock of locks) utimesSync(lock, lastHeartbeat, lastHeartbeat)
     const identityPath = join(runtime, 'hub-runtime.json')
     const oldIdentity = readFileSync(identityPath, 'utf8')
-    const cli = launch('cli.mjs', runtime, undefined, stores)
+    const cli = launch('cli.mjs', runtime, undefined, stores, [], runtimeEnv)
     cli.child.stdin!.write('{"jsonrpc":"2.0","id":1,"method":"ping"}\n')
     try {
       await vi.waitFor(
         () => expect(cli.stderr()).toContain('Waiting for TemPad Hub to become available.'),
         { timeout: 15000 }
       )
+      while (Date.now() < lastHeartbeat.getTime() + staleMs) {
+        expect(cli.stdout()).not.toContain('"id":1')
+        expect(readFileSync(identityPath, 'utf8')).toBe(oldIdentity)
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
       await vi.waitFor(
         () => {
           expect(cli.child.exitCode, cli.stderr()).toBeNull()
@@ -368,7 +378,7 @@ it.skipIf(process.platform === 'win32')(
         },
         { timeout: 40000 }
       )
-      expect(Date.now() - lastHeartbeat.getTime()).toBeGreaterThanOrEqual(60000)
+      expect(Date.now() - lastHeartbeat.getTime()).toBeGreaterThanOrEqual(staleMs)
       // Filesystems may reuse freed inodes; each recovered lease needs a fresh heartbeat.
       for (const lock of locks) {
         expect(lstatSync(lock).mtimeMs).toBeGreaterThan(lastHeartbeat.getTime())

@@ -222,7 +222,11 @@ export async function startSupervisor(config: PrototypeConfig) {
     if (!state.autoBlockers) reasons.push('Hub cannot verify automatic switch readiness')
     else reasons.push(...state.autoBlockers)
     if (state.idleForMs === undefined || state.idleForMs < AUTOMATIC_IDLE_MS)
-      reasons.push('Waiting for five seconds without active work')
+      reasons.push(
+        AUTOMATIC_IDLE_MS === 5000
+          ? 'Waiting for five seconds without active work'
+          : `Waiting for ${AUTOMATIC_IDLE_MS} ms without active work`
+      )
     return reasons
   }
 

@@ -3,18 +3,40 @@ name: check-script-rewrite
 on:
   push:
     branches: [main]
+    paths:
+      - 'packages/extension/**'
+      - 'packages/shared/**'
+      - 'packages/plugins/**'
+      - 'package.json'
+      - 'pnpm-*.yaml'
+      - '.npmrc'
+      - '.github/workflows/check-rewrite.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'packages/extension/**'
+      - 'packages/shared/**'
+      - 'packages/plugins/**'
+      - 'package.json'
+      - 'pnpm-*.yaml'
+      - '.npmrc'
+      - '.github/workflows/check-rewrite.yml'
+  workflow_dispatch:
   schedule:
     - cron: '0 */2 * * *'
 
 permissions:
   contents: read
 
+concurrency:
+  group: rewrite-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-rewrite:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     env:
       FIGMA_EMAIL: ${{ secrets.FIGMA_EMAIL }}
@@ -32,12 +54,15 @@ jobs:
           echo '::notice::Live rewrite check skipped because Figma credentials are unavailable.'
 
       - name: Checkout repository
+        if: env.FIGMA_EMAIL != '' && env.FIGMA_PASSWORD != '' && env.FIGMA_FILE_KEY != ''
         uses: actions/checkout@v7
 
       - name: Setup pnpm
+        if: env.FIGMA_EMAIL != '' && env.FIGMA_PASSWORD != '' && env.FIGMA_FILE_KEY != ''
         uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
+        if: env.FIGMA_EMAIL != '' && env.FIGMA_PASSWORD != '' && env.FIGMA_FILE_KEY != ''
         uses: actions/setup-node@v7
         with:
           node-version: '24.x'
@@ -45,9 +70,11 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
+        if: env.FIGMA_EMAIL != '' && env.FIGMA_PASSWORD != '' && env.FIGMA_FILE_KEY != ''
         run: pnpm install --frozen-lockfile --filter @tempad-dev/extension...
 
       - name: Install browser runtime
+        if: env.FIGMA_EMAIL != '' && env.FIGMA_PASSWORD != '' && env.FIGMA_FILE_KEY != ''
         run: pnpm --filter @tempad-dev/extension test:setup
 
       - name: Run check script

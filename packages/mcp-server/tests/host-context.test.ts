@@ -96,6 +96,12 @@ describe('CLI host context', () => {
       TEMPAD_MCP_RUNTIME_DIR: '/run',
       TEMPAD_MCP_DEV_CHECKOUT: '/checkout',
       TEMPAD_MCP_APPLY_CANVAS_TIMEOUT: '300000',
+      TEMPAD_MCP_HUB_LOCK_STALE_MS: '3000',
+      TEMPAD_MCP_HUB_LOCK_UPDATE_MS: '1000',
+      TEMPAD_MCP_CONTROL_LEASE_MS: '2000',
+      TEMPAD_MCP_CONTROL_RENEW_MS: '200',
+      TEMPAD_MCP_RUNTIME_AUTO_IDLE_MS: '500',
+      TEMPAD_MCP_MAX_PAYLOAD_BYTES: '64',
       CODEX_HOME: '/first-codex',
       CODEX_SQLITE_HOME: '/first-sqlite',
       CODEX_THREAD_ID: 'parent',
@@ -113,7 +119,13 @@ describe('CLI host context', () => {
       SystemRoot: 'C:\\Windows',
       TEMPAD_MCP_RUNTIME_DIR: '/run',
       TEMPAD_MCP_DEV_CHECKOUT: '/checkout',
-      TEMPAD_MCP_APPLY_CANVAS_TIMEOUT: '300000'
+      TEMPAD_MCP_APPLY_CANVAS_TIMEOUT: '300000',
+      TEMPAD_MCP_HUB_LOCK_STALE_MS: '3000',
+      TEMPAD_MCP_HUB_LOCK_UPDATE_MS: '1000',
+      TEMPAD_MCP_CONTROL_LEASE_MS: '2000',
+      TEMPAD_MCP_CONTROL_RENEW_MS: '200',
+      TEMPAD_MCP_RUNTIME_AUTO_IDLE_MS: '500',
+      TEMPAD_MCP_MAX_PAYLOAD_BYTES: '64'
     })
     const helper = hostEnvironment(contextB, env)
     expect(helper).toMatchObject({

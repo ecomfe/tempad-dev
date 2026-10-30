@@ -852,7 +852,7 @@ active Hub available. The release policy is now maintained in [Releasing](../rel
 explicit activation, preserved session presentation, incompatible epochs, offline operation,
 corrupt caches, and checkout refusal. These process tests do not establish native host acceptance.
 Windows runs the same acquisition and switch transaction with private named pipes, ACL-checked
-storage and platform-specific child-process cleanup. The [Windows runtime CI](../../TESTING.md#windows-runtime-ci)
+storage and platform-specific child-process cleanup. The [Windows runtime CI](../../TESTING.md#runtime-ci)
 matrix must pass for the candidate before release; adding a platform to the manifest alone is
 not acceptance. This does not establish Windows desktop-host behavior.
 Publication must still satisfy these gates; they are not additional implementation phases:

@@ -5,18 +5,50 @@ on:
     branches: [main, 'ci/**']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['22.x', '24.x']
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' }}
+      runtime: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.runtime == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        if: github.event_name != 'workflow_dispatch'
+        with:
+          base: ${{ github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/heads/ci/') && 'main' || github.ref) || '' }}
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+              - '!**/AGENTS.md'
+              - '!TESTING.md'
+            runtime:
+              - '**'
+              - '!docs/**'
+              - '!**/AGENTS.md'
+              - '!TESTING.md'
+              - '!packages/extension/**'
+              - '!packages/plugins/**'
+              - '!packages/site/**'
+
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -29,24 +61,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: ${{ matrix.node }}
+          node-version: '24.x'
           cache: 'pnpm'
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Check agent plugin version
-        if: matrix.node == '24.x'
         env:
-          PLUGIN_VERSION_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || startsWith(github.ref, 'refs/heads/ci/') && 'origin/main' || github.event.before }}
+          PLUGIN_VERSION_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/ci/')) && 'origin/main' || github.event.before }}
         run: node scripts/check-agent-plugin-version.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install browser runtime
-        run: pnpm --filter @tempad-dev/extension test:setup
-
       - name: Check agent plugins
-        if: matrix.node == '24.x'
         run: >-
           pnpm agent-plugin:build &&
           test -z "$(git status --porcelain --untracked-files=all --
@@ -56,57 +83,57 @@ jobs:
           .claude-plugin/marketplace.json)"
 
       - name: Check plugin installer compatibility
-        if: matrix.node == '24.x'
         run: pnpm agent-plugin:check-installer
 
       - name: Type check
         run: pnpm typecheck
 
       - name: Lint
-        if: matrix.node == '24.x'
         run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.x', '24.x']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install browser runtime
+        run: pnpm --filter @tempad-dev/extension test:setup
 
       - name: Build project
         run: pnpm build
 
       - name: Test the built project
+        if: matrix.node == '22.x'
         run: |
           pnpm -r --filter '!@tempad-dev/extension' --if-present test:run
           pnpm --filter @tempad-dev/extension test:built
 
-      - name: Check packaged logging worker
-        run: pnpm --filter @tempad-dev/mcp check:logging
-
-      - name: Check coverage
+      # Coverage executes every Node test; only browser and bundle checks remain.
+      - name: Test with coverage
         if: matrix.node == '24.x'
         run: pnpm test:coverage
 
-      - name: Format check
+      - name: Test browsers and built extension
         if: matrix.node == '24.x'
-        run: pnpm format:check
-
-      - name: Check bridge compatibility
-        run: node packages/mcp-server/scripts/check-bridge-compatibility.mjs
-
-      - name: Check runtime profile isolation
-        run: node packages/mcp-server/scripts/check-runtime-profiles.mjs
-
-      - name: Check CLI host context isolation
-        run: node packages/mcp-server/scripts/check-host-context.mjs
-
-      - name: Check isolated runtime supervisor
-        run: pnpm mcp:check-runtime-prototype
-
-      - name: Check local runtime switching and recovery
-        run: pnpm mcp:check-runtime-switch
-
-      - name: Prepare dependency metadata for offline release packaging
-        run: pnpm mcp:prepare-release-dependencies
-
-      - name: Check verified release downloads and explicit activation
-        env:
-          npm_config_logs_dir: ${{ runner.temp }}/tempad-npm-logs
-        run: pnpm mcp:check-runtime-updates
+        run: |
+          pnpm -r --if-present test:browser
+          pnpm --filter @tempad-dev/extension check:worker-sandbox
+          pnpm --filter @tempad-dev/extension check:built-runtime
 
       - name: Preserve failure evidence
         if: failure()
@@ -115,13 +142,15 @@ jobs:
           name: validation-failures-node-${{ matrix.node }}
           path: |
             packages/*/.vitest/attachments/**
-            ${{ runner.temp }}/tempad-npm-logs
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
 
   typescript-compatibility:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -147,3 +176,26 @@ jobs:
           node "$vue_tsc" -p "$GITHUB_WORKSPACE/packages/extension/tsconfig.json" --noEmit
           node "$vue_tsc" --build "$GITHUB_WORKSPACE/packages/site/tsconfig.json"
           node "$GITHUB_WORKSPACE/scripts/check-declarations.mjs" "$tsc"
+
+  runtime:
+    needs: changes
+    if: needs.changes.outputs.runtime == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    uses: ./.github/workflows/runtime.yml
+    with:
+      os: ${{ matrix.os }}
+
+  # A stable required check also succeeds when unrelated jobs are skipped.
+  ci:
+    if: always()
+    needs: [changes, quality, build, typescript-compatibility, runtime]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all selected checks to pass
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          node -e 'const results = JSON.parse(process.env.RESULTS); if (results.some(result => !["success", "skipped"].includes(result))) process.exit(1)'

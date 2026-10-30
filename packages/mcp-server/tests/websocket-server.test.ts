@@ -1,6 +1,8 @@
+import { once } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket, WebSocketServer } from 'ws'
 
+import { getMcpServerConfig } from '../src/config'
 import { createExtensionOriginPolicy } from '../src/security'
 import { startExtensionWebSocketServer } from '../src/websocket-server'
 
@@ -8,10 +10,40 @@ const STORE_ORIGIN = 'chrome-extension://lgoeakbaikpkihoiphamaeopmliaimpc'
 const servers: WebSocketServer[] = []
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(servers.splice(0).map(closeServer))
 })
 
 describe('extension WebSocket server', () => {
+  it('accepts payloads at the configured byte limit and closes above it', async () => {
+    vi.stubEnv('TEMPAD_MCP_MAX_PAYLOAD_BYTES', '64')
+    const started = await startExtensionWebSocketServer({
+      maxConnections: 1,
+      maxPayloadBytes: getMcpServerConfig().maxPayloadBytes,
+      originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
+      portCandidates: [0]
+    })
+    servers.push(started.server)
+    const connected = once(started.server, 'connection')
+    const socket = new WebSocket(`ws://127.0.0.1:${started.port}/`, { origin: STORE_ORIGIN })
+    try {
+      await waitForOpen(socket)
+      const [peer] = (await connected) as [WebSocket]
+      for (const payload of ['x'.repeat(63), 'é'.repeat(32)]) {
+        const message = once(peer, 'message')
+        socket.send(payload)
+        expect((await message)[0].toString()).toBe(payload)
+      }
+      const error = once(peer, 'error')
+      const closed = once(socket, 'close')
+      socket.send('é'.repeat(32) + 'x')
+      expect((await error)[0]).toMatchObject({ code: 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH' })
+      expect((await closed)[0]).toBe(1009)
+    } finally {
+      socket.terminate()
+    }
+  })
+
   it('rejects unknown subprotocols before registering a connection', async () => {
     const started = await startExtensionWebSocketServer({
       maxConnections: 2,

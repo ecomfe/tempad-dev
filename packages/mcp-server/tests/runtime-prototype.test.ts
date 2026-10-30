@@ -92,6 +92,8 @@ describe('runtime control negotiation and admission', () => {
     const obsolete = { ...registration, sessionId: randomUUID(), token: randomUUID() }
     await first.request({ method: 'tempad/runtime-register', params: obsolete }, ResultSchema)
     const second = await peer()
+    now = LEASE_MS - 1
+    expect(control.available()).toBe(true)
     await expect(acquire(second)).rejects.toThrow('already owned')
     now = LEASE_MS
     expect(control.available()).toBe(false)

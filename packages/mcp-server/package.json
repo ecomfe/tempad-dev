@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Connect coding agents to Figma for design inspection, native canvas editing, and UI implementation.",
   "license": "MIT",
   "repository": {

@@ -6,6 +6,7 @@ import { finished } from 'node:stream/promises'
 import { z } from 'zod'
 
 import { ClientHookRequestSchema } from '../agent-clients/hooks'
+import { getRuntimeTimingConfig } from '../config'
 import {
   ControlPeer,
   LEASE_MS,
@@ -17,7 +18,7 @@ import {
   unavailable
 } from './protocol'
 
-export const AUTOMATIC_IDLE_MS = 5000
+export const AUTOMATIC_IDLE_MS = getRuntimeTimingConfig().automaticIdleMs
 
 export class HubControl {
   readonly hubId = randomUUID()

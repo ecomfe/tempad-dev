@@ -1,0 +1,124 @@
+name: Runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: Runner platform
+        type: choice
+        default: windows-latest
+        options: [ubuntu-latest, windows-latest]
+  workflow_call:
+    inputs:
+      os:
+        type: string
+        default: windows-latest
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.x', '24.x']
+        suite: [contracts, switch-lifecycle, switch-recovery, updates]
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      TEMPAD_RUNTIME_EVIDENCE_DIR: ${{ github.workspace }}/runtime-ci-logs/fixtures
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Preserve reviewed source bytes
+        run: git config --global core.autocrlf false
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Share dependency metadata across install and offline packaging
+        run: |
+          echo "pnpm_config_cache_dir=$RUNNER_TEMP/tempad-pnpm-cache" >> "$GITHUB_ENV"
+          echo "npm_config_logs_dir=$RUNNER_TEMP/tempad-npm-logs" >> "$GITHUB_ENV"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --filter @tempad-dev/mcp...
+
+      - name: Prepare dependency metadata for offline release packaging
+        if: matrix.suite == 'updates'
+        run: pnpm mcp:prepare-release-dependencies
+
+      - name: Record runtime environment
+        env:
+          EXPECTED_NODE: ${{ matrix.node }}
+          EXPECTED_PLATFORM: ${{ runner.os == 'Windows' && 'win32' || 'linux' }}
+        run: |
+          mkdir -p runtime-ci-logs
+          pnpm exec node -e '
+            console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,execPath:process.execPath}));
+            if (process.platform !== process.env.EXPECTED_PLATFORM || process.versions.node.split(".")[0] !== process.env.EXPECTED_NODE.split(".")[0]) throw new Error("Unexpected test runtime");
+          ' | tee runtime-ci-logs/environment.log
+          pnpm --version | tee -a runtime-ci-logs/environment.log
+          pnpm config get cache-dir | tee -a runtime-ci-logs/environment.log
+
+      - name: Build runtime packages
+        run: |
+          pnpm --filter @tempad-dev/shared build
+          if [[ '${{ matrix.suite }}' != switch-* ]]; then
+            pnpm build:mcp
+          fi
+
+      - name: Test runtime contracts and platform boundaries
+        if: matrix.suite == 'contracts' && runner.os == 'Windows'
+        run: |
+          pnpm --filter @tempad-dev/mcp exec vitest run --config vitest.config.ts tests/runtime- tests/stable-edge.test.ts --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000 2>&1 | tee runtime-ci-logs/unit.log
+
+      - name: Check packaged logging, bridge and host isolation
+        if: matrix.suite == 'contracts' && runner.os == 'Linux'
+        run: |
+          node packages/mcp-server/scripts/check-log-transport.mjs 2>&1 | tee runtime-ci-logs/logging.log
+          node packages/mcp-server/scripts/check-bridge-compatibility.mjs 2>&1 | tee runtime-ci-logs/bridge.log
+          node packages/mcp-server/scripts/check-runtime-profiles.mjs 2>&1 | tee runtime-ci-logs/profiles.log
+          node packages/mcp-server/scripts/check-host-context.mjs 2>&1 | tee runtime-ci-logs/host-context.log
+
+      - name: Check supervisor recovery and concurrent edges
+        if: matrix.suite == 'contracts'
+        run: |
+          pnpm --filter @tempad-dev/mcp exec tsdown --config tsdown.prototype.config.ts
+          node packages/mcp-server/scripts/check-runtime-prototype.mjs 2>&1 | tee runtime-ci-logs/prototype.log
+
+      - name: Check switching, in-flight requests, crashes and rollback
+        if: startsWith(matrix.suite, 'switch-')
+        env:
+          TEMPAD_SWITCH_SHARD: ${{ matrix.suite == 'switch-lifecycle' && '1' || '2' }}
+        run: |
+          node packages/mcp-server/scripts/check-runtime-switch.mjs 2>&1 | tee runtime-ci-logs/switch.log
+
+      - name: Check verified downloads and automatic activation
+        if: matrix.suite == 'updates'
+        run: |
+          node packages/mcp-server/scripts/check-runtime-updates.mjs 2>&1 | tee runtime-ci-logs/updates.log
+
+      - name: Preserve runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: runtime-${{ runner.os }}-node-${{ matrix.node }}-${{ matrix.suite }}
+          path: |
+            runtime-ci-logs
+            ${{ runner.temp }}/tempad-npm-logs
+          retention-days: 14
+          if-no-files-found: warn

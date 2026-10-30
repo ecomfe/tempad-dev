@@ -114,6 +114,10 @@ Windows 的托管更新使用命名管道和经过 ACL 校验的私有存储；
 - `TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT`：指定页面 ID 或 key 的 `get_structure` 超时时间（毫秒，默认 `45000`；冷页面可能需要先加载，节点和当前选择的读取仍使用常规超时）。设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值。
 - `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`：`apply_canvas` 慢调用告警阈值（毫秒，默认 `120000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。达到阈值的两倍时，Hub 会报告结果未知。继续写入前，既需要明确操作已结束或完成会话恢复，也需要读取该文件并获得至少一个结构根节点或代码结果，或通过 `get_structure` 获得指定页面的快照（含空页面）；空选区和失败的节点读取不计入。`CANVAS_APPLY_FAILED` 也要求读回，因为回滚结果未获确认，旧版扩展的此类错误同样如此。`CANVAS_APPLY_ABORTED` 确认写入前准备失败，无需额外读回文件。Undo 边界内的失败仍保留读回要求，因为回滚验证仅覆盖部分原生状态。重启 Hub 不会清除读回要求。请先检查画布，不要重放写入。
 - `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`：仅一个扩展连接时自动激活前的延迟（默认 `1500`）。
+- `TEMPAD_MCP_HUB_LOCK_STALE_MS` / `TEMPAD_MCP_HUB_LOCK_UPDATE_MS`：写锁过期时间与心跳间隔（默认 `60000` / `10000`）。过期时间至少为 `2000`；心跳至少为 `1000`，且不超过过期时间的一半。只缩短过期时间时，默认心跳间隔会相应缩短。
+- `TEMPAD_MCP_CONTROL_LEASE_MS` / `TEMPAD_MCP_CONTROL_RENEW_MS`：运行时控制租约与续租间隔（默认 `10000` / `2000`）。租约至少为 `100`；续租间隔必须为正，且不超过租约的一半。只缩短租约时，默认续租间隔会相应缩短。
+- `TEMPAD_MCP_RUNTIME_AUTO_IDLE_MS`：满足升级条件后，运行时自动激活所需的空闲窗口（默认 `5000`），与扩展自动选择不同。时间参数必须是正整数毫秒，最大为 `2147483647`；无效值回退到默认值。共享运行时的进程应使用相同配置；隔离测试使用较短间隔，启动超时保持不变。
+- `TEMPAD_MCP_MAX_PAYLOAD_BYTES`：来自扩展的 WebSocket 消息大小上限（字节，默认 `4194304`）。允许调小，但不能超过共享协议上限；无效值回退到默认值。
 - `TEMPAD_MCP_MAX_ASSET_BYTES`：截图/资源捕获的最大上传体积（字节，默认 `8388608`）。
 - `TEMPAD_MCP_MAX_ASSET_STORE_BYTES`：本地资源存储总量上限（字节，默认 `268435456`）。
 - `TEMPAD_MCP_MAX_CONCURRENT_ASSET_UPLOADS`：资源并发上传上限（默认 `4`）。

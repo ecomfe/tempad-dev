@@ -14,6 +14,16 @@ import { ensurePrivateDirectory, windowsPowerShellEnvironment } from '../src/run
 // seconds for the SDK exchange without changing any business-request deadline.
 export const FIXTURE_INITIALIZE_TIMEOUT_MS = 95_000
 
+// Only process fixtures opt in; production defaults and startup deadlines stay intact.
+// Windows native ACL helpers need more headroom than Unix socket/file operations.
+export const RUNTIME_TEST_ENV = {
+  TEMPAD_MCP_HUB_LOCK_STALE_MS: process.platform === 'win32' ? '10000' : '3000',
+  TEMPAD_MCP_HUB_LOCK_UPDATE_MS: '1000',
+  TEMPAD_MCP_CONTROL_LEASE_MS: process.platform === 'win32' ? '10000' : '2000',
+  TEMPAD_MCP_CONTROL_RENEW_MS: process.platform === 'win32' ? '1000' : '200',
+  TEMPAD_MCP_RUNTIME_AUTO_IDLE_MS: '500'
+}
+
 export async function fixtureRoot(prefix) {
   if (process.platform === 'win32') {
     const root = join(tmpdir(), `${prefix}${randomUUID()}`)

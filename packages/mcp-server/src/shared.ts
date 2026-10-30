@@ -10,6 +10,7 @@ import {
   runtimeSocketPath
 } from '../../../agent-plugin/src/clients/shared/runtime-profile.mjs'
 import packageJson from '../package.json' with { type: 'json' }
+import { getRuntimeTimingConfig } from './config'
 import { pruneExpiredLogs } from './log-retention'
 import { ensurePrivateDirectory } from './runtime-platform'
 
@@ -108,8 +109,9 @@ ensureFile(LOCK_PATH)
 ensureFile(HUB_LOCK_PATH)
 
 export const HUB_BUSY_EXIT_CODE = 75
-export const HUB_LOCK_STALE_MS = 60000
-export const HUB_LOCK_UPDATE_MS = 10000
+const runtimeTiming = getRuntimeTimingConfig()
+export const HUB_LOCK_STALE_MS = runtimeTiming.hubLockStaleMs
+export const HUB_LOCK_UPDATE_MS = runtimeTiming.hubLockUpdateMs
 
 const timestamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
 const pid = process.pid

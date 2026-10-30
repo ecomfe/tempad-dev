@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1
+
+- Added environment overrides for writer lock expiry, control leases, automatic update idle
+  windows, and incoming WebSocket payload limits. Production defaults remain unchanged;
+  payload overrides cannot exceed the shared protocol ceiling.
+- Shortened isolated runtime test intervals while retaining expiry, update admission, and
+  payload boundary checks. Split runtime CI suites and removed duplicate test execution.
+
 ## 1.0.0
 
 ### Runtime updates

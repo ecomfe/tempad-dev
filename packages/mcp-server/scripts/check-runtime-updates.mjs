@@ -23,6 +23,7 @@ import { runPackageManager } from './package-manager.mjs'
 import { runtimeSourceHash } from './runtime-source-hash.mjs'
 import {
   FIXTURE_INITIALIZE_TIMEOUT_MS,
+  RUNTIME_TEST_ENV,
   commandArguments,
   fixtureEnvironment,
   fixtureNodeArguments,
@@ -109,6 +110,7 @@ const registryUrl = `http://127.0.0.1:${registry.address().port}`
 const isolationEnv = {
   ...process.env,
   ...fixtureEnvironment(join(root, 'home'), root),
+  ...RUNTIME_TEST_ENV,
   TEMPAD_MCP_RUNTIME_DIR: join(root, 'run'),
   TEMPAD_MCP_STATE_DIR: join(root, 'state'),
   TEMPAD_MCP_ASSET_DIR: join(root, 'assets'),
@@ -131,6 +133,7 @@ for (const path of ['home', 'run', 'state', 'assets', 'logs'])
   await mkdir(join(root, path), { mode: 0o700 })
 // Verifier imports initialize logging; keep that tooling process private too.
 for (const key of [
+  ...Object.keys(RUNTIME_TEST_ENV),
   'TEMPAD_MCP_RUNTIME_DIR',
   'TEMPAD_MCP_STATE_DIR',
   'TEMPAD_MCP_ASSET_DIR',
@@ -366,6 +369,10 @@ async function stopFixture(directory) {
 }
 
 async function automaticAcceptance(a, b) {
+  // Observe several opportunities to activate, not eight seconds of wall time.
+  const idleMs = Number(RUNTIME_TEST_ENV.TEMPAD_MCP_RUNTIME_AUTO_IDLE_MS)
+  const renewalMs = Number(RUNTIME_TEST_ENV.TEMPAD_MCP_CONTROL_RENEW_MS)
+  const observationMs = idleMs + 3 * renewalMs
   const directory = join(root, 'auto')
   const env = { ...isolationEnv }
   for (const [key, name] of Object.entries({
@@ -443,14 +450,17 @@ async function automaticAcceptance(a, b) {
     assert.match(confirmationError, /activation cancelled/)
     assert.equal((await status()).updates.manualCandidate.version, b.version)
     await observer.close()
-    const manualWait = performance.now() + 8000
+    const manualWait = performance.now() + observationMs
     await until(async () => {
+      const state = await status()
       assert.equal(
-        (await status()).active.version,
+        state.active.version,
         a.version,
         'cancelled exact release must never auto-activate'
       )
-      return performance.now() >= manualWait
+      assert.equal(state.updates.candidate, undefined, 'manual staging is not automatic enrollment')
+      assert.equal(state.gated, false, 'manual staging must not pause admission')
+      return performance.now() >= manualWait && state.idleForMs >= idleMs
     }, 'manual staging remains inactive')
     observer = await client(a, 'off', env)
     latestVersion = published
@@ -483,10 +493,13 @@ async function automaticAcceptance(a, b) {
     )
     const oldPid = staged.hubPid
     const remainsStaged = async (reason) => {
-      const deadline = performance.now() + 8000
+      const deadline = performance.now() + observationMs
       await until(async () => {
         const state = await status()
         assert.equal(state.hubPid, oldPid, reason)
+        assert.equal(state.gated, false, reason)
+        assert.equal(state.phase, 'committed', reason)
+        assert.ok(state.updates.automaticPendingReasons.length > 0, reason)
         return performance.now() >= deadline
       }, reason)
     }
@@ -650,7 +663,7 @@ async function automaticAcceptance(a, b) {
 
     // Every completed call resets the quiet window. Keep sending actual tool
     // calls longer than that window, including while the non-opt-in peer exits.
-    const workUntil = performance.now() + 6500
+    const workUntil = performance.now() + observationMs
     let calls = 0
     let workError
     const work = (async () => {
