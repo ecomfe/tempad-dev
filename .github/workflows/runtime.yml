@@ -110,7 +110,7 @@ jobs:
       - name: Check verified downloads and automatic activation
         if: matrix.suite == 'updates'
         run: |
-          node packages/mcp-server/scripts/check-runtime-updates.mjs 2>&1 | tee runtime-ci-logs/updates.log
+          pnpm exec node packages/mcp-server/scripts/check-runtime-updates.mjs 2>&1 | tee runtime-ci-logs/updates.log
 
       - name: Preserve runtime evidence
         if: always()
