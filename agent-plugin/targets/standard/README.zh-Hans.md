@@ -45,6 +45,7 @@ codex plugin add tempad-dev@tempad-dev
 
 Codex 包将工具超时设为 300 秒，让 Hub 有时间在客户端停止等待前返回较慢画布操作的结果，
 或明确报告结果未知。
+MCP 启动超时设为 120 秒，为 npm 下载和首次运行时准备留出余量；实际启动耗时仍受网络状况影响。
 
 ### Claude Code 和 Claude Desktop
 

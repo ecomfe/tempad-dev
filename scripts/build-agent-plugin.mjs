@@ -48,7 +48,7 @@ buildHost(join(targetRoot, 'plugins-cli'), (target) =>
   writeJson(join(target, '.plugin/plugin.json'), sharedManifestFields(manifest))
 )
 const codexMcp = hostMcpConfig(portableMcp)
-codexMcp.mcpServers[manifest.name].tool_timeout_sec = codexMcpSettings.tool_timeout_sec
+Object.assign(codexMcp.mcpServers[manifest.name], codexMcpSettings)
 buildHost(
   join(targetRoot, 'codex'),
   (target) => writeCodexManifest(target, manifest, codexInterface),
@@ -143,11 +143,14 @@ function buildDev(marketplaces) {
     {
       mcpServers: {
         [devName]: fixture
-          ? nativeFixtureServer(fixture, codexMcpSettings.tool_timeout_sec)
+          ? {
+              ...nativeFixtureServer(fixture, codexMcpSettings.tool_timeout_sec),
+              ...codexMcpSettings
+            }
           : {
               command: 'node',
               args: [join(root, 'packages/mcp-server/dist/cli.mjs')],
-              tool_timeout_sec: codexMcpSettings.tool_timeout_sec,
+              ...codexMcpSettings,
               env: {
                 TEMPAD_MCP_DEV_CHECKOUT: root,
                 TEMPAD_MCP_MAX_ASSET_STORE_BYTES: String(devMaxAssetStoreBytes)

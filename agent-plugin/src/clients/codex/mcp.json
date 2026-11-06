@@ -1,3 +1,4 @@
 {
-  "tool_timeout_sec": 300
+  "tool_timeout_sec": 300,
+  "startup_timeout_sec": 120
 }

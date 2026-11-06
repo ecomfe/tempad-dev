@@ -49,6 +49,8 @@ marketplace.
 
 The Codex package sets a 300-second tool timeout so the Hub can report a slow canvas
 operation's result or unknown outcome before the client stops waiting.
+It also sets a 120-second MCP startup timeout to allow for npm downloads and first-run
+runtime preparation; network conditions still affect the actual startup time.
 
 ### Claude Code and Claude Desktop
 

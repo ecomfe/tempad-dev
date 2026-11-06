@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- Set Codex's MCP startup timeout to 120 seconds to allow for npm downloads and first-run
+  runtime preparation. Other hosts retain their own startup timeout settings.
+
 ## 1.0.0
 
 - Enabled verified runtime downloads and compatible Hub updates between operations on macOS,

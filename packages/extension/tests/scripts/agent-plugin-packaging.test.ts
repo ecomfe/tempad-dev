@@ -229,6 +229,8 @@ it('enrolls release installs in stable updates while keeping development pinned 
 it('gives Codex enough time to receive the bounded canvas outcome', () => {
   const settings = JSON.parse(sourceFile('clients/codex/mcp.json'))
   expect(settings.tool_timeout_sec).toBe(300)
+  expect(settings.startup_timeout_sec).toBe(120)
+  expect(read(join(CODEX, '.mcp.json')).mcpServers['tempad-dev'].startup_timeout_sec).toBe(120)
   expect(read(join(CODEX, '.mcp.json')).mcpServers['tempad-dev'].tool_timeout_sec).toBe(300)
   expect(read(join(DEV, '.mcp.json')).mcpServers['tempad-dev-dev'].tool_timeout_sec).toBe(300)
   for (const target of [CLAUDE, PLUGINS_CLI]) {
@@ -301,6 +303,7 @@ it('limits the native runtime fixture to the ignored plugin and routes both host
       command: 'node',
       args: [join(artifacts[0]!.directory, 'dist/cli.mjs'), '--runtime-updates=stable'],
       tool_timeout_sec: 300,
+      startup_timeout_sec: 120,
       env: fixture.env
     })
     expect(read(join(DEV, 'runtime-fixture.json'))).toEqual({ descriptor })
