@@ -117,6 +117,7 @@ export async function startSupervisor(config: PrototypeConfig) {
   let closing = false
   let transitioning = false
   let renewing = false
+  let recoveringDisconnected = false
   let automaticChecking = false
   let automaticRetryAt = 0
   let automaticError: string | undefined
@@ -482,11 +483,18 @@ export async function startSupervisor(config: PrototypeConfig) {
 
   function recoverDisconnectedHub() {
     if (closing || transitioning || hub) return
-    if (!edges.size) void close()
-    else
-      void recover().catch((error) => {
-        process.stderr.write(`Runtime recovery failed: ${String(error)}\n`)
+    if (!edges.size) {
+      void close()
+      return
+    }
+    recoveringDisconnected = true
+    void recover()
+      .catch((error) => {
+        if (!closing) process.stderr.write(`Runtime recovery failed: ${String(error)}\n`)
         void close()
+      })
+      .finally(() => {
+        recoveringDisconnected = false
       })
   }
 
@@ -932,7 +940,10 @@ export async function startSupervisor(config: PrototypeConfig) {
     peer.onclose = () => {
       clearTimeout(timeout)
       peers.delete(peer)
-      edges.delete(peer)
+      const detached = edges.delete(peer)
+      // Data and control pipes can close in either order. Do not keep a probe
+      // (or a departed host) alive recovering a Hub for an edge that just left.
+      if (detached && !edges.size && recoveringDisconnected) void close()
       updates?.schedule()
     }
     peer.setRequestHandler(

@@ -3,13 +3,13 @@
   "guidanceEpoch": 1,
   "guidanceReview": {
     "version": "1.0.3",
-    "sourceHash": "bd469461370b11704467944bc7943c3b97b03098f3e6d618b47fc5f4c51eb290",
+    "sourceHash": "d2f50c20944b8de3c2ddebfd4bb9060155345bbb2408ae66563feedf06e2791b",
     "decision": "compatible",
     "baseline": {
       "version": "1.0.2",
       "integrity": "sha512-gL6ehWZHF645i8JVQqhjH2xYVGMiU76MhlQYuNaP5ltwOOf65mfP2YYmasSWofGMejqatl8UCxPGgCLDImRmkw=="
     },
-    "rationale": "Resumes Hub recovery after control loss during a runtime update and publishes supervisor status atomically. Interrupted switches are not replayed. Tool guidance, control and extension protocols, and durable state remain compatible with 1.0.2 and earlier epoch-1 releases."
+    "rationale": "Resumes Hub recovery after control loss during a runtime update, cancels background recovery when its last client exits, and publishes supervisor status atomically. Interrupted switches are not replayed. Tool guidance, control and extension protocols, and durable state remain compatible with 1.0.2 and earlier epoch-1 releases."
   },
   "controlProtocols": [2],
   "state": { "family": "tempad-runtime", "reads": [1], "writes": 1 },

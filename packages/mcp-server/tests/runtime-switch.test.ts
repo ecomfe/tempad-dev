@@ -390,6 +390,7 @@ async function fixture(
     b,
     hubs,
     control,
+    disconnectEdge: () => edge.close(),
     admissions,
     retireLegacy,
     disconnectBeforeStop: () => {
@@ -495,6 +496,25 @@ it.each(['probe', 'admission'])(
   },
   2 * recoveryWait
 )
+
+it('cancels disconnected Hub recovery when its last edge closes', async () => {
+  const f = await fixture()
+  const connect = processes.connectSocket
+  let recoverySignal: AbortSignal | undefined
+  vi.spyOn(processes, 'connectSocket').mockImplementation((path, signal) => {
+    if (path !== hubSocketPath(f.root)) return connect(path, signal)
+    recoverySignal = signal
+    return new Promise((_resolve, reject) => {
+      signal!.addEventListener('abort', () => reject(signal!.reason), { once: true })
+    })
+  })
+  await f.hubs[0]!.disconnect()
+  await vi.waitFor(() => expect(recoverySignal).toBeDefined(), { timeout: recoveryWait })
+  await f.disconnectEdge()
+  await vi.waitFor(() => expect(recoverySignal!.aborted).toBe(true))
+  await vi.waitFor(() => expect(f.control.transport).toBeUndefined())
+  expect(fake.launch).not.toHaveBeenCalled()
+})
 
 it('does not restart the drain budget after an admission barrier uses it up', async () => {
   const f = await fixture()

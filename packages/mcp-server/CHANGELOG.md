@@ -5,6 +5,8 @@
 - Recover the existing Hub connection when control is lost during a runtime update, without
   replaying the interrupted switch or replacing a live Hub.
 - Publish supervisor status atomically so concurrent readers cannot see a partial JSON record.
+- Stop background Hub recovery when the last client leaves, allowing isolated verification
+  processes to shut down regardless of data/control connection close order.
 
 ## 1.0.2
 
