@@ -51,6 +51,7 @@ import {
   SocketTransport,
   unavailable
 } from '../src/runtime-prototype/protocol'
+import * as startupLog from '../src/startup-log'
 
 const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => {
@@ -432,12 +433,16 @@ it
     new Error('MCP_RUNTIME_RESTART_REQUIRED: pinned client requests a different runtime.'),
     new McpError(-32001, 'Unclassified request timeout.')
   ])('rejects permanent registration failures without retrying: %s', async (error) => {
-  const { connect, registrations, initialized } = await fixture({
+  const finish = vi.spyOn(startupLog, 'finishStartup')
+  const { connect, edge, registrations, initialized } = await fixture({
     hello: () => {
       throw error
     }
   })
   await expect(connect()).rejects.toThrow(error.message)
+  await edge
+  expect(finish).toHaveBeenCalledWith('failed', expect.any(Error))
+  expect(finish).not.toHaveBeenCalledWith('ready')
   expect(registrations).toHaveLength(1)
   expect(initialized()).toBe(0)
 })

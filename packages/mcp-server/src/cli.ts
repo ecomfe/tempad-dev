@@ -31,6 +31,7 @@ import {
   assertTrustedSocket,
   resolveStateDir
 } from './shared'
+import { finishStartup, startStartup } from './startup-log'
 
 let activeSocket: Socket | null = null
 let shuttingDown = false
@@ -82,6 +83,7 @@ function bridge(socket: Socket): Promise<boolean> {
     })
     output.on('data', () => {
       receivedOutput = true
+      finishStartup('ready')
     })
     output.on('error', (error) => {
       outputError = error
@@ -282,10 +284,12 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
 }
 
 async function main() {
+  startStartup('cli')
   try {
     const { maybeManagedRuntime } = await import('./runtime-update/bootstrap')
     if (await maybeManagedRuntime(process.argv.slice(2), join(HERE, '..'))) return
   } catch (error) {
+    finishStartup('failed', error)
     process.stderr.write(`TemPad runtime startup failed: ${String(error)}\n`)
     process.exitCode = 1
     process.stdin.destroy()
@@ -307,7 +311,9 @@ async function main() {
           return tryBecomeLeaderAndStartHub()
         })
       )
+      finishStartup('ready')
     } catch (error) {
+      finishStartup('failed', error)
       process.stderr.write(
         `Runtime recovery failed: ${error instanceof Error ? error.message : String(error)}\n`
       )
@@ -328,7 +334,9 @@ async function main() {
       process.stdout.write(
         `Task storage recovered. Old tasks remain retired; begin a fresh task to write.\nOriginal files: ${result.backupDirectory}\n`
       )
+      finishStartup('ready')
     } catch (error) {
+      finishStartup('failed', error)
       process.stderr.write(
         `Task storage recovery failed: ${error instanceof Error ? error.message : String(error)}\n`
       )
@@ -366,6 +374,7 @@ async function main() {
       if (connected && transient) failedAttempts = 0
       else failedAttempts++
       if (failedAttempts >= 3 && (!transient || Date.now() >= startupDeadline)) {
+        finishStartup('failed', err)
         const reason = err instanceof Error ? err.message : String(err)
         process.stderr.write(
           `Unable to connect to TemPad Hub after ${failedAttempts} ${connected ? 'reconnect' : 'startup'} attempts: ${reason} Reconnect the MCP client after resolving the connection error.\n`

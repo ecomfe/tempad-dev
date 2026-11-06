@@ -17,6 +17,7 @@ vi.mock('../src/hub-runtime', () => ({ startHub: fake.hub }))
 vi.mock('../src/runtime-prototype/supervisor', () => ({ startSupervisor: fake.supervisor }))
 vi.mock('../src/runtime-prototype/edge', () => ({ startPrototypeEdge: fake.edge }))
 vi.mock('../src/shared', () => ({ endLogging: () => {} }))
+vi.mock('../src/startup-log', () => ({ startStartup: vi.fn(), finishStartup: vi.fn() }))
 vi.mock('../src/runtime-prototype/processes', () => ({
   prototypeConfig: (root: string) => ({ ...fake.config, root }),
   hubSocketPath: (root: string, runtime = join(root, 'run')) => join(runtime, 'runtime-hub.sock'),

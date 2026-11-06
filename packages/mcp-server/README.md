@@ -163,6 +163,11 @@ Each process log is capped at 10 MiB. Crossing the limit discards older entries 
 oversized entries are truncated with a marker. Logs from exited processes are removed after
 seven days without writes. This is a per-file limit, not an aggregate directory quota.
 
+Startup phases are also written synchronously to `startup-mcp-*.log` in the same directory,
+up to 1 MiB per process, until the first readiness or startup failure. These files distinguish
+verification, cache writes, lock waits, and runtime launch failures, but cannot measure `npx`
+downloads before the CLI starts.
+
 On Linux, the runtime claims `<system temp>/tempad-dev` with mode `0700` when absent, or reuses
 that directory when owned by the current user with mode `0700`. This keeps older installed hooks
 working after a reboot and upgrading clients connected to the same Hub and lifecycle locks. An

@@ -24,6 +24,7 @@ import {
   removeHubRuntimeIdentityIfOwned,
   writeHubRuntimeIdentity
 } from '../src/runtime-identity'
+import runtimeBuild, { workerEntries } from '../tsdown.config'
 
 describe('runtime identity', () => {
   it('publishes, reads, and owner-removes an atomic Hub identity', ({ onTestFinished }) => {
@@ -130,14 +131,11 @@ it.skipIf(process.platform === 'win32').each([
     let child: ReturnType<typeof spawn> | undefined
     try {
       await build({
+        ...runtimeBuild,
         config: false,
         cwd: packageRoot,
-        entry: ['src/cli.ts', 'src/log-transport.ts'],
+        entry: { cli: 'src/cli.ts', 'log-transport': 'src/log-transport.ts', ...workerEntries },
         outDir: bundleDir,
-        format: ['esm'],
-        platform: 'node',
-        target: 'node22',
-        inputOptions: { resolve: { conditionNames: ['source'] } },
         dts: false,
         logLevel: 'silent'
       })

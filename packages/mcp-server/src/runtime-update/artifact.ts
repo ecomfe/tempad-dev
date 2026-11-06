@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import type { Artifact } from '../runtime-prototype/state'
 
+import { startupPhase } from '../startup-log'
 import { privateDirectory, publishDirectory, writePackageFiles } from './cache'
 import { assertRunnable, MANIFEST_PATH, ManifestSchema } from './manifest'
 import { readInstalledPackage, sha256, verifyPackage } from './package'
@@ -22,16 +23,18 @@ export function releaseManifest(artifact: Artifact) {
 }
 
 export function verifyReleaseArtifact(artifact: Artifact) {
-  if (!artifact.release) throw new Error('The runtime has no verified release payload.')
-  const { directory, manifestHash } = artifact.release
-  const files = readInstalledPackage(directory)
-  if (sha256(files.get(MANIFEST_PATH) ?? '') !== manifestHash)
-    throw new Error('Runtime manifest changed.')
-  const manifest = verifyPackage(files, artifact.version)
-  assertRunnable(manifest)
-  if (artifact.entry !== join(directory, manifest.entry))
-    throw new Error('Runtime entry differs from its manifest.')
-  return manifest
+  return startupPhase('verify-retained-package', () => {
+    if (!artifact.release) throw new Error('The runtime has no verified release payload.')
+    const { directory, manifestHash } = artifact.release
+    const files = readInstalledPackage(directory)
+    if (sha256(files.get(MANIFEST_PATH) ?? '') !== manifestHash)
+      throw new Error('Runtime manifest changed.')
+    const manifest = verifyPackage(files, artifact.version)
+    assertRunnable(manifest)
+    if (artifact.entry !== join(directory, manifest.entry))
+      throw new Error('Runtime entry differs from its manifest.')
+    return manifest
+  })
 }
 
 /** The installed bootstrap is already trusted. Copy only its inventoried closure
@@ -41,16 +44,21 @@ export async function retainBundledPackage(source: string, cache: string) {
   const manifestBytes = readFileSync(join(source, MANIFEST_PATH))
   const manifest = ManifestSchema.parse(JSON.parse(manifestBytes.toString('utf8')))
   const manifestHash = sha256(manifestBytes)
-  const files = new Map([[MANIFEST_PATH, manifestBytes]])
-  for (const path of Object.keys(manifest.files)) {
-    const fullPath = join(source, path)
-    const stat = lstatSync(fullPath)
-    if (!stat.isFile() || realpathSync(fullPath) !== fullPath || stat.size > 16 * 1024 * 1024)
-      throw new Error(`Invalid bundled runtime file: ${path}`)
-    files.set(path, readFileSync(fullPath))
-  }
-  verifyPackage(files, manifest.packageVersion)
-  assertRunnable(manifest)
+  const files = startupPhase('read-bundled-package', () => {
+    const files = new Map([[MANIFEST_PATH, manifestBytes]])
+    for (const path of Object.keys(manifest.files)) {
+      const fullPath = join(source, path)
+      const stat = lstatSync(fullPath)
+      if (!stat.isFile() || realpathSync(fullPath) !== fullPath || stat.size > 16 * 1024 * 1024)
+        throw new Error(`Invalid bundled runtime file: ${path}`)
+      files.set(path, readFileSync(fullPath))
+    }
+    return files
+  })
+  startupPhase('verify-bundled-package', () => {
+    verifyPackage(files, manifest.packageVersion)
+    assertRunnable(manifest)
+  })
   privateDirectory(cache)
   const directory = join(cache, `bundled-${manifestHash}`)
   let exists = false
@@ -63,8 +71,8 @@ export async function retainBundledPackage(source: string, cache: string) {
   if (!exists) {
     const staging = mkdtempSync(join(cache, '.bundled-'))
     try {
-      await writePackageFiles(staging, files)
-      publishDirectory(staging, directory)
+      await startupPhase('write-runtime-cache', () => writePackageFiles(staging, files))
+      startupPhase('publish-runtime-cache', () => publishDirectory(staging, directory))
     } finally {
       rmSync(staging, { force: true, recursive: true })
     }

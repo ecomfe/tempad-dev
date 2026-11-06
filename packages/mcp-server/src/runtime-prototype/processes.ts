@@ -19,21 +19,24 @@ import {
 } from '../runtime-platform'
 import { verifyReleaseArtifact } from '../runtime-update/artifact'
 import { assertTrustedSocket, ensureFile } from '../shared'
+import { startupPhase } from '../startup-log'
 import { isRuntimeUnavailable, RECOVER_MS, unavailable } from './protocol'
 import { ConfigSchema, readJournal, type Artifact, type PrototypeConfig } from './state'
 export type { PrototypeConfig } from './state'
 
 export function fingerprintBundle(entry: string): string {
-  const directory = dirname(entry)
-  const hash = createHash('sha256')
-  for (const name of readdirSync(directory)
-    .filter((name) => name.endsWith('.mjs'))
-    .sort())
-    hash
-      .update(name)
-      .update('\0')
-      .update(readFileSync(join(directory, name)))
-  return hash.digest('hex')
+  return startupPhase('fingerprint-bundle', () => {
+    const directory = dirname(entry)
+    const hash = createHash('sha256')
+    for (const name of readdirSync(directory)
+      .filter((name) => name.endsWith('.mjs'))
+      .sort())
+      hash
+        .update(name)
+        .update('\0')
+        .update(readFileSync(join(directory, name)))
+    return hash.digest('hex')
+  })
 }
 
 export function runtimePaths(config: PrototypeConfig) {
@@ -84,27 +87,29 @@ export function prototypeConfig(root: string, entry: string, role = 'edge'): Pro
 }
 
 export function launch(config: PrototypeConfig, role: 'supervisor' | 'hub', artifact?: Artifact) {
-  const entry = artifact?.entry ?? config.entry
-  if (artifact?.release) verifyReleaseArtifact(artifact)
-  else if (config.release && !artifact)
-    verifyReleaseArtifact({
-      entry,
-      bundle: config.bundle,
-      version: JSON.parse(readFileSync(join(config.release.directory, 'package.json'), 'utf8'))
-        .version,
-      release: config.release
+  return startupPhase(`launch-${role}`, () => {
+    const entry = artifact?.entry ?? config.entry
+    if (artifact?.release) verifyReleaseArtifact(artifact)
+    else if (config.release && !artifact)
+      verifyReleaseArtifact({
+        entry,
+        bundle: config.bundle,
+        version: JSON.parse(readFileSync(join(config.release.directory, 'package.json'), 'utf8'))
+          .version,
+        release: config.release
+      })
+    if (fingerprintBundle(entry) !== (artifact?.bundle ?? config.bundle))
+      throw new Error('Verified runtime bundle changed before launch.')
+    const child = spawn(process.execPath, [entry, '--root', config.root, '--role', role], {
+      detached: true,
+      windowsHide: true,
+      stdio: 'ignore',
+      env: hubEnvironment(process.env)
     })
-  if (fingerprintBundle(entry) !== (artifact?.bundle ?? config.bundle))
-    throw new Error('Verified runtime bundle changed before launch.')
-  const child = spawn(process.execPath, [entry, '--root', config.root, '--role', role], {
-    detached: true,
-    windowsHide: true,
-    stdio: 'ignore',
-    env: hubEnvironment(process.env)
+    child.on('error', () => {})
+    child.unref()
+    return child
   })
-  child.on('error', () => {})
-  child.unref()
-  return child
 }
 
 export function connectSocket(path: string, signal?: AbortSignal): Promise<Socket> {

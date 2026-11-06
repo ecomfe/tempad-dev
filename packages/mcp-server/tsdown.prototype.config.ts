@@ -1,10 +1,14 @@
 import { defineConfig } from 'tsdown'
 
-import config from './tsdown.config.ts'
+import config, { workerEntries } from './tsdown.config.ts'
 
 // Keep the local-only diagnostic entry separate from the verified release payload.
 export default defineConfig({
   ...config,
-  entry: ['src/runtime-prototype.ts', 'src/log-transport.ts'],
+  entry: {
+    'runtime-prototype': 'src/runtime-prototype.ts',
+    'log-transport': 'src/log-transport.ts',
+    ...workerEntries
+  },
   outDir: 'dist/prototype'
 })

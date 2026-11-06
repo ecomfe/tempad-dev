@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import console from 'node:console'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { isBuiltin } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, URL } from 'node:url'
 import { parseArgs } from 'node:util'
+import ts from 'typescript'
 
 import { runPackageManagerSync } from './package-manager.mjs'
 import { deployRuntimeDependencies } from './runtime-dependencies.mjs'
@@ -78,6 +80,45 @@ try {
     )
   )[0]
   const files = readArchive(readFileSync(join(root, packed.filename)))
+  assert.ok(files.size < 150, 'The bundled runtime must contain fewer than 150 files.')
+  assert.ok([...files.keys()].every((path) => !path.startsWith('node_modules/')))
+  // onlyImport rejects external ESM imports during bundling. Also check static
+  // CommonJS imports; ws deliberately probes these optional native accelerators.
+  const optionalRequires = new Set(['bufferutil', 'utf-8-validate'])
+  for (const [path, bytes] of files) {
+    if (!path.endsWith('.mjs')) continue
+    const source = ts.createSourceFile(
+      path,
+      bytes.toString('utf8'),
+      ts.ScriptTarget.Latest,
+      false,
+      ts.ScriptKind.JS
+    )
+    function visit(node) {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        /^(?:__)?require$/.test(node.expression.text) &&
+        node.arguments.length === 1 &&
+        ts.isStringLiteralLike(node.arguments[0])
+      ) {
+        const specifier = node.arguments[0].text
+        assert.ok(
+          isBuiltin(specifier) || optionalRequires.has(specifier),
+          `Unexpected external CommonJS import in ${path}: ${specifier}`
+        )
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+  }
+  const shippedPackage = JSON.parse(files.get('package.json').toString('utf8'))
+  // Older managed runtimes require both fields, even for a self-contained bundle.
+  assert.deepEqual(shippedPackage.dependencies, {})
+  assert.deepEqual(shippedPackage.bundleDependencies, [])
+  assert.equal(shippedPackage.bin, 'dist/cli.mjs')
+  for (const name of ['cli', 'log-transport', 'thread-stream-worker', 'pino-worker', 'pino-file'])
+    assert.ok(files.has(`dist/${name}.mjs`), `Missing runtime entry: ${name}`)
   const unpacked = join(root, 'unpacked')
   for (const [path, bytes] of files) {
     const target = join(unpacked, path)
@@ -137,7 +178,7 @@ try {
       artifact: values.output,
       version: pkg.version,
       integrity: final.integrity,
-      files: files.size,
+      files: readArchive(bytes).size,
       bytes: bytes.length,
       baselineVerified: !!values['verify-baseline']
     })

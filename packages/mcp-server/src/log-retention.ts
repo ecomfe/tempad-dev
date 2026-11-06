@@ -2,7 +2,7 @@ import { lstatSync, readdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000
-const LOG_NAME = /^mcp-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-([1-9]\d*)\.log$/
+const LOG_NAME = /^(?:startup-)?mcp-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-([1-9]\d*)\.log$/
 
 /** Best-effort housekeeping: never remove a log a running process may still own. */
 export function pruneExpiredLogs(directory: string, now = Date.now()): number {

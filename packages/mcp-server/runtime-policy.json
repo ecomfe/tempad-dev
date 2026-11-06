@@ -2,14 +2,14 @@
   "version": 1,
   "guidanceEpoch": 1,
   "guidanceReview": {
-    "version": "1.0.1",
-    "sourceHash": "13f5cc28584fc6ca9483213327fbe35693fe936a5fab3b07ba9f7522eb2eb548",
+    "version": "1.0.2",
+    "sourceHash": "30a34b017f8c6144c9ed93381fa9663fc81917be8dd10080b37bfe2726ad178e",
     "decision": "compatible",
     "baseline": {
-      "version": "1.0.0",
-      "integrity": "sha512-GsHxQ0+wT4zLdLxrJjbBtVSYgD4962+0P3esvRXzUK91Ui7scpHyK/CmAeRJ9TdkYzdJjCpGzOoTG8yVosQkOg=="
+      "version": "1.0.1",
+      "integrity": "sha512-5yu74a56VhmF+4bh1DlRWQLlo3asoa4H8UZwN4q7QFHDjRDrbIwPhugnXSRU3LkFWeb5hEYZLudisWHu0y4hvQ=="
     },
-    "rationale": "Adds opt-in timing and lower payload limits for isolated tests while preserving production defaults, tool guidance, control and extension protocols, and durable state compatibility with 1.0.0."
+    "rationale": "Bundles runtime dependencies and logging workers and adds startup diagnostics. Tool guidance, control and extension protocols, and durable state remain compatible with 1.0.1."
   },
   "controlProtocols": [2],
   "state": { "family": "tempad-runtime", "reads": [1], "writes": 1 },

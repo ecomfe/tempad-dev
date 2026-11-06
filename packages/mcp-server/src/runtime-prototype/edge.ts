@@ -13,6 +13,7 @@ import { ConsumerTransport } from '../consumer-transport'
 import { releaseManifest } from '../runtime-update/artifact'
 import { endLogging, PACKAGE_VERSION } from '../shared'
 import { contractHashes, startStableEdge } from '../stable-edge'
+import { finishStartup } from '../startup-log'
 import {
   connectSocket,
   hubSocketPath,
@@ -344,6 +345,7 @@ export async function startPrototypeEdge(
       backendLost = false
       await acknowledgeReady()
       resumeVerified()
+      finishStartup('ready')
     },
     open: async (_initialize, hostSignal) => {
       lifetime = hostSignal
@@ -393,7 +395,11 @@ export async function startPrototypeEdge(
   process.once('SIGINT', close)
   process.once('SIGTERM', close)
   process.stdin.once('end', close)
-  if (await edge.closed) process.exitCode = 1
+  const failure = await edge.closed
+  if (failure) {
+    finishStartup('failed', failure)
+    process.exitCode = 1
+  }
   process.off('SIGINT', close)
   process.off('SIGTERM', close)
   process.stdin.off('end', close)

@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/mcp",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Connect coding agents to Figma for design inspection, native canvas editing, and UI implementation.",
   "license": "MIT",
   "repository": {
@@ -33,34 +33,25 @@
     "format:check": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore --check",
     "prepublishOnly": "node scripts/require-release-archive.mjs"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
-    "nanoid": "^6.0.2",
-    "pino": "^10.4.0",
-    "pino-pretty": "^13.2.0",
-    "proper-lockfile": "^4.1.2",
-    "ws": "^8.22.0",
-    "zod": "^4.6.7"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@tempad-dev/shared": "workspace:^0.1.0",
     "@types/node": "^24.19.2",
     "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.18.2",
+    "nanoid": "^6.0.2",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0",
+    "proper-lockfile": "^4.1.2",
     "tsdown": "^0.23.1",
     "typescript": "^6.0.3",
     "unplugin-raw": "^0.8.0",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
   },
-  "bundleDependencies": [
-    "@modelcontextprotocol/sdk",
-    "nanoid",
-    "pino",
-    "pino-pretty",
-    "proper-lockfile",
-    "ws",
-    "zod"
-  ],
+  "bundleDependencies": [],
   "engines": {
     "node": "^22 || ^24 || >=26"
   }

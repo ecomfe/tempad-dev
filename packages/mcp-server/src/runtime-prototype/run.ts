@@ -39,8 +39,10 @@ export async function runRuntime(entry: string) {
   const { prototypeConfig, hubSocketPath } = await import('./processes')
   const { readJournal } = await import('./state')
   const { endLogging } = await import('../shared')
-  const config = prototypeConfig(root, entry, role)
+  const { startStartup, finishStartup } = await import('../startup-log')
+  startStartup(role!)
   try {
+    const config = prototypeConfig(root, entry, role)
     if (command) {
       const { supervisorConnection, connectSocket } = await import('./processes')
       const { ControlPeer, SocketTransport } = await import('./protocol')
@@ -70,6 +72,7 @@ export async function runRuntime(entry: string) {
           )
           process.stdout.write(JSON.stringify(result, null, 2) + '\n')
         }
+        finishStartup('ready')
       } finally {
         await peer.close()
         process.stdin.destroy()
@@ -87,14 +90,17 @@ export async function runRuntime(entry: string) {
           paused: readJournal(root)?.phase !== 'committed'
         }
       })
+      finishStartup('ready')
     } else if (role === 'supervisor') {
       const { startSupervisor } = await import('./supervisor')
       await startSupervisor(config)
+      finishStartup('ready')
     } else {
       const { startPrototypeEdge } = await import('./edge')
       await startPrototypeEdge(config)
     }
   } catch (error) {
+    finishStartup('failed', error)
     process.stderr.write(
       `Runtime prototype failed: ${error instanceof Error ? error.message : String(error)}\n`
     )

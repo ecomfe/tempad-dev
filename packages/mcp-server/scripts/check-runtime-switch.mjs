@@ -61,7 +61,6 @@ async function artifact(version, incompatible = false) {
     ...config,
     config: false,
     cwd: packageRoot,
-    entry: ['src/runtime-prototype.ts', 'src/log-transport.ts'],
     outDir: output,
     sourcemap: false,
     plugins: [

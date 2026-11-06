@@ -24,23 +24,23 @@ for (const name of sources) {
 assert.equal(owners.length, 1, 'Expected one bundled logger owning the relative transport URL')
 const target = join(dirname(owners[0]), 'log-transport.mjs')
 assert.ok((await stat(target)).isFile(), 'Bundled logger must resolve its shipped worker')
+const ownerSource = await readFile(owners[0], 'utf8')
+const logExport = ownerSource.match(/\blog as ([\w$]+)/)?.[1]
+const endExport = ownerSource.match(/\bendLogging as ([\w$]+)/)?.[1]
+assert.ok(logExport && endExport, 'Expected the shipped logger and shutdown exports')
 
 const childSource = `
-import { createRequire } from 'node:module'
 import { once } from 'node:events'
-import { join } from 'node:path'
-const [packageDir, target, file, mode] = process.argv.slice(1)
-const require = createRequire(join(packageDir, 'package.json'))
-const pino = require('pino')
-const transport = pino.transport({ target, options: {
-  destination: file, translateTime: 'SYS:HH:MM:ss'
-} })
-const log = pino({ msgPrefix: '[tempad-dev/mcp] ' }, transport)
+const [owner, mode] = process.argv.slice(1)
+const shipped = await import(owner)
+const log = shipped[${JSON.stringify(logExport)}]
+const streamKey = Object.getOwnPropertySymbols(log).find(key => key.description === 'pino.stream')
+const transport = log[streamKey]
 if (mode === 'startup-exit') {
   log.info('final-' + mode)
   process.exit(0)
 }
-await once(transport, 'ready')
+if (!transport.ready) await once(transport, 'ready')
 if (mode === 'rollover') {
   for (let i = 0; i < 12; i++) log.info('record-' + i + ':' + 'x'.repeat(1024 * 1024))
 }
@@ -50,6 +50,7 @@ if (mode.startsWith('oversized')) {
   log.info({ detail: '中文 🐈' }, 'final-' + mode)
 }
 if (mode === 'immediate' || mode === 'oversized-immediate') process.exit(0)
+shipped[${JSON.stringify(endExport)}]()
 `
 
 const directory = await mkdtemp(join(tmpdir(), 'tempad-log-package-'))
@@ -67,20 +68,17 @@ const env = {
 }
 
 async function check(mode) {
-  const file = join(directory, `${mode}.log`)
+  const logDirectory = join(directory, mode)
   await new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      [
-        '--input-type=module',
-        '--eval',
-        childSource,
-        packageDir,
-        pathToFileURL(target).href,
-        file,
-        mode
-      ],
-      { cwd: directory, env, stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 }
+      ['--input-type=module', '--eval', childSource, pathToFileURL(owners[0]).href, mode],
+      {
+        cwd: directory,
+        env: { ...env, TEMPAD_MCP_LOG_DIR: logDirectory },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 30000
+      }
     )
     let stdout = ''
     let stderr = ''
@@ -97,7 +95,9 @@ async function check(mode) {
       } else resolve()
     })
   })
-  const bytes = await readFile(file)
+  const files = await readdir(logDirectory)
+  assert.equal(files.length, 1, 'Expected one process-owned log file')
+  const bytes = await readFile(join(logDirectory, files[0]))
   assert.ok(bytes.length <= limit, `${mode}: file exceeds 10 MiB`)
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   assert.equal(text, stripVTControlCharacters(text), `${mode}: file contains terminal escapes`)

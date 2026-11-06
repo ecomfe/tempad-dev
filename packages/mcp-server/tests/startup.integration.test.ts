@@ -24,6 +24,8 @@ import { build } from 'tsdown'
 import raw from 'unplugin-raw/rolldown'
 import { afterAll, beforeAll, expect, it, vi } from 'vitest'
 
+import runtimeBuild, { workerEntries } from '../tsdown.config'
+
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 const bundle = mkdtempSync(join(packageRoot, 'node_modules/.tempad-startup-test-'))
 const directory = mkdtempSync(join(tmpdir(), 'tempad-startup-test-'))
@@ -59,15 +61,12 @@ beforeAll(async () => {
     }`
   )
   await build({
+    ...runtimeBuild,
     config: false,
     cwd: packageRoot,
-    entry: { cli: 'src/cli.ts', hub, 'log-transport': 'src/log-transport.ts' },
+    entry: { cli: 'src/cli.ts', hub, 'log-transport': 'src/log-transport.ts', ...workerEntries },
     outDir: bundle,
     clean: false,
-    format: ['esm'],
-    platform: 'node',
-    target: 'node22',
-    inputOptions: { resolve: { conditionNames: ['source'] } },
     dts: false,
     logLevel: 'silent',
     plugins: [

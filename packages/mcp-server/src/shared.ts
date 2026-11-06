@@ -120,6 +120,10 @@ const LOG_FILE = join(LOG_DIR, `mcp-${timestamp}-${pid}.log`)
 pruneExpiredLogs(LOG_DIR)
 
 const prettyTransport = pino.transport({
+  // An ESM worker is a file, even when its parent was launched through --eval.
+  ...(process.execArgv.some((arg) => arg === '--input-type' || arg.startsWith('--input-type='))
+    ? { worker: { execArgv: [] } }
+    : {}),
   target: fileURLToPath(
     import.meta.url.endsWith('.ts')
       ? new URL('./log-transport.ts', import.meta.url)

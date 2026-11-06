@@ -306,29 +306,10 @@ importers:
         version: 4.6.7
 
   packages/mcp-server:
-    dependencies:
+    devDependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.1
         version: 1.32.1(supports-color@7.2.0)(zod@4.6.7)
-      nanoid:
-        specifier: ^6.0.2
-        version: 6.0.2
-      pino:
-        specifier: ^10.4.0
-        version: 10.4.0
-      pino-pretty:
-        specifier: ^13.2.0
-        version: 13.2.0
-      proper-lockfile:
-        specifier: ^4.1.2
-        version: 4.1.2
-      ws:
-        specifier: ^8.22.0
-        version: 8.22.0
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
-    devDependencies:
       '@tempad-dev/shared':
         specifier: workspace:^0.1.0
         version: link:../shared
@@ -341,6 +322,18 @@ importers:
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
+      nanoid:
+        specifier: ^6.0.2
+        version: 6.0.2
+      pino:
+        specifier: ^10.4.0
+        version: 10.4.0
+      pino-pretty:
+        specifier: ^13.2.0
+        version: 13.2.0
+      proper-lockfile:
+        specifier: ^4.1.2
+        version: 4.1.2
       tsdown:
         specifier: ^0.23.1
         version: 0.23.1(@volar/typescript@2.4.28(typescript-native-bridge@6.0.3-bridge.18.tsgo.7.0.2))(@vue/language-core@3.3.13)(tsx@4.23.15)(typescript-native-bridge@6.0.3-bridge.18.tsgo.7.0.2)(vue-tsc@3.3.13(typescript-native-bridge@6.0.3-bridge.18.tsgo.7.0.2))
@@ -353,6 +346,12 @@ importers:
       vitest:
         specifier: 5.0.5
         version: 5.0.5(@types/node@24.19.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-istanbul@5.0.5)(@vitest/ui@5.0.5)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+      ws:
+        specifier: ^8.22.0
+        version: 8.22.0
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/plugins:
     devDependencies:

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.2
+
+- Bundled runtime dependencies and logging workers into split JavaScript files, reducing
+  installation and first-run cache preparation without removing file integrity checks or durable writes.
+- Added synchronous startup phase logs through first readiness, including verification,
+  lock waits, cache writes, and failures. Interactive commands keep these diagnostics in files.
+
 ## 1.0.1
 
 - Added environment overrides for writer lock expiry, control leases, automatic update idle

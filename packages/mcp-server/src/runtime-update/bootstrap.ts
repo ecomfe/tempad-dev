@@ -30,6 +30,7 @@ import {
   ensureFile,
   resolveStateDir
 } from '../shared'
+import { finishStartup, startupPhase } from '../startup-log'
 import { retainBundledPackage } from './artifact'
 import { privateDirectory } from './cache'
 import { prepareManagedEdge } from './cold-start'
@@ -100,6 +101,7 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
   const path = join(root, 'prototype.json')
   if (!existsSync(path) && intent.command === '--runtime-update-status') {
     process.stdout.write(JSON.stringify({ managed: false, automaticActivation: false }) + '\n')
+    finishStartup('ready')
     process.stdin.destroy()
     endLogging()
     return true
@@ -120,7 +122,7 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
   let saved = readPrivateJson(path, ConfigSchema)
   if (!saved) {
     ensureFile(LOCK_PATH)
-    const unlock = await acquireEnrollmentLock()
+    const unlock = await startupPhase('enrollment-lock', acquireEnrollmentLock)
     try {
       saved = readPrivateJson(path, ConfigSchema)
       if (!saved) {
@@ -252,13 +254,16 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
           )
         }
       }
+      finishStartup('ready')
     } finally {
       await peer.close()
       process.stdin.destroy()
       endLogging()
     }
   } else {
-    const prepared = await prepareManagedEdge(config, packageDir, installed)
+    const prepared = await startupPhase('prepare-edge', () =>
+      prepareManagedEdge(config, packageDir, installed)
+    )
     try {
       await startPrototypeEdge(prepared.config, {
         policy: intent.policy,
