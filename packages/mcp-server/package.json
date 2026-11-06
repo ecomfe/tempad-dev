@@ -37,7 +37,7 @@
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@tempad-dev/shared": "workspace:^0.1.0",
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.6",
     "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.18.2",
     "nanoid": "^6.0.2",

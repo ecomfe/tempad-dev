@@ -48,7 +48,7 @@
   },
   "devDependencies": {
     "@figma/plugin-typings": "^1.142.0",
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.6",
     "@types/prismjs": "^1.26.6",
     "@types/stringify-object": "^4.0.5",
     "@vitejs/plugin-vue": "6.0.10",

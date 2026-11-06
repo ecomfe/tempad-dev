@@ -61,7 +61,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '24.x'
+          node-version: '26.x'
           cache: 'pnpm'
           cache-dependency-path: pnpm-lock.yaml
 
@@ -156,7 +156,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
-          node-version: '24.x'
+          node-version: '26.x'
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
       - name: Check sources and declarations with official TypeScript
