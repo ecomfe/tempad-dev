@@ -235,8 +235,8 @@ importers:
         specifier: ^2.17.0
         version: 2.17.0
       p-wait-for:
-        specifier: ^6.0.0
-        version: 6.0.0
+        specifier: ^7.0.0
+        version: 7.0.0
       stringify-object:
         specifier: ^7.0.0
         version: 7.0.0
@@ -2652,9 +2652,9 @@ packages:
     resolution: {integrity: sha512-LaNjtRWUBY++zB5nE/NwcaoMylSPk+S+ZHNB1TzdbMJMny6dynpAGt7X/tl/QYq3TIeE6nxHppbo2LGymrG5Pw==}
     engines: {node: '>=10'}
 
-  p-wait-for@6.0.0:
-    resolution: {integrity: sha512-2kKzMtjS8TVcpCOU/gr3vZ4K/WIyS1AsEFXFWapM/0lERCdyTbB6ZeuCIp+cL1aeLZfQoMdZFCBTHiK4I9UtOw==}
-    engines: {node: '>=20'}
+  p-wait-for@7.0.0:
+    resolution: {integrity: sha512-zDQ/3GyUFSwklDAT7jeBu4FQgxw0o0yayyP4qizTl5yDYlAWbk71npDC1zhOqD4iqnEN2/4Ssr8Xc2aUQtvdAg==}
+    engines: {node: '>=22'}
 
   parseurl@1.3.3:
     resolution: {integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==}
@@ -5462,7 +5462,7 @@ snapshots:
     dependencies:
       p-limit: 3.1.0
 
-  p-wait-for@6.0.0: {}
+  p-wait-for@7.0.0: {}
 
   parseurl@1.3.3: {}
 
