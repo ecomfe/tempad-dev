@@ -73,8 +73,9 @@ Root:
   pending Claude Stop notices surviving both switching and rollback with durable hook retries.
   New edges also attach during a delayed handoff and after real stale writer leases expire;
   the fixture's initialization deadline exceeds the edge's 90-second recovery bound.
-  Process fixtures use the shorter lease/idle settings in `RUNTIME_TEST_ENV` from
-  `packages/mcp-server/scripts/runtime-test-platform.mjs`; production defaults and startup
+  Process fixtures use the shorter writer-expiry/idle settings in `RUNTIME_TEST_ENV` from
+  `packages/mcp-server/scripts/runtime-test-platform.mjs`, retaining production control-heartbeat
+  budgets for real process scheduling and disk writes. Production defaults and startup
   deadlines are unchanged. Cold recovery asserts that live writer leases cannot be replaced
   before expiry, then verifies that clients reconnect after expiry.
   `TEMPAD_SWITCH_CASES` selects comma-separated cases for diagnosis; `TEMPAD_KEEP_PROTOTYPE=1`

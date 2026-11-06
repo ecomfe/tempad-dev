@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3
+
+- Recover the existing Hub connection when control is lost during a runtime update, without
+  replaying the interrupted switch or replacing a live Hub.
+- Publish supervisor status atomically so concurrent readers cannot see a partial JSON record.
+
 ## 1.0.2
 
 - Bundled runtime dependencies and logging workers into split JavaScript files, reducing

@@ -167,7 +167,12 @@ async function fixture(
   let onPause: ((signal: AbortSignal) => Promise<void>) | undefined
   const admissions: boolean[] = []
   const retireLegacy = vi.fn(() => ({}))
-  const hubs: { pid: number; stop: (exiting?: boolean) => Promise<void>; artifact: Artifact }[] = []
+  const hubs: {
+    pid: number
+    stop: (exiting?: boolean) => Promise<void>
+    disconnect: () => Promise<void>
+    artifact: Artifact
+  }[] = []
   const launches = new Set<Promise<void>>()
   const launchFailures: unknown[] = []
   let shutdown: (signal: NodeJS.Signals) => void = () => {}
@@ -261,7 +266,20 @@ async function fixture(
       await stop()
       throw error
     }
-    hubs.push({ pid, stop, artifact })
+    hubs.push({
+      pid,
+      stop,
+      artifact,
+      disconnect: async () => {
+        await Promise.all(
+          [...sockets].map(async (socket) => {
+            const closed = once(socket, 'close')
+            socket.destroy()
+            await closed
+          })
+        )
+      }
+    })
   }
   fake.launch.mockImplementation((_config, role, value) => {
     if (role !== 'hub') throw new Error('Unexpected supervisor spawn')
@@ -449,6 +467,34 @@ it('releases paused edges and keeps the old writer when admission fails', async 
   expect(f.hubs).toHaveLength(1)
   expect(await f.status()).toMatchObject({ active: f.a, gated: false })
 })
+
+it.each(['probe', 'admission'])(
+  'recovers control lost during update %s without replaying the switch',
+  async (phase) => {
+    const f = await fixture()
+    const disconnect = async () => {
+      await f.hubs[0]!.disconnect()
+      await vi.waitFor(async () => expect(await f.status()).toHaveProperty('unavailable'), {
+        timeout: recoveryWait
+      })
+    }
+    if (phase === 'probe')
+      fake.probe.mockImplementationOnce(async () => {
+        await disconnect()
+        return { artifact: f.b, contract: 'identical' }
+      })
+    else f.pauseWith(disconnect)
+    await expect(f.update()).rejects.toThrow('switching or recovering')
+    await vi.waitFor(
+      async () => expect(await f.status()).toMatchObject({ active: f.a, gated: false }),
+      { timeout: recoveryWait }
+    )
+    expect(f.hubs).toHaveLength(1)
+    expect(fake.launch).not.toHaveBeenCalled()
+    expect(readJournal(f.root)).toMatchObject({ phase: 'committed', failedBundles: [] })
+  },
+  2 * recoveryWait
+)
 
 it('does not restart the drain budget after an admission barrier uses it up', async () => {
   const f = await fixture()

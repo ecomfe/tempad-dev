@@ -113,8 +113,8 @@ async function artifact(version, incompatible = false) {
       if (value.phase === fault.phase &&
           (value.phase !== 'committed' || value.active.version === fault.version)) {
         rmSync(faultPath)
-        writeFileSync(join(config.root, 'test-fault-observed.json'),
-          JSON.stringify({ phase: value.phase, pid: process.pid }))
+        writeDurableJson(join(config.root, 'test-fault-observed.json'),
+          { phase: value.phase, pid: process.pid })
         if (fault.action === 'crash') process.kill(process.pid, 'SIGKILL')
         else {
           const deadline = Date.now() + 5000
@@ -133,7 +133,7 @@ async function artifact(version, incompatible = false) {
               `const holdPath = join(config.root, 'test-hold-before-drain')
     if (existsSync(holdPath)) {
       rmSync(holdPath)
-      writeFileSync(join(config.root, 'test-before-drain.json'), JSON.stringify({ prepared: true }))
+      writeDurableJson(join(config.root, 'test-before-drain.json'), { prepared: true })
       const deadline = Date.now() + 30000
       while (!existsSync(join(config.root, 'test-release-drain'))) {
         if (Date.now() >= deadline) throw new Error('Fixture preparation barrier timed out')
@@ -777,9 +777,11 @@ async function coldAttachment(entry) {
     // Kill the edge first so its established recovery cannot publish an endpoint.
     // Leave real writer leases intact; a fresh edge must wait for cold recovery.
     process.kill(first.pid, 'SIGKILL')
-    await first.client.close()
     process.kill(initial.pid, 'SIGKILL')
     process.kill(initial.hubPid, 'SIGKILL')
+    // Awaiting the SDK close before killing the owners lets last-client shutdown
+    // release the leases, turning this crash fixture into a graceful shutdown.
+    await first.client.close()
     await until(() => !alive(initial.pid) && !alive(initial.hubPid), 'cold process exit')
     const locks = await Promise.all(
       ['run/hub.lock.lock', 'state/.tempad-hub-writer.lock', 'assets/.tempad-hub-writer.lock'].map(

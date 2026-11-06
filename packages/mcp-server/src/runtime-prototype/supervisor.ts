@@ -1,11 +1,12 @@
 import { ResultSchema } from '@modelcontextprotocol/sdk/types.js'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import lockfile from 'proper-lockfile'
 import { z } from 'zod'
 
+import { writeDurableJson } from '../durable-json'
 import { parseHubRuntimeIdentity } from '../runtime-identity'
 import { cleanupEndpoint, runtimeEndpoint } from '../runtime-platform'
 import { releaseManifest, verifyReleaseArtifact } from '../runtime-update/artifact'
@@ -301,11 +302,12 @@ export async function startSupervisor(config: PrototypeConfig) {
     )
   }
   function publish() {
-    writeFileSync(
-      join(config.root, 'supervisor.json'),
-      JSON.stringify({ pid: process.pid, entry: config.entry, bundle: config.bundle, ...lease }),
-      { mode: 0o600 }
-    )
+    writeDurableJson(join(config.root, 'supervisor.json'), {
+      pid: process.pid,
+      entry: config.entry,
+      bundle: config.bundle,
+      ...lease
+    })
   }
   async function ensureHooks() {
     hooks ??= await startHookGateway(
@@ -457,13 +459,7 @@ export async function startSupervisor(config: PrototypeConfig) {
       peer.onclose = () => {
         if (hub !== peer) return
         hub = undefined
-        if (closing || transitioning) return
-        if (!edges.size) void close()
-        else
-          void recover().catch((error) => {
-            process.stderr.write(`Runtime recovery failed: ${String(error)}\n`)
-            void close()
-          })
+        recoverDisconnectedHub()
       }
     } catch (error) {
       await peer.close()
@@ -482,6 +478,16 @@ export async function startSupervisor(config: PrototypeConfig) {
       }
       throw error
     }
+  }
+
+  function recoverDisconnectedHub() {
+    if (closing || transitioning || hub) return
+    if (!edges.size) void close()
+    else
+      void recover().catch((error) => {
+        process.stderr.write(`Runtime recovery failed: ${String(error)}\n`)
+        void close()
+      })
   }
 
   function startRenewal() {
@@ -906,6 +912,10 @@ export async function startSupervisor(config: PrototypeConfig) {
       await hub
         ?.request({ method: 'tempad/runtime-retain', params: { retained: false } }, ResultSchema)
         .catch(() => {})
+      // onclose defers recovery while a switch owns the transition. A settled
+      // journal can resume it without replaying the operator's update request;
+      // an unfinished handoff still requires explicit recovery.
+      if (journal.phase === 'committed') recoverDisconnectedHub()
       updates?.schedule()
     }
   }

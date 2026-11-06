@@ -7,6 +7,7 @@ import { basename, dirname, isAbsolute, join, sep } from 'node:path'
 import process from 'node:process'
 import { URL } from 'node:url'
 
+import { getRuntimeTimingConfig } from '../src/config.ts'
 import { platformEnvironment } from '../src/process-environment.ts'
 import { ensurePrivateDirectory, windowsPowerShellEnvironment } from '../src/runtime-platform.ts'
 
@@ -14,13 +15,14 @@ import { ensurePrivateDirectory, windowsPowerShellEnvironment } from '../src/run
 // seconds for the SDK exchange without changing any business-request deadline.
 export const FIXTURE_INITIALIZE_TIMEOUT_MS = 95_000
 
-// Only process fixtures opt in; production defaults and startup deadlines stay intact.
-// Windows native ACL helpers need more headroom than Unix socket/file operations.
+// Shorten only writer expiry and automatic idle waits. Real process scheduling,
+// disk flushes and Windows ACL helpers need the production control-heartbeat budget.
+const controlTiming = getRuntimeTimingConfig({})
 export const RUNTIME_TEST_ENV = {
   TEMPAD_MCP_HUB_LOCK_STALE_MS: process.platform === 'win32' ? '10000' : '3000',
   TEMPAD_MCP_HUB_LOCK_UPDATE_MS: '1000',
-  TEMPAD_MCP_CONTROL_LEASE_MS: process.platform === 'win32' ? '10000' : '2000',
-  TEMPAD_MCP_CONTROL_RENEW_MS: process.platform === 'win32' ? '1000' : '200',
+  TEMPAD_MCP_CONTROL_LEASE_MS: String(controlTiming.controlLeaseMs),
+  TEMPAD_MCP_CONTROL_RENEW_MS: String(controlTiming.controlRenewMs),
   TEMPAD_MCP_RUNTIME_AUTO_IDLE_MS: '500'
 }
 
