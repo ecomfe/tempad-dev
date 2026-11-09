@@ -49,7 +49,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.0",
     "@types/node": "^24.19.2",
-    "@vitest/coverage-istanbul": "5.0.5",
+    "@vitest/coverage-istanbul": "5.1.0",
     "@vue/eslint-config-typescript": "^14.9.0",
     "eslint": "^10.13.0",
     "eslint-config-flat-gitignore": "^2.4.0",
@@ -60,7 +60,7 @@
     "lefthook": "^2.2.2",
     "oxfmt": "^0.74.0",
     "typescript": "^6.0.3",
-    "vitest": "5.0.5"
+    "vitest": "5.1.0"
   },
   "packageManager": "pnpm@12.14.0"
 }
