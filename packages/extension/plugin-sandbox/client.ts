@@ -44,7 +44,7 @@ export class PluginSandboxClient {
 
   constructor(sandboxUrl: string) {
     const url = new URL(sandboxUrl)
-    if (url.protocol !== 'chrome-extension:') {
+    if (url.protocol !== 'chrome-extension:' && url.protocol !== 'moz-extension:') {
       throw new Error('Plugin sandbox URL must use the chrome-extension protocol.')
     }
     this.#sandboxUrl = url.href
@@ -119,7 +119,12 @@ export class PluginSandboxClient {
       const iframe = document.createElement('iframe')
       iframe.hidden = true
       iframe.sandbox.add('allow-scripts')
-      iframe.src = this.#sandboxUrl
+      const srcdoc = window.__TEMPAD_PLUGIN_SANDBOX_SRCDOC__
+      if (srcdoc) {
+        iframe.srcdoc = srcdoc
+      } else {
+        iframe.src = this.#sandboxUrl
+      }
       iframe.setAttribute('aria-hidden', 'true')
       this.#iframe = iframe
 

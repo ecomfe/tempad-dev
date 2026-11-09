@@ -9,6 +9,8 @@
     "build": "wxt build && pnpm run build:readme",
     "build:readme": "tsx ./build/readme.ts",
     "zip": "wxt zip",
+    "build:firefox": "wxt build -b firefox --mv3",
+    "zip:firefox": "wxt zip -b firefox --mv3",
     "typecheck": "vue-tsc --noEmit",
     "postinstall": "wxt prepare",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts",
