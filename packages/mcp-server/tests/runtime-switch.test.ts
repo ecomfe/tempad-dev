@@ -175,7 +175,7 @@ async function fixture(
   }[] = []
   const launches = new Set<Promise<void>>()
   const launchFailures: unknown[] = []
-  let shutdown: (signal: NodeJS.Signals) => void = () => {}
+  let shutdown: (signal: 'SIGTERM') => void = () => {}
   cleanups.push(async () => {
     shutdown('SIGTERM')
     while (launches.size) await Promise.all(launches)

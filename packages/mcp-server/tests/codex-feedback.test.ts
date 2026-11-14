@@ -1077,7 +1077,7 @@ describe('Codex existing IPC transport', () => {
         socket.write(Buffer.concat([header.subarray(2), body]))
       }
       socket.on('data', (data) => {
-        buffer = Buffer.concat([buffer, data])
+        buffer = Buffer.concat([buffer, typeof data === 'string' ? Buffer.from(data) : data])
         while (buffer.length >= 4 && buffer.length >= buffer.readUInt32LE(0) + 4) {
           const length = buffer.readUInt32LE(0)
           const message = JSON.parse(buffer.subarray(4, length + 4).toString())

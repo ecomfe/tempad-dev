@@ -94,7 +94,10 @@ import { log, resolveStateDir } from '../src/shared'
 import { startExtensionWebSocketServer } from '../src/websocket-server'
 
 let netServer: Server | undefined
-let previousSignals: Map<'SIGINT' | 'SIGTERM', NodeJS.SignalsListener[]>
+let previousSignals: Map<
+  'SIGINT' | 'SIGTERM',
+  (((signal: 'SIGINT') => void) | ((signal: 'SIGTERM') => void))[]
+>
 let previousBeforeExit: NodeJS.BeforeExitListener[]
 const assetStart = vi.fn<() => Promise<void>>()
 const assetStop = vi.fn()
