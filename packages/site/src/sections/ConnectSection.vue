@@ -405,9 +405,7 @@ onBeforeUnmount(() => {
             class="site-setup-group"
           >
             <div class="site-setup-group-heading">
-              <h4>
-                <span v-if="!hasPlugin">{{ stepIndex + 1 }}. </span>{{ group.title }}
-              </h4>
+              <h4><span v-if="!hasPlugin">{{ stepIndex + 1 }}. </span>{{ group.title }}</h4>
               <p class="site-connect-row-copy">{{ group.copy }}</p>
             </div>
             <div class="site-setup-group-actions">
