@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Require Chrome 119 or later for the updated availability polling dependency.
+
 ## 1.0.0
 
 ### Code export

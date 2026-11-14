@@ -84,7 +84,7 @@ export default defineConfig({
     disabled: true
   },
   manifest: (env) => ({
-    minimum_chrome_version: '116',
+    minimum_chrome_version: '119',
     name: 'TemPad Dev',
     version: packageJson.version,
     content_security_policy: {
