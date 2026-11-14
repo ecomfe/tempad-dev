@@ -52,6 +52,8 @@ function syncHeaderState(): void {
 }
 
 function setColorMode(mode: SiteColorMode): void {
+  // VueUse attaches the persisted preference ref to the color mode ref.
+  // eslint-disable-next-line vue/no-ref-as-operand
   colorMode.store.value = mode
 }
 

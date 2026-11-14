@@ -23,6 +23,8 @@ export function useSiteColorMode(): UseSiteColorModeResult {
     storageRef: store
   })
 
+  // VueUse attaches the persisted preference ref to the color mode ref.
+  // eslint-disable-next-line vue/no-ref-as-operand
   const selectedColorMode = computed(() => colorMode.store.value)
   const resolvedColorMode = computed<SiteResolvedColorMode>(() =>
     colorMode.value === 'dark' ? 'dark' : 'light'
