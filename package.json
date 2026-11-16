@@ -51,7 +51,7 @@
     "@types/node": "^26.6.6",
     "@vitest/coverage-istanbul": "5.1.0",
     "@vue/eslint-config-typescript": "^14.9.0",
-    "eslint": "^10.14.0",
+    "eslint": "^10.15.0",
     "eslint-config-flat-gitignore": "^2.4.0",
     "eslint-plugin-perfectionist": "^5.13.0",
     "eslint-plugin-vue": "^10.12.0",

@@ -3,6 +3,8 @@ packages:
 
 overrides:
   '@rollup/plugin-terser>serialize-javascript': 7.1.4
+  # GHSA-g3hv-75wg-m249: remove when typescript-estree accepts minimatch 11.
+  '@typescript-eslint/typescript-estree>minimatch': 11.0.8
   esbuild: 0.28.2
   'node-notifier>uuid': 14.0.3
   # vue-tsc still needs the TS 6 API; the bridge runs the TS 7 checker behind it.
