@@ -6,6 +6,13 @@ API baseline: the repository's `@figma/plugin-typings` version resolved in
 [`pnpm-lock.yaml`](../../pnpm-lock.yaml). The [shared canvas schema](../../packages/shared/src/mcp/canvas.ts)
 owns the accepted result fields.
 
+Beta 3D state additionally follows the documented
+[Transform3d](https://developers.figma.com/docs/plugins/api/Transform3d/),
+[TransformOrigin](https://developers.figma.com/docs/plugins/api/TransformOrigin/), and
+[Scene3d](https://developers.figma.com/docs/plugins/api/Scene3d/) contracts. These are not yet in
+the pinned typings; the extension keeps a narrow compatibility surface and rejects writes when
+the connected Figma runtime does not expose the requested property.
+
 ## Scope
 
 This ledger covers persistent, authorable state in the Figma Design document model. It compares
@@ -159,6 +166,17 @@ excluded by scope.
 | Absolute-positioned child | `layoutPositioning: 'ABSOLUTE'`, `x`, `y`                  | **Supported** with one explicit edge per axis; right/bottom offsets require fixed parent and child bounds. Freeform parents use offsets without the Auto Layout-only `layoutPositioning` field                                                                                                                                                                                                                                                            |
 | Clipping                  | `clipsContent`                                             | **Supported** on frame containers                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Mask                      | `isMask`, `maskType` (`ALPHA`, `VECTOR`, `LUMINANCE`)      | **Supported** through declarative `figma.mask`; enabled masks are bounded to a described parent tree, require a following sibling, reject omitted live siblings on update, and apply after order reconciliation                                                                                                                                                                                                                                           |
+
+Beta `figma.transform3d` supports complete `FIXED_ORDER` transforms and `NONE` removal on
+supported layers, independently from layout and the 2D matrix. `figma.transformOrigin` supports
+both percent/pixel axes. `figma.scene3d` supports perspective, Preserve 3D, visibility, and explicit
+null on Frames, Components, and Instances. Omission preserves live state; declared fields are
+read back during verification and captured for rollback. Imported `FREEFORM` transforms remain
+read-only. `get_structure({ options: { native: true } })` returns sparse nondefault 3D state,
+including configured all-zero transforms and disabled settings. `NONE`, centered percent origins,
+null/default scenes, and empty `native` blocks are omitted independently; missing fields can also
+mean an unavailable API. Clear verification uses full native reads, not sparse field absence.
+See the [native-state QA semantics](./mcp-canvas-authoring-design.md#verification).
 
 ## Linear Auto Layout
 

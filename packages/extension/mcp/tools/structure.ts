@@ -12,6 +12,7 @@ import {
 } from '@tempad-dev/shared'
 
 import { buildBoundedStructureOutline } from '@/mcp/semantic-tree'
+import { readFigma3d } from '@/utils/figma-3d'
 
 import { readOwnedNodeKey } from './canvas/identity'
 
@@ -126,6 +127,18 @@ function collectStructureMetadata(
 
 function describeNativeProperties(node: SceneNode): OutlineNativeProperties | undefined {
   const native: OutlineNativeProperties = {}
+  const { transform3d, transformOrigin, scene3d } = readFigma3d(node)
+  if (transform3d && transform3d.type !== 'NONE') native.transform3d = transform3d
+  if (
+    transformOrigin &&
+    (transformOrigin.x.unit !== 'PERCENT' ||
+      transformOrigin.x.value !== 50 ||
+      transformOrigin.y.unit !== 'PERCENT' ||
+      transformOrigin.y.value !== 50)
+  )
+    native.transformOrigin = transformOrigin
+  if (scene3d && (scene3d.perspective !== -1 || scene3d.preserve3d || scene3d.visible === false))
+    native.scene3d = scene3d
 
   if ('isMask' in node && node.isMask && 'maskType' in node) {
     native.mask = node.maskType

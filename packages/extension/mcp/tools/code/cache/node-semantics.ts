@@ -1,4 +1,5 @@
 import { isVisibleMediaPaint } from '@/mcp/media'
+import { readFigma3d } from '@/utils/figma-3d'
 import { isRenderablePaint } from '@/utils/figma-paint'
 
 import type { GetCodeCacheContext, NodeSemanticSnapshot, PaintArrayState } from './types'
@@ -73,6 +74,7 @@ export function getNodeSemanticsCached(
       isMask: 'isMask' in node && node.isMask === true
     },
     geometry: {
+      threeD: readFigma3d(node),
       relativeTransform: readRelativeTransform(node),
       constraints: readConstraints(node)
     }

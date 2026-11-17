@@ -25,6 +25,7 @@ import type { CanvasClasses } from './tailwind'
 import { sourceClassMessage } from './errors'
 import { parseCanvasHtml } from './html'
 import { isFrameContainerType, isIntrinsicContainer, isShapeType } from './model'
+import { validateFigma3d } from './reconcile/transform-3d'
 import {
   findUnsupportedCanvasClasses,
   MAX_UNSUPPORTED_CLASS_SCAN,
@@ -730,6 +731,7 @@ function validateFigmaLayout(
   classes: CanvasClasses
 ): void {
   const properties = binding?.figma
+  validateFigma3d(key, type, properties)
   const autoLayout = properties?.autoLayout
   if (autoLayout) {
     if (!isFrameContainerType(type) || !classes.flex) {

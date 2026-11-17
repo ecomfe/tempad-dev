@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4
+
+- Clarified that `get_structure` with `options.native` includes 3D transforms, origins, and
+  scenes when the connected extension supports them, omitting default/empty fields while
+  retaining configured disabled settings. Missing fields alone do not prove a successful clear.
+
 ## 1.0.3
 
 - Recover the existing Hub connection when control is lost during a runtime update, without

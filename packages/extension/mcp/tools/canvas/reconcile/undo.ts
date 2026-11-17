@@ -154,6 +154,9 @@ function snapshotProtectedNode(node: BaseNode, captureTextRanges = true): Protec
           }
         : {}),
       ...('relativeTransform' in node ? { relativeTransform: node.relativeTransform } : {}),
+      ...('transform3d' in node ? { transform3d: node.transform3d } : {}),
+      ...('transformOrigin' in node ? { transformOrigin: node.transformOrigin } : {}),
+      ...('scene3d' in node ? { scene3d: node.scene3d } : {}),
       ...('clipsContent' in node ? { clipsContent: node.clipsContent } : {}),
       ...('minWidth' in node
         ? {

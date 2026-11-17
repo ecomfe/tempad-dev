@@ -1,3 +1,4 @@
+import { hasFigma3d, readFigma3d } from '@/utils/figma-3d'
 import { isRenderablePaint } from '@/utils/figma-paint'
 
 import type { GetCodeCacheContext } from '../cache'
@@ -98,7 +99,9 @@ function computeVectorInfo(
     // A component or another structural container must survive even when all of
     // its leaves are artwork. Carry that boundary through every ancestor summary.
     let allNonMaskVectorLike =
-      (isEligibleContainer(node) || node.assetKind === 'vector') && !hasDesignComponentHint(node)
+      (isEligibleContainer(node) || node.assetKind === 'vector') &&
+      !hasDesignComponentHint(node) &&
+      !hasNative3d(node, ctx)
     let nonMaskLeafCount = 0
     let hasMask = isMaskNode(node, ctx)
     for (const childId of node.children) {
@@ -110,6 +113,8 @@ function computeVectorInfo(
       if (!childInfo || !childInfo.allNonMaskVectorLike) {
         allNonMaskVectorLike = false
       }
+      const child = tree.nodes.get(childId)
+      if (child && hasNative3d(child, ctx)) allNonMaskVectorLike = false
       if (childInfo) {
         nonMaskLeafCount += childInfo.nonMaskLeafCount
         if (childInfo.hasMask) hasMask = true
@@ -130,6 +135,7 @@ function hasDesignComponentHint(node: NodeSnapshot): boolean {
 }
 
 function hasOwnBoxSemantics(snapshot: NodeSnapshot, ctx?: GetCodeCacheContext): boolean {
+  if (hasNative3d(snapshot, ctx)) return true
   if (ctx) {
     const semantics = getNodeSemanticsCached(snapshot.node, ctx)
     return (
@@ -145,6 +151,12 @@ function hasOwnBoxSemantics(snapshot: NodeSnapshot, ctx?: GetCodeCacheContext): 
     hasVisiblePaints(snapshot.node, 'strokes') ||
     hasVisibleEffects(snapshot.node) ||
     hasClipping(snapshot.node)
+  )
+}
+
+function hasNative3d(snapshot: NodeSnapshot, ctx?: GetCodeCacheContext): boolean {
+  return hasFigma3d(
+    ctx ? getNodeSemanticsCached(snapshot.node, ctx).geometry.threeD : readFigma3d(snapshot.node)
   )
 }
 

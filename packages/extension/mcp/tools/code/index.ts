@@ -407,6 +407,8 @@ async function generateCode({
   }
   const allAssets = Array.from(assetRegistry.values())
   const { rootVideoPreviewAssetHashes, videoPreviewAssetHashes } = collected
+  const root3dWarning = collected.threeDWarnings?.get(rootId)
+  const shellTransformWarnings = root3dWarning ? [root3dWarning] : undefined
 
   if (earlyShell) {
     const shellMode = createShellMode(rootId, tree, ctx)
@@ -425,7 +427,8 @@ async function generateCode({
     const warnings = buildGetCodeWarnings(shell.code, {
       depthCapped: tree.stats.capped,
       shell: true,
-      tokenWarnings: shell.tokenWarnings
+      tokenWarnings: shell.tokenWarnings,
+      transformWarnings: shellTransformWarnings
     })
     const assets = selectAssetsForCode(allAssets, shell.code, videoPreviewAssetHashes)
     const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
@@ -452,7 +455,8 @@ async function generateCode({
     const warnings = buildGetCodeWarnings(output.code, {
       depthCapped: tree.stats.capped,
       literalClusters,
-      tokenWarnings: output.tokenWarnings
+      tokenWarnings: output.tokenWarnings,
+      transformWarnings: [...(collected.threeDWarnings?.values() ?? [])]
     })
     const assets = selectAssetsForCode(allAssets, output.code, videoPreviewAssetHashes)
     const result = buildCodeResult(output, codegen, assets, literalClusters, warnings)
@@ -487,7 +491,8 @@ async function generateCode({
     const warnings = buildGetCodeWarnings(shell.code, {
       depthCapped: tree.stats.capped,
       shell: true,
-      tokenWarnings: shell.tokenWarnings
+      tokenWarnings: shell.tokenWarnings,
+      transformWarnings: shellTransformWarnings
     })
     const assets = selectAssetsForCode(allAssets, shell.code, rootVideoPreviewAssetHashes)
     const result = buildCodeResult(shell, codegen, assets, undefined, warnings)

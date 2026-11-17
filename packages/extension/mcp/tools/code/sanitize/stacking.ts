@@ -178,7 +178,12 @@ function visit(
         'z-index': String(shareZeroLevel ? 0 : rankAll ? paintIndex : -1)
       })
     }
-    if (needsIsolation && !sharedOrderGroups.has(nodeId) && !parentStyle.isolation)
+    if (
+      needsIsolation &&
+      !sharedOrderGroups.has(nodeId) &&
+      !parentStyle.isolation &&
+      parentStyle['transform-style'] !== 'preserve-3d'
+    )
       styles.set(nodeId, { ...parentStyle, isolation: 'isolate' })
   }
 

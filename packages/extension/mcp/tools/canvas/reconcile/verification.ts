@@ -52,6 +52,7 @@ import {
   resolvedRangeTextStyle
 } from './text-range-style'
 import { textMetricRange } from './text-ranges'
+import { verifyFigma3d } from './transform-3d'
 
 function textVariableMismatchHint(
   node: SupportedCanvasNode,
@@ -226,7 +227,7 @@ function verifyNativeNodeState(
   node: SupportedCanvasNode,
   state: ApplyState
 ): number {
-  let fields = 0
+  let fields = verifyFigma3d(spec, node)
   for (const [property, styleProperty] of [
     ['fills', 'fillStyleId'],
     ['strokes', 'strokeStyleId']

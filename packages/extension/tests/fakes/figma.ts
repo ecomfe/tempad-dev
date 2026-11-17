@@ -691,6 +691,16 @@ export function createFixture({
         }
       })
     } as unknown as MutableNode
+
+    if (type !== 'SECTION' && type !== 'COMPONENT_SET') {
+      Object.assign(node, {
+        transform3d: { type: 'NONE' },
+        transformOrigin: { x: { unit: 'PERCENT', value: 50 }, y: { unit: 'PERCENT', value: 50 } }
+      })
+    }
+    if (type === 'FRAME' || type === 'COMPONENT' || type === 'INSTANCE') {
+      Object.assign(node, { scene3d: null })
+    }
     withSharedPluginData(node, pluginData)
 
     function normalizePaints(

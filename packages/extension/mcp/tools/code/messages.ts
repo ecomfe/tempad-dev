@@ -29,9 +29,13 @@ export function buildGetCodeWarnings(
     literalClusters?: GetCodeLiteralCluster[]
     shell?: boolean
     tokenWarnings?: GetCodeWarning[]
+    transformWarnings?: GetCodeWarning[]
   }
 ): GetCodeWarning[] | undefined {
-  const warnings: GetCodeWarning[] = [...(options?.tokenWarnings ?? [])]
+  const warnings: GetCodeWarning[] = [
+    ...(options?.tokenWarnings ?? []),
+    ...(options?.transformWarnings ?? [])
+  ]
 
   if (AUTO_LAYOUT_REGEX.test(code)) {
     warnings.push({

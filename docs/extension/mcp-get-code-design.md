@@ -198,6 +198,22 @@ A stalled root or unusable shell still fails.
     Deleting a hug dimension would let CSS block/flex auto sizing stretch it to the containing box.
 - `applyOverflowStyles`:
   - Add overflow rules based on clips/scroll.
+- Project beta `transform3d`, `transformOrigin`, and `scene3d` through a shared,
+  policy-neutral helper used by UI/plugin codegen too. Keep native 3D CSS when
+  present; otherwise append fixed-order Z translation and X/Y/Z rotations.
+  Preserve layout geometry, mixed origin units, and backface visibility. Lengths
+  enter the existing scale/unit pipeline once. Native CSS can retain disabled
+  3D settings: remove those transforms and restore only the independent 2D matrix
+  axes, with translation still owned by layout positioning. Scene visibility
+  disables only perspective. Preserve 3D containers
+  drop their ignored opacity, blending, effects, and clipping styles. Paint ranks
+  retain coplanar layer order without injecting isolation, which would flatten
+  their children in CSS.
+  Do not promote a 3D scene or its ancestors into one vector asset. Actual vector
+  roots retain native SVG delivery without applying 3D CSS a second
+  time, with a bounded `3d-transform` warning. Imported FREEFORM transforms retain
+  native CSS; a missing native 3D matrix produces the same warning type because
+  the Plugin API exposes no reconstructable matrix.
 
 ### Sanitize (tree-level)
 

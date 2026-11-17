@@ -106,6 +106,25 @@ This Direct recipe creates an editable branch curve:
 - `relativeTransform` is a complete native 2×3 unit-axis transform; width and
   height carry scale. Do not combine it with `rotate-*`. On create roots, TemPad
   preserves rotation and skew but replaces translation with automatic placement.
+- Beta 3D properties require extension 1.1.0 or later. MCP 1.0.3 already supports
+  their transport; MCP 1.0.4 adds sparse readback tool guidance.
+  `transform3d` is independent of layout, size, and `relativeTransform`.
+  Use `{ "type": "FIXED_ORDER", "translateZ": 40, "rotateX": 0,
+  "rotateY": 30, "rotateZ": 0 }`: all four numeric fields are required,
+  Z translation is in pixels, and rotations are in degrees, applied in that
+  CSS order. Optional `backfaceVisible` and `visible` default to `true`.
+  `visible: false` retains disabled settings; `{ "type": "NONE" }` clears them.
+  Imported `FREEFORM` transforms can be read but cannot be assigned.
+- Beta `transformOrigin` supplies both axes, for example
+  `{ "x": { "unit": "PERCENT", "value": 0 },
+  "y": { "unit": "PIXELS", "value": 20 } }`.
+- Beta `scene3d` on a Frame, Component, or Instance is
+  `{ "perspective": 800, "preserve3d": true }`. Negative perspective disables
+  perspective; `visible: false` disables perspective while retaining its value
+  and leaves Preserve 3D active. `null` clears the scene (or opts an instance
+  out of its inherited scene). Omission preserves all three 3D fields.
+  A Preserve 3D container ignores its own opacity, blend, effects, and clipping;
+  use a flat ancestor when those must apply to the whole scene.
 - `stroke` carries weights, alignment, caps, joins, miter, and `dashPattern`.
 - `corners` carries radii and smoothing.
 - `mask` is `"ALPHA"`, `"VECTOR"`, `"LUMINANCE"`, or `null`.
@@ -114,10 +133,20 @@ Place a mask before masked siblings inside one dedicated frame and describe all
 direct siblings on update. A non-null mask needs a following sibling. Omission
 preserves mask state; `null` disables it.
 
-After changing a mask, layout grid, or frame guide, call `get_structure` with
+After changing a mask, layout grid, frame guide, or 3D state, call `get_structure` with
 `options.native: true` on the smallest relevant root. Verify `native.mask` and
 sibling order, or returned `native.layoutGrids` and `native.guides`; desired
-bindings alone are insufficient.
+bindings alone are insufficient. For 3D state inspect `native.transform3d`,
+`native.transformOrigin`, and `native.scene3d`. Readback is sparse, independently
+per field: `NONE`, the default `50% 50%` origin, and null/default scenes
+(`perspective: -1`, `preserve3d: false`, visibility omitted or `true`) are omitted.
+Configured transforms, including all-zero transforms, and nondefault scenes
+remain readable when disabled with `visible: false`. Empty `native` blocks are
+omitted too. Missing fields mean no nondefault value was serialized; the field
+may be default/cleared or unavailable on that node/runtime. Absence alone proves
+neither API support nor a successful clear. For clears, rely on successful
+`apply_canvas` native verification, which reads full values. Unlike readback,
+omitting a field from an authoring request preserves its live value.
 
 Use `{ "ref": "…" }` for catalog resources nested in native state and
 `sourceCanvasKey` or `{ "canvasKey": "…" }` for same-result forward node

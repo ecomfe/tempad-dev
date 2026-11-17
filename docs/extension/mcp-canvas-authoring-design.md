@@ -543,7 +543,7 @@ including:
 
 - sections, intrinsic groups, and non-destructive Boolean operations;
 - rectangles, lines, ellipses, polygons, stars, vector paths, and vector networks;
-- native transforms, masks, corners, stroke geometry, blends, and aspect-ratio state;
+- native 2D and beta 3D transforms/origins/scenes, masks, corners, stroke geometry, blends, and aspect-ratio state;
 - Paint, Effect, and Grid stacks, media, Pattern paints, and shaders;
 - guides and wrapping/grid-specific layout state;
 - rich-text ranges, lists, decorations, and node/URL hyperlinks;
@@ -860,6 +860,7 @@ Structural verification is mandatory. It checks:
 - direct variable, style, and mode links;
 - direct fill, stroke, and effect stacks, including resolved IMAGE hashes and paint fields;
 - direct layout grids and frame guides;
+- declared 3D transforms, origins, and scenes, including normalized defaults and explicit clears;
 - mask and managed SVG state.
 
 Paint, effect, and layout-grid comparisons preserve the exact declared variable aliases.
@@ -958,7 +959,16 @@ with `get_structure` because isolated screenshots cannot establish that relation
 `x`/`y` is relative to the node's actual Figma parent, including an outlined root; only page
 children are page-relative. Native-state QA sets `options.native: true`; the returned per-node
 `native` block contains mask type, IMAGE fill
-hashes and scale modes, ordered layout grids, and ordered frame guides when present. This makes
+hashes and scale modes, ordered layout grids, ordered frame guides, and sparse 3D transforms,
+origins, and scenes. Each 3D field is omitted independently when unavailable or default:
+`transform3d: { type: 'NONE' }`, a `50% 50%` origin, and null or default scenes
+(`perspective: -1`, `preserve3d: false`, visibility omitted or `true`). Configured transforms,
+including all-zero transforms, nondefault origins, and nondefault scenes remain readable;
+`visible: false` settings are retained even when their other values are default. An otherwise
+empty `native` block is omitted. Missing fields mean no nondefault value was serialized, not
+proof of API support or a successful clear. Native apply verification and rollback still use
+full native reads; a successful apply verifies explicit clears against those full values.
+Authoring omission continues to preserve live state. This makes
 mask order plus state, real image delivery, and grid/guide authoring independently readable instead
 of treating the apply request as proof that Figma retained the desired native properties.
 

@@ -81,6 +81,10 @@ release cycle so setup commands in older installed extensions continue to work.
 For the complete 1.0 release, update the TemPad Dev extension, MCP server, and
 Agent Plugin (or its standalone skills) to **1.0.0 or later**.
 Node.js **22.x, 24.x, or 26+** is required for the MCP server.
+For Figma's beta 3D transforms, update the extension to **1.1.0 or later** and the
+Agent Plugin to **1.0.2 or later**, then reload Figma and refresh the installed skills.
+MCP **1.0.3** already supports the required transport; a coordinated MCP update is unnecessary.
+MCP **1.0.4** adds tool descriptions for sparse native 3D readback and omission semantics.
 Multi-node reads and consumer-aware token resolution require matching protocol 15 Hub and
 extension builds. MCP 0.11.0 also supports extension 0.22.0 through protocol 13, preserving
 existing reads, sessions, tasks, and canvas writes during the store rollout. New read options

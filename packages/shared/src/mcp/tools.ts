@@ -7,6 +7,9 @@ import {
   type CanvasFigmaGuide,
   type CanvasFigmaLayoutGrid,
   type CanvasPageSnapshot,
+  type CanvasReadTransform3d,
+  type CanvasTransformOrigin,
+  type CanvasScene3d,
   CanvasStableKeySchema
 } from './canvas'
 
@@ -125,6 +128,7 @@ export type GetCodeWarning = {
     | 'literal-cluster'
     | 'token-resolution'
     | 'token-definition'
+    | '3d-transform'
   message: string
 }
 export type GetCodeResult = {
@@ -222,7 +226,7 @@ export const GetStructureParametersSchema = z
         native: z
           .boolean()
           .describe(
-            'Include compact native read-back for masks, IMAGE paint hashes, layout grids, and frame guides.'
+            'Include sparse native read-back for masks, IMAGE paint hashes, layout grids, frame guides, and 3D transforms/scenes. Default or empty 3D fields are omitted; configured disabled states are retained.'
           )
           .optional()
       })
@@ -249,6 +253,12 @@ export type OutlineNativeImageFill = {
   opacity: number
 }
 export type OutlineNativeProperties = {
+  /** Omits NONE and unavailable fields; configured transforms remain, including disabled ones. */
+  transform3d?: CanvasReadTransform3d
+  /** Omits the default 50%/50% origin and unavailable fields, independently of transform state. */
+  transformOrigin?: CanvasTransformOrigin
+  /** Omits null, the default (-1/false/visible) scene, and unavailable fields. */
+  scene3d?: CanvasScene3d
   mask?: 'ALPHA' | 'VECTOR' | 'LUMINANCE'
   imageFills?: OutlineNativeImageFill[]
   layoutGrids?: CanvasFigmaLayoutGrid[]
