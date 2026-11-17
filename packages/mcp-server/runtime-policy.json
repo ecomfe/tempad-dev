@@ -2,14 +2,14 @@
   "version": 1,
   "guidanceEpoch": 1,
   "guidanceReview": {
-    "version": "1.0.3",
-    "sourceHash": "d90bcb17d15edaad75b1f3eab4eae79086fab7eeaaff4dc258c763bddbd7bb39",
+    "version": "1.0.4",
+    "sourceHash": "3a47046453b0c5983adae278017387d904d7e022e2944eca1a3abf4c972c2745",
     "decision": "compatible",
     "baseline": {
-      "version": "1.0.2",
-      "integrity": "sha512-gL6ehWZHF645i8JVQqhjH2xYVGMiU76MhlQYuNaP5ltwOOf65mfP2YYmasSWofGMejqatl8UCxPGgCLDImRmkw=="
+      "version": "1.0.3",
+      "integrity": "sha512-37KVcCNMBqbWu9lxKtv+isqgihMGsjngDZynrGYx768s9QmMvg+T++j1cydrSOirIqAnbsRUqgHvLnNUR0+piQ=="
     },
-    "rationale": "Retains recovery after control loss, cancellation after the last client exits, and atomic supervisor status without replaying interrupted switches. Security fixes refresh transitive HTTP parsing, proxy trust, IP validation, URI parsing, copying, and brace expansion within declared parent ranges. The SDK already supports Node server adapter 2; its removed Node 18 and Vercel paths are unused here. Tool guidance, control and extension protocols, and durable state remain compatible with 1.0.2 and earlier epoch-1 releases."
+    "rationale": "Adds get_structure guidance for sparse native 3D readback, retaining configured disabled states and distinguishing omitted defaults or unavailable fields from verified clears. Published 1.0.3 already transports these native fields; older epoch-1 tool guidance remains valid and does not promise default 3D values. Argument and result wire contracts, control and extension protocols, and durable state remain compatible with 1.0.3 and earlier epoch-1 releases."
   },
   "controlProtocols": [2],
   "state": { "family": "tempad-runtime", "reads": [1], "writes": 1 },

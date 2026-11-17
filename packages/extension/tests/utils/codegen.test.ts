@@ -266,6 +266,33 @@ describe('utils/codegen', () => {
     ).toEqual([2, 1, 1])
   })
 
+  it('projects native 3D styles before UI and plugin variable formatting', async () => {
+    mocked.requestPluginSandbox.mockResolvedValue({ codeBlocks: [] })
+    mocked.resolveStylesFromNode.mockImplementation(async (style) => style)
+    mocked.formatNodeStyleForUi.mockImplementation((style) => ({ style }))
+    mocked.formatNodeStyleForPluginVariables.mockImplementation((style) => style)
+    const node = {
+      getCSSAsync: vi.fn(async () => ({ width: '160px' })),
+      transform3d: { type: 'FIXED_ORDER', translateZ: 40, rotateX: 0, rotateY: 30, rotateZ: 0 },
+      scene3d: { perspective: 800, preserve3d: true }
+    } as unknown as SceneNode
+    await generateCodeBlocksForNode(
+      node,
+      { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+      'plugin-code'
+    )
+    const style = {
+      width: '160px',
+      transform: 'translateZ(40px) rotateX(0deg) rotateY(30deg) rotateZ(0deg)',
+      'backface-visibility': 'visible',
+      perspective: '800px',
+      'transform-style': 'preserve-3d'
+    }
+    expect(mocked.formatNodeStyleForUi).toHaveBeenCalledWith(style, node)
+    expect(mocked.formatNodeStyleForPluginVariables).toHaveBeenCalledWith(style, node)
+    expect(node.getCSSAsync).toHaveBeenCalledOnce()
+  })
+
   it.each(['preparation', 'sandbox'])(
     'stops plugin work after cancellation during %s',
     async (phase) => {

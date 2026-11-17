@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2
+
+- Documented native 3D transforms, origins, perspective, Preserve 3D, and disabled-state
+  readback in the canvas geometry reference. Imported freeform transforms remain read-only.
+- Clarified sparse 3D omission semantics and full native verification for explicit clears.
+- Added 3D upgrade guidance for extension 1.1.0. Published MCP 1.0.3 already supports
+  transport of the new native fields; MCP 1.0.4 adds sparse readback tool guidance.
+
 ## 1.0.1
 
 - Set Codex's MCP startup timeout to 120 seconds to allow for npm downloads and first-run

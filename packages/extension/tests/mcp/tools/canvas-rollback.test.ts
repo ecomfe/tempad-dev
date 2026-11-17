@@ -24,6 +24,7 @@ import {
   reconcileVariableCollections,
   removeVariableResources
 } from '@/mcp/tools/canvas/variables'
+import { readFigma3d } from '@/utils/figma-3d'
 
 import { createFixture } from '../../fakes/figma'
 
@@ -47,6 +48,29 @@ const changes: Array<{
   { name: 'padding', classes: 'pl-8', read: (node) => node.paddingLeft },
   { name: 'size constraint', classes: 'min-w-40', read: (node) => node.minWidth },
   { name: 'rotation', classes: 'rotate-45', read: (node) => node.relativeTransform },
+  {
+    name: '3D transform',
+    binding: () => ({
+      figma: {
+        transform3d: { type: 'FIXED_ORDER', translateZ: 20, rotateX: 10, rotateY: 30, rotateZ: 0 }
+      }
+    }),
+    read: (node) => readFigma3d(node).transform3d
+  },
+  {
+    name: '3D origin',
+    binding: () => ({
+      figma: {
+        transformOrigin: { x: { unit: 'PIXELS', value: 20 }, y: { unit: 'PERCENT', value: 25 } }
+      }
+    }),
+    read: (node) => readFigma3d(node).transformOrigin
+  },
+  {
+    name: '3D scene',
+    binding: () => ({ figma: { scene3d: { perspective: 800, preserve3d: true } } }),
+    read: (node) => readFigma3d(node).scene3d
+  },
   { name: 'corner radius', classes: 'rounded-[12px]', read: (node) => node.cornerRadius },
   { name: 'stroke width', classes: 'border-[3px]', read: (node) => node.strokeWeight },
   {

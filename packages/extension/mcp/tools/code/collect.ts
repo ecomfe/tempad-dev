@@ -1,8 +1,9 @@
-import type { AssetDescriptor } from '@tempad-dev/shared'
+import type { AssetDescriptor, GetCodeWarning } from '@tempad-dev/shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { preprocessCssValue, stripFallback } from '@/utils/css'
+import { applyFigma3dStyles, hasCss3dTransform } from '@/utils/figma-3d'
 import { resolveStylesFromNodeData } from '@/utils/figma-style/style-resolver'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
@@ -37,6 +38,7 @@ export async function collectNodeData(
   const videoPreviewAssetHashes = new Set<string>()
   const rootVideoPreviewAssetHashes = new Set<string>()
   const rootIds = new Set(tree.rootIds)
+  const threeDWarnings = new Map<string, GetCodeWarning>()
   const assertActive = () => {
     cache.signal?.throwIfAborted()
     checkpoint?.()
@@ -67,7 +69,8 @@ export async function collectNodeData(
       css = formatNodeStyleForMcp(css, node, cache.readers, nodeVariableIds?.get(id))
       const parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
 
-      if (getNodeSemanticsCached(node, cache).layout.clippedOverflow) {
+      const semantics = getNodeSemanticsCached(node, cache)
+      if (semantics.layout.clippedOverflow) {
         // getCSSAsync also emits the inferred flex layout. Restore the native
         // clipping box before normal style processing and child positioning.
         for (const key of Object.keys(css)) {
@@ -118,6 +121,29 @@ export async function collectNodeData(
       }
 
       stripInertShadows(processed, node, cache)
+      const threeD = semantics.geometry.threeD
+      if (!vectorRoots?.has(id)) {
+        processed = applyFigma3dStyles(processed, threeD, semantics.geometry.relativeTransform)
+      }
+      const transform = threeD.transform3d
+      if (
+        transform &&
+        transform.type !== 'NONE' &&
+        transform.visible !== false &&
+        threeDWarnings.size < 3
+      ) {
+        if (vectorRoots?.has(id)) {
+          threeDWarnings.set(id, {
+            type: '3d-transform',
+            message: `3D vector "${id}" uses a native SVG snapshot; its 3D transform is not applied again in CSS. Inspect its screenshot for fidelity.`
+          })
+        } else if (transform.type === 'FREEFORM' && !hasCss3dTransform(processed)) {
+          threeDWarnings.set(id, {
+            type: '3d-transform',
+            message: `Imported FREEFORM transform on "${id}" has no native CSS matrix. The Plugin API cannot reconstruct it; inspect get_structure with options.native and a screenshot.`
+          })
+        }
+      }
       styles.set(id, processed)
     } catch (error) {
       assertActive()
@@ -126,6 +152,7 @@ export async function collectNodeData(
   }
 
   return {
+    ...(threeDWarnings.size ? { threeDWarnings } : {}),
     nodes: tree.nodes,
     rootVideoPreviewAssetHashes,
     styles,

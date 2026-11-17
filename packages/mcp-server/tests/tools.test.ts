@@ -322,6 +322,31 @@ describe('tools response helpers', () => {
     expect(textContent(structureResult.content[0])).toContain('Returned structure outline')
   })
 
+  it('preserves sparse native 3D readback without filling ordinary nodes through the Hub formatter', () => {
+    const payload: ToolResultMap['get_structure'] = {
+      roots: [
+        {
+          id: 'scene',
+          name: 'Scene',
+          type: 'FRAME',
+          x: 0,
+          y: 0,
+          width: 160,
+          height: 80,
+          native: {
+            transform3d: { type: 'FREEFORM', backfaceVisible: false, visible: false },
+            transformOrigin: { x: { unit: 'PERCENT', value: 0 }, y: { unit: 'PIXELS', value: 20 } },
+            scene3d: { perspective: 800, preserve3d: true, visible: false }
+          }
+        },
+        { id: 'plain', name: 'Plain', type: 'FRAME', x: 180, y: 0, width: 160, height: 80 }
+      ]
+    }
+    const result = createStructureToolResponse(payload)
+    expect(result.structuredContent).toEqual(payload)
+    expect(result.structuredContent).not.toHaveProperty('roots.1.native')
+  })
+
   it('formats design-system discovery and canvas apply responses', () => {
     const designSystemPayload: ToolResultMap['get_design_system'] = {
       catalogId: 'ds_1',

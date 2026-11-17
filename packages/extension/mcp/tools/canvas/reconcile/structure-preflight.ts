@@ -3,6 +3,7 @@ import type { ApplyState, SupportedCanvasNode, CanvasParentNode } from './state'
 
 import { specError } from '../errors'
 import { findExistingNode, isIntrinsicNode, walkSpecs, isWrappedSpec } from './nodes'
+import { validateFigma3d } from './transform-3d'
 
 function findOmittedChild(
   specs: CanvasNodeSpec[],
@@ -63,6 +64,7 @@ export function preflightContainers(
   state: ApplyState,
   existing: SupportedCanvasNode | null = null
 ): void {
+  validateFigma3d(spec.key, spec.type, spec.figma, existing)
   const childCount = spec.children?.length ?? 0
   if (!existing && spec.type === 'GROUP' && childCount === 0) {
     specError(`New group "${spec.key}" requires at least one child.`)

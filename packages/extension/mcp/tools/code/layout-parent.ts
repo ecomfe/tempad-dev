@@ -1,3 +1,5 @@
+import { hasFigma3d, readFigma3d } from '@/utils/figma-3d'
+
 import type { NodeSnapshot, VisibleTree } from './model'
 
 import { computeChildOverflow } from './styles/overflow'
@@ -55,12 +57,14 @@ export function isFlowGroup(tree: VisibleTree, snapshot: NodeSnapshot): boolean 
   return isAutoLayoutParent(parent)
 }
 
-// Groups in auto layout need a box even when nested or absolutely positioned.
-// Freeform groups keep sharing their nearest container's coordinate system.
+// Auto Layout and 3D groups need boxes, including nested groups. Other freeform
+// groups keep sharing their nearest container's coordinate system.
 export function isGroupLayoutBox(tree: VisibleTree, snapshot: NodeSnapshot): boolean {
   if (snapshot.type !== 'GROUP') return false
+  if (hasFigma3d(readFigma3d(snapshot.node))) return true
   let parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
   while (parent?.type === 'GROUP') {
+    if (hasFigma3d(readFigma3d(parent.node))) return true
     parent = parent.parentId ? tree.nodes.get(parent.parentId) : undefined
   }
   return !!parent && isAutoLayoutParent(parent)

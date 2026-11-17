@@ -1,3 +1,5 @@
+import type { GetCodeWarning } from '@tempad-dev/shared'
+
 export type DataHint = Record<string, string>
 
 export type AutoLayoutHint = 'none' | 'inferred'
@@ -33,6 +35,7 @@ export type VisibleTree = {
 }
 
 export type CollectedData = {
+  threeDWarnings?: Map<string, GetCodeWarning>
   nodes: Map<string, NodeSnapshot>
   rootVideoPreviewAssetHashes: Set<string>
   styles: Map<string, Record<string, string>>

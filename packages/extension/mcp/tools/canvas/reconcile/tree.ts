@@ -58,6 +58,7 @@ import {
 } from './state'
 import { applySvg } from './svg'
 import { applyText, applyTextRanges, applyTextHyperlink } from './text'
+import { applyFigma3d } from './transform-3d'
 import { applyVariableModes } from './variable-modes'
 import { ignoredLiteralWarnings } from './warnings'
 
@@ -278,6 +279,7 @@ async function applyNodePropertiesUnchecked(
     await applyTextRanges(node, spec.figma?.text?.ranges, state, spec.variables)
   }
   applySharedLayerState(node, spec, state)
+  applyFigma3d(node, spec, state)
   applyComponentPropertyReferences(node, spec, state)
   // Text and layout setters can leave a derived sizing mode or its geometry stale.
   if (node.type === 'TEXT') applySizingModes(node, spec, parent, state)

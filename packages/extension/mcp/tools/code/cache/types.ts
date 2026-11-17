@@ -1,4 +1,5 @@
 import type { ResponsePayload } from '@/types/codegen'
+import type { Figma3dProperties } from '@/utils/figma-3d'
 import type { FigmaLookupReaders } from '@/utils/figma-style/types'
 
 import type { TokenReadContext } from '../../token/context'
@@ -54,6 +55,7 @@ export type NodeSemanticSnapshot = {
     isMask: boolean
   }
   geometry: {
+    threeD: Figma3dProperties
     relativeTransform: Transform | null
     constraints: Constraints | null
   }

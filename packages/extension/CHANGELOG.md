@@ -1,7 +1,16 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
+- Added Figma's beta 3D transforms, transform origins, perspective, and Preserve 3D to
+  independent CSS/JavaScript code generation, code-output plugins, and MCP code export.
+- Added native 3D authoring and readback through MCP, including disabled settings, explicit
+  clearing, rollback, and repeated updates without unnecessary mutations.
+- Kept native 3D readback sparse by omitting default fields and empty blocks while retaining
+  configured disabled settings. Explicit clears still use full native verification.
+- Preserved 3D scene structure and stacking during export, with bounded warnings for native
+  vector snapshots and freeform transforms that cannot be represented as editable CSS.
+- Kept disabled 3D effects out of generated code while retaining independent 2D transforms.
 - Require Chrome 119 or later for the updated availability polling dependency.
 
 ## 1.0.0

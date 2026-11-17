@@ -75,6 +75,42 @@ function hasFields(value: object): boolean {
 const CanvasNonnegativeNumberSchema = z.number().finite().min(0)
 const CanvasUnitNumberSchema = z.number().finite().min(0).max(1)
 const CanvasFiniteNumberSchema = z.number().finite()
+
+const CanvasTransform3dSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('NONE') }).strict(),
+  z
+    .object({
+      type: z.literal('FIXED_ORDER'),
+      translateZ: CanvasFiniteNumberSchema,
+      rotateX: CanvasFiniteNumberSchema,
+      rotateY: CanvasFiniteNumberSchema,
+      rotateZ: CanvasFiniteNumberSchema,
+      backfaceVisible: z.boolean().optional(),
+      visible: z.boolean().optional()
+    })
+    .strict()
+])
+const CanvasTransformOriginAxisSchema = z
+  .object({ unit: z.enum(['PERCENT', 'PIXELS']), value: CanvasFiniteNumberSchema })
+  .strict()
+const CanvasTransformOriginSchema = z
+  .object({ x: CanvasTransformOriginAxisSchema, y: CanvasTransformOriginAxisSchema })
+  .strict()
+const CanvasScene3dSchema = z
+  .object({
+    perspective: CanvasFiniteNumberSchema,
+    preserve3d: z.boolean(),
+    visible: z.boolean().optional()
+  })
+  .strict()
+
+export type CanvasTransform3d = z.infer<typeof CanvasTransform3dSchema>
+export type CanvasTransformOrigin = z.infer<typeof CanvasTransformOriginSchema>
+export type CanvasScene3d = z.infer<typeof CanvasScene3dSchema>
+export type CanvasReadTransform3d =
+  | CanvasTransform3d
+  | { type: 'FREEFORM'; backfaceVisible: boolean; visible?: boolean }
+
 const CanvasRgbSchema = z
   .object({
     r: CanvasUnitNumberSchema,
@@ -1499,6 +1535,17 @@ export const CanvasFigmaPropertiesSchema = z
     relativeTransform: CanvasRelativeTransformSchema.describe(
       'Native translation, rotation, and skew matrix. Auto Layout computes child translation. Create roots preserve the axes but use automatic placement. Width and height remain separate.'
     ).optional(),
+    transform3d: CanvasTransform3dSchema.describe(
+      'Beta native 3D transform, independent of layout and relativeTransform. FIXED_ORDER uses pixels for translateZ and degrees for rotateX/Y/Z, in that CSS order. NONE clears it; omission preserves it. Imported FREEFORM transforms are read-only.'
+    ).optional(),
+    transformOrigin: CanvasTransformOriginSchema.describe(
+      'Beta 3D transform origin with independent PERCENT or PIXELS axes. Omission preserves it.'
+    ).optional(),
+    scene3d: CanvasScene3dSchema.nullable()
+      .describe(
+        'Beta perspective and Preserve 3D on frames, components, and instances. Negative perspective disables it; visible:false disables only perspective. Null clears the scene; omission preserves it.'
+      )
+      .optional(),
     mask: z
       .enum(['ALPHA', 'VECTOR', 'LUMINANCE'])
       .nullable()

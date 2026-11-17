@@ -14,6 +14,7 @@ import { requestPluginSandbox } from '@/plugin-sandbox/requester'
 import { validateCodegenBatchResponse, validateCodegenResponse } from '@/plugin-sandbox/validation'
 
 import { getDesignComponent } from './component'
+import { applyFigma3dStyles, readFigma3d } from './figma-3d'
 import { resolveStylesFromNode } from './figma-style/style-resolver'
 import { formatNodeStyleForPluginVariables, formatNodeStyleForUi } from './variable-output'
 
@@ -176,9 +177,11 @@ async function prepareCodegenJobForNode(
   const rawStyle = { ...(await (opts?.readCss ? opts.readCss(node) : node.getCSSAsync())) }
 
   // UI and plugin codegen may emit style-name vars when one CSS value safely represents the style.
-  const style = await resolveStylesFromNode(rawStyle, node, undefined, {
-    emitSafeStyleNameVars: true
-  })
+  const style = applyFigma3dStyles(
+    await resolveStylesFromNode(rawStyle, node, undefined, { emitSafeStyleNameVars: true }),
+    readFigma3d(node),
+    'relativeTransform' in node ? node.relativeTransform : undefined
+  )
   const pluginVariableStyle = pluginCode
     ? formatNodeStyleForPluginVariables(style, node)
     : undefined

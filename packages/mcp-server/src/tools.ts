@@ -226,7 +226,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_structure',
     description:
-      "Read a compact hierarchy and geometry outline for exact nodeId/nodeIds, exact page id/key, or the current selection. Exact roots are preserved before descendants consume the budget; options.depth: 0 returns roots only. Inspect errors and continue remainingNodeIds with nodeIds. Every x/y is relative to the node's actual Figma parent; page-query roots are page-relative. Includes stable keys on TemPad-managed nodes and exact page context for page queries. Set options.native for selected native read-back; this does not provide rendered pixels or general appearance.",
+      "Read a compact hierarchy and geometry outline for exact nodeId/nodeIds, exact page id/key, or the current selection. Exact roots are preserved before descendants consume the budget; options.depth: 0 returns roots only. Inspect errors and continue remainingNodeIds with nodeIds. Every x/y is relative to the node's actual Figma parent; page-query roots are page-relative. Includes stable keys on TemPad-managed nodes and exact page context for page queries. Set options.native for sparse native read-back, including 3D transforms, origins, and scenes: default/empty 3D fields are omitted, configured disabled states are retained. Missing fields alone do not prove API support or a successful clear. This does not provide rendered pixels or general appearance.",
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetStructureParametersSchema,
     target: 'extension',
