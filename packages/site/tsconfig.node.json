@@ -1,6 +1,6 @@
 // TSConfig for modules that run in Node.js environment via either transpilation or type-stripping.
 {
-  "extends": "@tsconfig/node24/tsconfig.json",
+  "extends": "@tsconfig/node26/tsconfig.json",
   "include": ["*.config.*", "scripts/**/*.ts"],
   "compilerOptions": {
     // Most tools use transpilation instead of Node.js's native type-stripping.
