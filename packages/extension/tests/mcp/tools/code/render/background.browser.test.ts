@@ -43,9 +43,14 @@ it.each(['px', 'rem'] as const)(
       const actual = getComputedStyle(element)
       expect(actual.backgroundImage).toBe(`url("${front}"), url("${rear}"), none`)
       expect(actual.backgroundColor).toBe('rgb(255, 0, 0)')
-      expect(actual.backgroundPosition).toBe('32px 16px, 100% 100%, 32px 16px')
-      expect(actual.backgroundSize).toBe('64px 32px, cover, 64px 32px')
-      expect(actual.backgroundRepeat).toBe('no-repeat, repeat-x, no-repeat')
+      // Browsers may serialize the original list instead of repeating it for all three layers.
+      const usedLayers = (value: string) => {
+        const values = value.split(', ')
+        return Array.from({ length: 3 }, (_, index) => values[index % values.length])
+      }
+      expect(usedLayers(actual.backgroundPosition)).toEqual(['32px 16px', '100% 100%', '32px 16px'])
+      expect(usedLayers(actual.backgroundSize)).toEqual(['64px 32px', 'cover', '64px 32px'])
+      expect(usedLayers(actual.backgroundRepeat)).toEqual(['no-repeat', 'repeat-x', 'no-repeat'])
 
       host.style.setProperty('--surface', '#00ff00')
       expect(getComputedStyle(element).backgroundColor).toBe('rgb(0, 255, 0)')
