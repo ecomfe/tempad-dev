@@ -2,14 +2,14 @@
   "version": 1,
   "guidanceEpoch": 1,
   "guidanceReview": {
-    "version": "1.0.4",
-    "sourceHash": "f6b6ffa4201c243f993160152fb43b0b154ecc4fe1d9c10ef5b52f727d1182a9",
+    "version": "1.0.5",
+    "sourceHash": "53931f66c440bb642ed8b49e84faf149f6bdb79c15328c94f4a02bb7b2b8ecd1",
     "decision": "compatible",
     "baseline": {
-      "version": "1.0.3",
-      "integrity": "sha512-37KVcCNMBqbWu9lxKtv+isqgihMGsjngDZynrGYx768s9QmMvg+T++j1cydrSOirIqAnbsRUqgHvLnNUR0+piQ=="
+      "version": "1.0.4",
+      "integrity": "sha512-v85SbcCThHuU0/CX35qm5h+zRGQaAdve5kxJ8vzm41laWHF1PRIOOs0nO5Gc/0Nti5z9SLyp8e0WwLzFSfbvvQ=="
     },
-    "rationale": "Adds get_structure guidance for sparse native 3D readback, retaining configured disabled states and distinguishing omitted defaults or unavailable fields from verified clears. Published 1.0.3 already transports these native fields; older epoch-1 tool guidance remains valid and does not promise default 3D values. Argument and result wire contracts, control and extension protocols, and durable state remain compatible with 1.0.3 and earlier epoch-1 releases. The site-only Node 26 TypeScript configuration update changes no shipped runtime dependencies or guidance. Non-major dependency updates include ws 8.23.0's bounded automatic Pong buffering; tool behavior, shipped guidance, protocols, and durable state remain compatible."
+    "rationale": "Windows startup can recover an eligible default runtime root with inherited access while preserving the ACL allowlist and enrolled path. The dependency updates include bounded automatic Pong buffering in ws. These changes preserve the shipped tool guidance, wire contracts, supported protocols and durable state format across guidance epoch 1."
   },
   "controlProtocols": [2],
   "state": { "family": "tempad-runtime", "reads": [1], "writes": 1 },

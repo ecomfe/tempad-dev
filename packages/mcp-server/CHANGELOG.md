@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5
+
+- Fixed Windows startup when the default runtime directory inherits access for another
+  account, including a Codex CLI sandbox account. Eligible directories are preserved as
+  `tempad-dev.legacy`, and MCP starts with a fresh private directory at the original path.
+
 ## 1.0.4
 
 - Clarified that `get_structure` with `options.native` includes 3D transforms, origins, and

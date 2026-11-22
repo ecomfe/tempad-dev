@@ -34,6 +34,8 @@ const pinoMocks = vi.hoisted(() => {
 
 const pruneExpiredLogs = vi.hoisted(() => vi.fn())
 vi.mock('../src/log-retention', () => ({ pruneExpiredLogs }))
+const ensurePrivateDirectory = vi.hoisted(() => vi.fn())
+vi.mock('../src/runtime-platform', () => ({ ensurePrivateDirectory }))
 
 vi.mock('node:fs', () => ({
   mkdirSync: fsMocks.mkdirSync,
@@ -82,6 +84,24 @@ afterEach(() => {
 })
 
 describe('mcp-server/shared', () => {
+  it.each([false, true])(
+    'limits Windows recovery to the default root (custom logs: %s)',
+    async (customLogs) => {
+      vi.stubGlobal('process', {
+        ...process,
+        platform: 'win32',
+        env: customLogs ? { TEMPAD_MCP_LOG_DIR: '/custom' } : {}
+      })
+      await importShared()
+      const recovery = ensurePrivateDirectory.mock.calls.filter(
+        ([, options]) => options?.recoverLegacyRoot
+      )
+      expect(recovery).toEqual(
+        customLogs ? [] : [['/tmp/tempad-unit/tempad-dev', { recoverLegacyRoot: true }]]
+      )
+    }
+  )
+
   it('refuses shared-writable or symlink runtime directories', async () => {
     const shared = await importShared()
     fsMocks.lstatSync.mockReturnValueOnce({

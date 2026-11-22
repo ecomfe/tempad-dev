@@ -182,7 +182,11 @@ socket is rejected without launching a replacement Hub. Correct its ownership/pe
 down the old runtime before reconnecting. Windows retains the released compatibility pipe name;
 managed control/data pipes are scoped by user and runtime directory. Windows ACL checks restrict
 managed storage and endpoints to the current user, SYSTEM and Administrators rather than relying
-on Unix permission bits. Untrusted paths or permissions fail startup.
+on Unix permission bits. If the default runtime root belongs to the current user and
+inherits access for another account, MCP can rename it to `tempad-dev.legacy` and create
+a private directory at the original path. Old files stay in the backup. A runtime lock or
+an existing backup blocks this recovery. If startup asks you to rename the old directory,
+stop all TemPad MCP clients first, then rename it and reconnect.
 
 The hub accepts WebSocket handshakes only from Chrome extension origins on its root path. For a locked-down installation, configure `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS` with the TemPad Dev extension origin shown by the browser. This origin check and the per-process asset capability reduce cross-origin loopback abuse, but do not authenticate local processes, including another OS user's process that binds the port first; see the [local MCP threat model](../../docs/security/local-mcp-threat-model.md).
 

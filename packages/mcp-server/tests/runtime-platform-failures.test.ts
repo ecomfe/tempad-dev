@@ -98,8 +98,29 @@ it('creates missing directories through the ACL helper, without repairing unsafe
   vi.mocked(execFileSync).mockImplementation(() => {
     throw { stderr: JSON.stringify({ message: 'Unexpected owner', code: 5 }) }
   })
-  expect(() => ensurePrivateDirectory(path)).toThrow('Unexpected owner')
+  expect(() => ensurePrivateDirectory(path, { recoverLegacyRoot: true })).toThrow(
+    'Unexpected owner'
+  )
   expect(execFileSync).toHaveBeenCalledTimes(2)
+})
+
+it('requires a fresh, identity-checked ACL after retiring an inherited directory', () => {
+  const actions: string[] = []
+  vi.mocked(execFileSync).mockImplementation((_command, _args, options) => {
+    const { action } = JSON.parse(options!.env!.TEMPAD_RUNTIME_ACL_REQUEST!)
+    actions.push(action)
+    if (actions.length === 1)
+      throw { stderr: JSON.stringify({ code: 'EINHERITEDACL', message: 'foreign inherited ACE' }) }
+    if (actions.length === 4) inode++
+    return ''
+  })
+  expect(() => ensurePrivateDirectory(path, { recoverLegacyRoot: true })).toThrow(
+    'changed during its permission check'
+  )
+  expect(actions).toEqual(['inspect', 'retire', 'ensure', 'inspect'])
+  assertPrivatePath(path, 'directory')
+  expect(actions.at(-1)).toBe('inspect')
+  expect(actions).toHaveLength(5)
 })
 
 it('rechecks directory changes and caches only a stable private revision', () => {
