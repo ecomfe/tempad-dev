@@ -155,7 +155,9 @@ Linux 上，运行时会以 `0700` 权限创建 `<系统临时目录>/tempad-dev
 其他平台仍使用 `<系统临时目录>/tempad-dev`；显式目录覆盖优先。Unix 客户端与生命周期 hooks
 连接前会检查 socket 类型、所有者和私有权限，不可信时直接拒绝，不另启 Hub。Windows 保留已发布的
 兼容管道名，托管运行时的控制与数据管道按用户和运行目录隔离。Windows 使用实际 ACL 校验，将托管
-存储和端点的访问限制为当前用户、SYSTEM 与 Administrators，不依赖 Unix 权限位；路径或权限不可信时拒绝启动。
+存储和端点的访问限制为当前用户、SYSTEM 与 Administrators。如果默认运行目录属于当前用户，又继承了其他账户的访问权限，
+MCP 可以将旧目录改名为 `tempad-dev.legacy`，在原路径创建私有目录。旧文件保留在备份中。
+检测到运行锁或同名备份时会停止恢复。如果启动错误提示手动改名，请先停止所有 TemPad MCP 客户端，再改名并重新连接。
 
 Hub 仅接受来自 Chrome 扩展 Origin、且目标为根路径的 WebSocket 握手。如需收紧安装环境，请将浏览器中显示的 TemPad Dev 扩展 Origin 写入 `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS`。Origin 校验与每次进程启动生成的 asset capability 可以降低跨 Origin 的 loopback 滥用，但不能认证本机进程，包括先占用端口的其他操作系统用户进程；详见[本地 MCP 威胁模型](../../docs/security/local-mcp-threat-model.md)。
 
