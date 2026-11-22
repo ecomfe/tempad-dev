@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -256,7 +257,7 @@ describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
         '-NoProfile',
         '-NonInteractive',
         '-EncodedCommand',
-        Buffer.from(source, 'utf16le').toString('base64')
+        Buffer.from("$ErrorActionPreference = 'Stop'\n" + source, 'utf16le').toString('base64')
       ],
       {
         input: JSON.stringify(input),
@@ -266,6 +267,81 @@ describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
       }
     )
   }
+
+  function legacyRoot() {
+    const parent = fixture()
+    const root = join(parent, 'tempad-dev')
+    powershell(
+      `
+      $path = [Console]::In.ReadToEnd() | ConvertFrom-Json
+      $parent = [IO.Path]::GetDirectoryName($path)
+      $acl = Get-Acl -LiteralPath $parent
+      $other = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-21-1-2-3-4567')
+      $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($other, 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+      $acl.AddAccessRule($rule)
+      Set-Acl -LiteralPath $parent -AclObject $acl
+      [void][IO.Directory]::CreateDirectory($path)
+      $acl = Get-Acl -LiteralPath $path
+      $acl.SetOwner([System.Security.Principal.WindowsIdentity]::GetCurrent().User)
+      [IO.Directory]::SetAccessControl($path, $acl)
+      `,
+      root
+    )
+    return root
+  }
+
+  it('recovers the legacy root without trusting its inherited grants or old files', () => {
+    const root = legacyRoot()
+    mkdirSync(join(root, 'run'))
+    writeFileSync(join(root, 'run', 'hub-runtime.json'), 'old identity')
+    expect(() => ensurePrivateDirectory(root)).toThrow('another account')
+    ensurePrivateDirectory(root, { recoverLegacyRoot: true })
+    expect(readdirSync(root)).toEqual([])
+    expect(readFileSync(join(root + '.legacy', 'run', 'hub-runtime.json'), 'utf8')).toBe(
+      'old identity'
+    )
+    expect(() => assertPrivatePath(root + '.legacy', 'directory')).toThrow('another account')
+    expect(
+      powershell(
+        `
+        $acl = Get-Acl -LiteralPath ([Console]::In.ReadToEnd() | ConvertFrom-Json)
+        if (!$acl.AreAccessRulesProtected) { throw 'DACL still inherits from Temp' }
+        $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+        foreach ($ace in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
+          if ($ace.IsInherited -or $ace.AccessControlType -ne 'Allow' -or $ace.FileSystemRights -ne 'FullControl') {
+            throw 'Unexpected replacement ACE'
+          }
+          if ($ace.IdentityReference -eq $user) { 'self' } else { $ace.IdentityReference.Value }
+        }
+        `,
+        root
+      )
+        .trim()
+        .split(/\r?\n/)
+        .sort()
+    ).toEqual(['S-1-5-18', 'S-1-5-32-544', 'self'])
+    writeFileSync(join(root, 'new.json'), '{}')
+    assertPrivatePath(join(root, 'new.json'), 'file')
+    ensurePrivateDirectory(root, { recoverLegacyRoot: true })
+    expect(readFileSync(join(root, 'new.json'), 'utf8')).toBe('{}')
+  }, 30_000)
+
+  it.each(['lock', 'previous backup', 'junction'])(
+    'preserves the legacy tree on %s',
+    (reason) => {
+      const root = legacyRoot()
+      if (reason === 'lock') mkdirSync(join(root, 'run', 'hub.lock.lock'), { recursive: true })
+      if (reason === 'previous backup') mkdirSync(root + '.legacy')
+      if (reason === 'junction') symlinkSync(root, join(root, 'run'), 'junction')
+      writeFileSync(join(root, 'marker'), 'original')
+      expect(() => ensurePrivateDirectory(root, { recoverLegacyRoot: true })).toThrow(
+        'rename the old directory'
+      )
+      expect(readFileSync(join(root, 'marker'), 'utf8')).toBe('original')
+      expect(() => assertPrivatePath(root, 'directory')).toThrow('another account')
+    },
+    30_000
+  )
 
   it('rejects permissive ACLs instead of treating chmod as protection', () => {
     const root = fixture()
@@ -280,7 +356,26 @@ describe.skipIf(process.platform !== 'win32')('Windows ACLs', () => {
       root
     )
     expect(() => assertPrivatePath(root, 'directory')).toThrow('another account')
-    expect(() => ensurePrivateDirectory(root)).toThrow('another account')
+    expect(() => ensurePrivateDirectory(root, { recoverLegacyRoot: true })).toThrow(
+      'another account'
+    )
+  }, 30_000)
+
+  it('does not retire an inherited directory with a deny rule', () => {
+    const root = legacyRoot()
+    powershell(
+      `
+      $path = [Console]::In.ReadToEnd() | ConvertFrom-Json
+      $acl = Get-Acl -LiteralPath $path
+      $sid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-21-1-2-3-4567')
+      $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($sid, 'Delete', 'Deny'))
+      Set-Acl -LiteralPath $path -AclObject $acl
+      `,
+      root
+    )
+    expect(() => ensurePrivateDirectory(root, { recoverLegacyRoot: true })).toThrow(
+      'another account'
+    )
   }, 30_000)
 
   it('protects and verifies live pipe ACLs, including after later accepts', async () => {

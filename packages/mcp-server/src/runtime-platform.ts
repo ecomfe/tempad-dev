@@ -108,7 +108,7 @@ export async function assertPrivatePathAsync(path: string, kind: 'file' | 'direc
   }
 }
 
-export function ensurePrivateDirectory(path: string) {
+export function ensurePrivateDirectory(path: string, { recoverLegacyRoot = false } = {}) {
   if (!isAbsolute(path)) throw new Error('Runtime directory must be absolute.')
   if (process.platform !== 'win32') {
     mkdirSync(path, { recursive: true, mode: 0o700 })
@@ -117,10 +117,29 @@ export function ensurePrivateDirectory(path: string) {
   }
   try {
     assertPrivatePath(path, 'directory')
+    return
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    windowsSecurity('ensure', path, 'directory')
-    rememberPermissions(path, inspectPath(path, 'directory'))
+    const code = (error as NodeJS.ErrnoException).code
+    if (recoverLegacyRoot && code === 'EINHERITEDACL') retireLegacyDirectory(path)
+    else if (code !== 'ENOENT') throw error
+  }
+  windowsSecurity('ensure', path, 'directory')
+  if (recoverLegacyRoot) assertPrivatePath(path, 'directory')
+  else rememberPermissions(path, inspectPath(path, 'directory'))
+}
+
+function retireLegacyDirectory(path: string) {
+  try {
+    windowsSecurity('retire', path, 'directory')
+  } catch (cause) {
+    // Another launcher may already be replacing the root. Its successor still
+    // has to pass ensurePrivateDirectory's independent ACL and identity checks.
+    const code = (cause as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'EBUSY') return
+    throw new Error(
+      `Cannot recover ${path}. Stop all TemPad MCP clients, rename the old directory, and restart. ${String(cause)}`,
+      { cause }
+    )
   }
 }
 
@@ -177,7 +196,9 @@ export function windowsPowerShellEnvironment(env: NodeJS.ProcessEnv = process.en
 // Built-in Windows PowerShell supplies the platform ACL API without an npm/native dependency.
 // JSON stays in a child-only environment value, never executable source or shell arguments.
 // Helper input is independent of host stdio and the Windows console's input code page.
-function securityCommand(action: 'ensure' | 'inspect' | 'protect', path: string, kind: string) {
+type SecurityAction = 'ensure' | 'inspect' | 'protect' | 'retire'
+
+function securityCommand(action: SecurityAction, path: string, kind: string) {
   const systemRoot = process.env.SystemRoot
   if (!systemRoot || !isAbsolute(systemRoot))
     throw new Error('Windows SystemRoot is required to verify private runtime storage.')
@@ -188,7 +209,7 @@ function securityCommand(action: 'ensure' | 'inspect' | 'protect', path: string,
       '-NoProfile',
       '-NonInteractive',
       '-EncodedCommand',
-      Buffer.from(SECURITY_SCRIPT, 'utf16le').toString('base64')
+      Buffer.from(securityScript(action), 'utf16le').toString('base64')
     ],
     options: {
       encoding: 'utf8' as const,
@@ -203,12 +224,12 @@ function securityCommand(action: 'ensure' | 'inspect' | 'protect', path: string,
   }
 }
 
-function windowsSecurity(action: 'ensure' | 'inspect' | 'protect', path: string, kind: string) {
+function windowsSecurity(action: SecurityAction, path: string, kind: string) {
   const { file, args, options } = securityCommand(action, path, kind)
   try {
     execFileSync(file, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] })
   } catch (cause) {
-    throw securityFailure(cause, path, kind)
+    throw securityFailure(cause, path, kind, action)
   }
 }
 
@@ -221,14 +242,15 @@ async function windowsSecurityAsync(
   const { file, args, options } = securityCommand(action, path, kind)
   await new Promise<void>((resolve, reject) => {
     const child = execFile(file, args, { ...options, signal }, (error, stdout, stderr) => {
-      if (error) reject(securityFailure(Object.assign(error, { stdout, stderr }), path, kind))
+      if (error)
+        reject(securityFailure(Object.assign(error, { stdout, stderr }), path, kind, action))
       else resolve()
     })
     child.stdin?.end()
   })
 }
 
-function securityFailure(cause: unknown, path: string, kind: string) {
+function securityFailure(cause: unknown, path: string, kind: string, action: SecurityAction) {
   const error = cause as { stdout?: string; stderr?: string }
   const detail = [error.stdout, error.stderr].filter(Boolean).join('\n').trim()
   let code: number | string | undefined
@@ -247,35 +269,53 @@ function securityFailure(cause: unknown, path: string, kind: string) {
     }
   ) as NodeJS.ErrnoException
   if (code === 2 || code === 3) failure.code = 'ENOENT'
-  if (code === 231) failure.code = 'EBUSY'
+  if (code === 231 || (action === 'retire' && code === 32)) failure.code = 'EBUSY'
   if (code === 'EPIPEUNPROTECTED') failure.code = code
+  if (kind === 'directory' && code === 'EINHERITEDACL') failure.code = code
   if (!failure.code && kind === 'pipe' && reportedFailure) failure.code = 'EPIPEUNTRUSTED'
   return failure
 }
 
-const SECURITY_SCRIPT = String.raw`
-$ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
-[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-# Module autoload can stall with a filtered host environment. Use the trusted
-# built-in modules directly, without scanning host/user module locations.
-Import-Module "$PSHOME\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1" -ErrorAction Stop
-Import-Module "$PSHOME\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1" -ErrorAction Stop
-$PSModuleAutoloadingPreference = 'None'
-$failureCode = $null
-try {
-  $request = $env:TEMPAD_RUNTIME_ACL_REQUEST | ConvertFrom-Json
-  $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-  $allowed = @($user.Value, 'S-1-5-18', 'S-1-5-32-544')
-  if ($request.kind -eq 'pipe') {
-    Add-Type -TypeDefinition @'
-using System;
-using System.ComponentModel;
-using System.Runtime.InteropServices;
-using Microsoft.Win32.SafeHandles;
-public static class TempadPipeSecurity {
+const DIRECTORY_RECOVERY_METHODS = String.raw`
+  [DllImport("kernel32.dll", SetLastError=true)]
+  static extern bool SetFileInformationByHandle(SafeFileHandle handle, int kind, byte[] info, uint size);
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-  static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+  static extern uint GetFinalPathNameByHandle(SafeFileHandle handle, System.Text.StringBuilder path, uint size, uint flags);
+  public static SafeFileHandle OpenLegacyDirectory(string path, bool retire) {
+    // FILE_READ_ATTRIBUTES, no share-delete, BACKUP_SEMANTICS | OPEN_REPARSE_POINT.
+    var handle = CreateFile(path, retire ? 0x10080u : 0x80u, 1, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+    if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
+    try {
+      var final = new System.Text.StringBuilder(32768);
+      uint count = GetFinalPathNameByHandle(handle, final, (uint)final.Capacity, 0);
+      if (count == 0 || count >= final.Capacity ||
+          !String.Equals(final.ToString(), @"\\?\" + path, StringComparison.OrdinalIgnoreCase) ||
+          (System.IO.File.GetAttributes(path) & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint)) != System.IO.FileAttributes.Directory)
+        throw new InvalidOperationException("Expected a canonical local runtime directory.");
+      return handle;
+    } catch { handle.Dispose(); throw; }
+  }
+  public static void Retire(SafeFileHandle handle, string path) {
+    foreach (string run in System.IO.Directory.GetFileSystemEntries(path, "run")) {
+      using (OpenLegacyDirectory(run, false)) {
+        foreach (string name in new[] { "hub.lock.lock", "mcp.lock.lock" }) {
+          if (System.IO.Directory.GetFileSystemEntries(run, name).Length != 0)
+            throw new InvalidOperationException("A runtime lock exists.");
+        }
+      }
+    }
+    // FILE_RENAME_INFO with ReplaceIfExists=false and RootDirectory=NULL.
+    byte[] nameBytes = System.Text.Encoding.Unicode.GetBytes(path + ".legacy");
+    int lengthOffset = 2 * IntPtr.Size;
+    byte[] info = new byte[lengthOffset + 4 + nameBytes.Length + 2];
+    BitConverter.GetBytes(nameBytes.Length).CopyTo(info, lengthOffset);
+    nameBytes.CopyTo(info, lengthOffset + 4);
+    if (!SetFileInformationByHandle(handle, 3, info, (uint)info.Length))
+      throw new Win32Exception(Marshal.GetLastWin32Error());
+  }
+`
+
+const PIPE_SECURITY_METHODS = String.raw`
   [DllImport("advapi32.dll", SetLastError=true)]
   static extern uint GetSecurityInfo(SafeFileHandle handle, uint type, uint info, out IntPtr owner, out IntPtr group, out IntPtr dacl, out IntPtr sacl, out IntPtr descriptor);
   [DllImport("advapi32.dll", SetLastError=true)]
@@ -316,25 +356,72 @@ public static class TempadPipeSecurity {
       } finally { LocalFree(descriptor); }
     }
   }
+`
+
+function securityScript(action: SecurityAction) {
+  return String.raw`
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+# Module autoload can stall with a filtered host environment. Use the trusted
+# built-in modules directly, without scanning host/user module locations.
+Import-Module "$PSHOME\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1" -ErrorAction Stop
+Import-Module "$PSHOME\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1" -ErrorAction Stop
+$PSModuleAutoloadingPreference = 'None'
+$failureCode = $null
+$legacy = $null
+$compilerTemp = $null
+function New-PrivateDirectory($path) {
+  $security = New-Object System.Security.AccessControl.DirectorySecurity
+  $security.SetOwner($user)
+  $security.SetAccessRuleProtection($true, $false)
+  foreach ($sid in $allowed) {
+    $principal = New-Object System.Security.Principal.SecurityIdentifier($sid)
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($principal, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+    $security.AddAccessRule($rule)
+  }
+  [void][IO.Directory]::CreateDirectory($path, $security)
+}
+try {
+  $request = $env:TEMPAD_RUNTIME_ACL_REQUEST | ConvertFrom-Json
+  $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+  $allowed = @($user.Value, 'S-1-5-18', 'S-1-5-32-544')
+  if ($request.action -eq 'retire') {
+    # Windows PowerShell's Add-Type compiles via temporary files. Temp itself
+    # may be sandbox-writable in precisely the migration we are handling.
+    $local = [Environment]::GetFolderPath('LocalApplicationData')
+    if (![IO.Path]::IsPathRooted($local)) { throw 'Missing local application data directory.' }
+    $scratch = [IO.Path]::Combine($local, 'tempad-acl-' + [Guid]::NewGuid().ToString('N'))
+    New-PrivateDirectory $scratch
+    $compilerTemp = $scratch
+    $env:TMP = $env:TEMP = $scratch
+  }
+  if ($request.kind -eq 'pipe' -or $request.action -eq 'retire') {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class TempadSecurity {
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+${action === 'retire' ? DIRECTORY_RECOVERY_METHODS : PIPE_SECURITY_METHODS}
 }
 '@
+  }
+  if ($request.kind -eq 'pipe') {
     $sddl = $null
     if ($request.action -eq 'protect') {
       $sddl = 'D:P(D;;GA;;;NU)(A;;GA;;;' + $user.Value + ')(A;;GA;;;SY)(A;;GA;;;BA)'
     }
-    $bytes = [TempadPipeSecurity]::Inspect($request.path, $sddl)
+    $bytes = [TempadSecurity]::Inspect($request.path, $sddl)
     $descriptor = New-Object System.Security.AccessControl.RawSecurityDescriptor($bytes, 0)
   } else {
+    if ($request.action -eq 'retire') {
+      $legacy = [TempadSecurity]::OpenLegacyDirectory($request.path, $true)
+    }
     if ($request.action -eq 'ensure' -and ![IO.Directory]::Exists($request.path)) {
-      $security = New-Object System.Security.AccessControl.DirectorySecurity
-      $security.SetOwner($user)
-      $security.SetAccessRuleProtection($true, $false)
-      foreach ($sid in $allowed) {
-        $principal = New-Object System.Security.Principal.SecurityIdentifier($sid)
-        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($principal, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-        $security.AddAccessRule($rule)
-      }
-      [void][IO.Directory]::CreateDirectory($request.path, $security)
+      New-PrivateDirectory $request.path
     }
     try {
       $acl = Get-Acl -LiteralPath $request.path
@@ -349,11 +436,13 @@ public static class TempadPipeSecurity {
   }
   $ownAccess = $false
   $foreignAccess = $false
+  $inheritedOnly = $request.kind -eq 'directory' -and $descriptor.Owner.Value -eq $user.Value -and !$acl.AreAccessRulesProtected
   $pendingProtection = $request.kind -eq 'pipe' -and $request.action -eq 'inspect'
   foreach ($ace in $descriptor.DiscretionaryAcl) {
     if ($ace.AceType -eq 'AccessAllowed') {
       if ($allowed -notcontains $ace.SecurityIdentifier.Value) {
         $foreignAccess = $true
+        if (!($ace.AceFlags -band [Security.AccessControl.AceFlags]::Inherited)) { $inheritedOnly = $false }
         # Windows' initial pipe descriptor can be owned by Administrators and omit
         # the user's ACE. Only its default reader grants are retryable, never trusted.
         $defaultReader = @('S-1-1-0', 'S-1-5-7') -contains $ace.SecurityIdentifier.Value
@@ -361,13 +450,22 @@ public static class TempadPipeSecurity {
         $pendingProtection = $pendingProtection -and $defaultReader -and $readOnly
       }
       if ($ace.SecurityIdentifier.Value -eq $user.Value) { $ownAccess = $true }
-    } elseif ($ace.AceType -ne 'AccessDenied') {
+    } elseif ($ace.AceType -eq 'AccessDenied') {
+      $inheritedOnly = $false
+    } else {
       throw 'Unsupported ACL entry.'
     }
   }
   if ($foreignAccess -and $pendingProtection) { $failureCode = 'EPIPEUNPROTECTED' }
   if (!$ownAccess) { throw 'ACL does not explicitly grant the current user access.' }
   if ($foreignAccess) {
+    if ($inheritedOnly -and $request.action -eq 'retire') {
+      # Tightening the old DACL cannot revoke open handles or authenticate existing files.
+      # Leave the entire tree untouched and recreate the private root at the enrolled path.
+      [TempadSecurity]::Retire($legacy, $request.path)
+      return
+    }
+    if ($inheritedOnly) { $failureCode = 'EINHERITEDACL' }
     throw 'ACL grants another account access.'
   }
 } catch {
@@ -376,5 +474,12 @@ public static class TempadPipeSecurity {
   if (!$failureCode) { $failureCode = $failure.NativeErrorCode }
   [Console]::Error.WriteLine((@{ message = $failure.Message; code = $failureCode } | ConvertTo-Json -Compress))
   exit 1
+} finally {
+  if ($null -ne $legacy) { $legacy.Dispose() }
+  if ($null -ne $compilerTemp) {
+    # A scanner can still hold compiler output. Never let scratch cleanup undo a completed rename.
+    try { [IO.Directory]::Delete($compilerTemp, $true) } catch [IO.IOException] {}
+  }
 }
 `
+}

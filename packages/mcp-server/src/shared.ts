@@ -92,7 +92,17 @@ export const RUNTIME_DIR = directories.runtime
 export const LOG_DIR = directories.log
 export const ASSET_DIR = directories.assets
 
-if (directories.root) ensureDir(directories.root)
+if (directories.root) {
+  const defaultRelease =
+    process.platform === 'win32' &&
+    RUNTIME_PROFILE.kind === 'release' &&
+    !process.env.TEMPAD_MCP_RUNTIME_DIR &&
+    !process.env.TEMPAD_MCP_STATE_DIR &&
+    !process.env.TEMPAD_MCP_LOG_DIR &&
+    !process.env.TEMPAD_MCP_ASSET_DIR
+  if (defaultRelease) ensurePrivateDirectory(directories.root, { recoverLegacyRoot: true })
+  else ensureDir(directories.root)
+}
 ensureDir(RUNTIME_DIR)
 ensureDir(LOG_DIR)
 ensureDir(ASSET_DIR)
