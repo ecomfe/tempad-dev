@@ -281,15 +281,21 @@ const DIRECTORY_RECOVERY_METHODS = String.raw`
   static extern bool SetFileInformationByHandle(SafeFileHandle handle, int kind, byte[] info, uint size);
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
   static extern uint GetFinalPathNameByHandle(SafeFileHandle handle, System.Text.StringBuilder path, uint size, uint flags);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  static extern uint GetLongPathName(string path, System.Text.StringBuilder expanded, uint size);
   public static SafeFileHandle OpenLegacyDirectory(string path, bool retire) {
     // FILE_READ_ATTRIBUTES, no share-delete, BACKUP_SEMANTICS | OPEN_REPARSE_POINT.
     var handle = CreateFile(path, retire ? 0x10080u : 0x80u, 1, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
     if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
     try {
       var final = new System.Text.StringBuilder(32768);
+      // Windows may supply an 8.3 profile name in TEMP. Expand only short names
+      // for the comparison; a junction still differs from the handle's final path.
+      var expanded = new System.Text.StringBuilder(32768);
+      uint length = GetLongPathName(path, expanded, (uint)expanded.Capacity);
       uint count = GetFinalPathNameByHandle(handle, final, (uint)final.Capacity, 0);
-      if (count == 0 || count >= final.Capacity ||
-          !String.Equals(final.ToString(), @"\\?\" + path, StringComparison.OrdinalIgnoreCase) ||
+      if (length == 0 || length >= expanded.Capacity || count == 0 || count >= final.Capacity ||
+          !String.Equals(final.ToString(), @"\\?\" + expanded, StringComparison.OrdinalIgnoreCase) ||
           (System.IO.File.GetAttributes(path) & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint)) != System.IO.FileAttributes.Directory)
         throw new InvalidOperationException("Expected a canonical local runtime directory.");
       return handle;
@@ -442,7 +448,7 @@ ${action === 'retire' ? DIRECTORY_RECOVERY_METHODS : PIPE_SECURITY_METHODS}
     if ($ace.AceType -eq 'AccessAllowed') {
       if ($allowed -notcontains $ace.SecurityIdentifier.Value) {
         $foreignAccess = $true
-        if (!($ace.AceFlags -band [Security.AccessControl.AceFlags]::Inherited)) { $inheritedOnly = $false }
+        if (!$ace.AceFlags.HasFlag([Security.AccessControl.AceFlags]::Inherited)) { $inheritedOnly = $false }
         # Windows' initial pipe descriptor can be owned by Administrators and omit
         # the user's ACE. Only its default reader grants are retryable, never trusted.
         $defaultReader = @('S-1-1-0', 'S-1-5-7') -contains $ace.SecurityIdentifier.Value
