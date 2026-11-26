@@ -280,7 +280,7 @@ export type CodeBlockOptions =
 /**
  * Built-in code block identifiers.
  */
-type BuiltInCodeBlock = 'css' | 'js'
+type BuiltInCodeBlock = 'component' | 'css' | 'js'
 
 /**
  * Declarative configuration for code blocks keyed by identifier.

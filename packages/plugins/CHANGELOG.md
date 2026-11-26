@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- Include the built-in `component` output block in editor completions for plugin authors.
+
 ## 1.0.0
 
 - Fixed `findAll()` failing on large subtrees and avoided repeatedly copying accumulated results.
