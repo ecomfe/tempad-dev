@@ -55,6 +55,9 @@ const requests = []
 // Observe those production bounds; do not truncate a valid Windows acquisition.
 const acquisitionTimeout = 245_000
 const stagingTimeout = acquisitionTimeout + 30_000
+// Observe several opportunities to activate, not a fixed wall-clock delay.
+const idleMs = Number(RUNTIME_TEST_ENV.TEMPAD_MCP_RUNTIME_AUTO_IDLE_MS)
+const observationMs = idleMs + 3 * Number(RUNTIME_TEST_ENV.TEMPAD_MCP_CONTROL_RENEW_MS)
 let online = true
 let latestVersion
 function metadata(release) {
@@ -212,9 +215,12 @@ async function makeArtifact(version, base, epoch) {
             const handler = 'handler: async () => {'
             const handlerStart = code.indexOf(handler, readStart) + handler.length
             assert.ok(handlerStart >= readStart + handler.length)
-            // A real admitted local request stays pending long enough to observe
-            // drain status; no native host or Figma execution is simulated here.
-            code = `${code.slice(0, handlerStart)}\n            await new Promise((resolve) => setTimeout(resolve, 150))${code.slice(handlerStart)}`
+            // Observe admission, optionally holding this read across a scheduled download.
+            code = `${code.slice(0, handlerStart)}
+            do {
+              await new Promise((resolve) => setTimeout(resolve, 150))
+            } while (existsSync(join(RUNTIME_DIR, 'hold-session-read')))
+            ${code.slice(handlerStart)}`
             return code
           }
         }
@@ -368,11 +374,58 @@ async function stopFixture(directory) {
   }
 }
 
+async function checkCancelledUpdate(a, b, status) {
+  // An exact version above latest can be downloaded, but cancelling must not
+  // enroll it for idle activation even when every client permits updates.
+  const confirmation = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+      process.stdin.isTTY = true;
+      process.stdout.isTTY = true;
+      process.argv = [process.execPath, ${JSON.stringify(join(a.directory, 'dist/cli.mjs'))}, '--update-runtime', ${JSON.stringify(b.version)}];
+      await import(${JSON.stringify(pathToFileURL(join(a.directory, 'dist/cli.mjs')).href)});
+    `
+    ],
+    { env: isolationEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
+  )
+  let prompt = ''
+  let confirmationError = ''
+  const confirmed = once(confirmation, 'exit', {
+    signal: globalThis.AbortSignal.timeout(acquisitionTimeout + 5000)
+  })
+  confirmation.stdout.on('data', (bytes) => {
+    prompt = (prompt + bytes).slice(-10000)
+    if (prompt.includes('Type "update') && !confirmation.stdin.writableEnded)
+      confirmation.stdin.end('cancel\n')
+  })
+  confirmation.stderr.on('data', (bytes) => {
+    confirmationError = (confirmationError + bytes).slice(-10000)
+  })
+  try {
+    assert.notEqual((await confirmed)[0], 0)
+  } finally {
+    if (confirmation.exitCode === null) confirmation.kill()
+  }
+  assert.match(confirmationError, /activation cancelled/)
+  assert.equal((await status()).updates.manualCandidate.version, b.version)
+  const manualWait = performance.now() + observationMs
+  await until(async () => {
+    const state = await status()
+    assert.equal(
+      state.active.version,
+      a.version,
+      'cancelled exact release must never auto-activate'
+    )
+    assert.equal(state.updates.candidate, undefined, 'manual staging is not automatic enrollment')
+    assert.equal(state.gated, false, 'manual staging must not pause admission')
+    return performance.now() >= manualWait && state.idleForMs >= idleMs
+  }, 'manual staging remains inactive')
+}
+
 async function automaticAcceptance(a, b) {
-  // Observe several opportunities to activate, not eight seconds of wall time.
-  const idleMs = Number(RUNTIME_TEST_ENV.TEMPAD_MCP_RUNTIME_AUTO_IDLE_MS)
-  const renewalMs = Number(RUNTIME_TEST_ENV.TEMPAD_MCP_CONTROL_RENEW_MS)
-  const observationMs = idleMs + 3 * renewalMs
   const directory = join(root, 'auto')
   const env = { ...isolationEnv }
   for (const [key, name] of Object.entries({
@@ -384,21 +437,14 @@ async function automaticAcceptance(a, b) {
     env[key] = join(directory, name)
     await mkdir(env[key], { recursive: true, mode: 0o700 })
   }
-  // These are SDK clients with host identity fixtures, not installed-host
-  // acceptance. Hold publication until an explicit opt-out observer is attached.
+  // A pinned client starts a managed Hub without scheduling a registry check.
   const firstClient = clients.length
   const firstTransport = transports.length
-  const published = latestVersion
-  latestVersion = a.version
+  const holdRead = join(env.TEMPAD_MCP_RUNTIME_DIR, 'hold-session-read')
   const owner = new ControlPeer()
   const controlPeers = [owner]
   try {
-    const generic = await client(a, 'default', env)
-    const codexEnv = { ...env, CODEX_THREAD_ID: 'automatic-release-fixture' }
-    const codex = await client(a, 'default', codexEnv, 'codex-mcp-client')
-    const catalog = await codex.listTools()
-    const genericCatalog = await generic.listTools()
-    let observer = await client(a, 'off', env)
+    const observer = await client(a, 'pinned', env)
     await owner.connect(
       new SocketTransport(
         await connectSocket(runtimeEndpoint(join(directory, 'run'), 'supervisor.sock'))
@@ -409,67 +455,18 @@ async function automaticAcceptance(a, b) {
       for (const pid of [state.supervisorPid, state.hubPid]) if (pid) automaticPids.add(pid)
       return state
     }
-    await until(async () => {
-      const state = await status()
-      return state.updates.lastAttempt && !state.updates.checking
-    }, 'initial default update check')
-    // Exercise the real CLI confirmation using controlled pipes. An exact version
-    // above latest can be downloaded, but cancelling must not enroll it for idle activation.
-    const confirmation = spawn(
-      process.execPath,
-      [
-        '--input-type=module',
-        '--eval',
-        `
-      process.stdin.isTTY = true;
-      process.stdout.isTTY = true;
-      process.argv = [process.execPath, ${JSON.stringify(join(a.directory, 'dist/cli.mjs'))}, '--update-runtime', ${JSON.stringify(b.version)}];
-      await import(${JSON.stringify(pathToFileURL(join(a.directory, 'dist/cli.mjs')).href)});
-    `
-      ],
-      { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
-    )
-    let prompt = ''
-    let confirmationError = ''
-    const confirmed = once(confirmation, 'exit', {
-      signal: globalThis.AbortSignal.timeout(acquisitionTimeout + 5000)
+    const before = await status()
+    assert.equal(before.updates.lastAttempt, undefined)
+    const registryStart = requests.length
+    await writeFile(holdRead, '')
+    const read = observer.callTool({ name: 'list_design_sessions', arguments: {} }, undefined, {
+      timeout: stagingTimeout
     })
-    confirmation.stdout.on('data', (bytes) => {
-      prompt = (prompt + bytes).slice(-10000)
-      if (prompt.includes('Type "update') && !confirmation.stdin.writableEnded)
-        confirmation.stdin.end('cancel\n')
-    })
-    confirmation.stderr.on('data', (bytes) => {
-      confirmationError = (confirmationError + bytes).slice(-10000)
-    })
-    try {
-      assert.notEqual((await confirmed)[0], 0)
-    } finally {
-      if (confirmation.exitCode === null) confirmation.kill()
-    }
-    assert.match(confirmationError, /activation cancelled/)
-    assert.equal((await status()).updates.manualCandidate.version, b.version)
-    await observer.close()
-    const manualWait = performance.now() + observationMs
-    await until(async () => {
-      const state = await status()
-      assert.equal(
-        state.active.version,
-        a.version,
-        'cancelled exact release must never auto-activate'
-      )
-      assert.equal(state.updates.candidate, undefined, 'manual staging is not automatic enrollment')
-      assert.equal(state.gated, false, 'manual staging must not pause admission')
-      return performance.now() >= manualWait && state.idleForMs >= idleMs
-    }, 'manual staging remains inactive')
-    observer = await client(a, 'off', env)
-    latestVersion = published
+    // Track a rejection even if startup or the status probe fails first.
+    void read.catch(() => {})
+    await until(async () => (await status()).blockers.includes('admitted MCP calls'), 'busy Hub')
     const stagingStarted = performance.now()
-    await owner.request(
-      { method: 'tempad/runtime-check', params: { version: 'latest' } },
-      ResultSchema,
-      { timeout: acquisitionTimeout }
-    )
+    const generic = await client(a, 'default', env)
     const staged = await until(
       async () => {
         const state = await status()
@@ -480,8 +477,19 @@ async function automaticAcceptance(a, b) {
       stagingTimeout
     )
     const stagingMs = Math.round(performance.now() - stagingStarted)
+    assert.ok(requests.includes('/@tempad-dev%2fmcp', registryStart))
+    assert.ok(requests.includes(`/@tempad-dev/mcp/-/mcp-${b.version}.tgz`, registryStart))
+    assert.ok(staged.blockers.includes('admitted MCP calls'))
+    assert.equal(staged.hubPid, before.hubPid)
+    assert.equal(staged.gated, false)
+    await rm(holdRead)
+    assert.notEqual((await read).isError, true)
+    const codexEnv = { ...env, CODEX_THREAD_ID: 'automatic-release-fixture' }
+    const codex = await client(a, 'default', codexEnv, 'codex-mcp-client')
+    const catalog = await codex.listTools()
+    const genericCatalog = await generic.listTools()
     assert.equal(staged.active.version, a.version)
-    assert.equal(staged.updates.selection.latest, published)
+    assert.equal(staged.updates.selection.latest, latestVersion)
     assert.ok(
       staged.updates.selection.latestReasons.some((reason) => reason.includes('Guidance epoch'))
     )
@@ -732,7 +740,7 @@ async function automaticAcceptance(a, b) {
     await preserveFixtureEvidence(directory, error.stack)
     throw error
   } finally {
-    latestVersion = published
+    await rm(holdRead, { force: true })
     await Promise.all(controlPeers.map((peer) => peer.close()))
     await Promise.allSettled(clients.slice(firstClient).map((client) => client.close()))
     await Promise.allSettled(transports.slice(firstTransport).map((transport) => transport.close()))
@@ -858,7 +866,6 @@ try {
   await parallel.listTools()
   await parallel.close()
   const catalog = await first.listTools()
-  const second = await client(a, 'off')
   control = new ControlPeer()
   await control.connect(
     new SocketTransport(await connectSocket(runtimeEndpoint(join(root, 'run'), 'supervisor.sock')))
@@ -885,6 +892,8 @@ try {
     'noninteractive activation must not acquire a release'
   )
   assert.equal((await status()).updates.manualCandidate, undefined)
+  await checkCancelledUpdate(a, b, status)
+  const second = await client(a, 'off')
   latestVersion = c.version
   const stagingStarted = performance.now()
   await request('tempad/runtime-check', { version: 'latest' })
@@ -1112,6 +1121,7 @@ try {
         'automatic-generic-host-activation',
         'automatic-claude-block',
         'automatic-non-opt-in-block',
+        'scheduled-download-during-admitted-call',
         'automatic-busy-work-deferral',
         'automatic-handoff-request-wait',
         'default-release-enrollment',
