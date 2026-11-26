@@ -26,6 +26,7 @@ import {
   fingerprintBundle,
   hubSocketPath,
   isSocketPending,
+  runtimeProcessStatus,
   runtimePaths,
   supervisorSocketPath,
   launch,
@@ -74,16 +75,6 @@ type Edge = {
   registration: Registration
   ready: boolean
   error?: string
-}
-
-function alive(pid: number) {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
-    throw error
-  }
 }
 
 export async function startSupervisor(config: PrototypeConfig) {
@@ -340,7 +331,7 @@ export async function startSupervisor(config: PrototypeConfig) {
 
   async function waitForExit(pid: number, timeout = 15_000) {
     const deadline = performance.now() + timeout
-    while (alive(pid)) {
+    while (runtimeProcessStatus(pid) !== 'exited') {
       if (performance.now() >= deadline)
         throw new Error('The old Hub is still alive. Its writer ownership will not be replaced.')
       await pause(50)
@@ -389,9 +380,11 @@ export async function startSupervisor(config: PrototypeConfig) {
       const identity = existsSync(identityPath)
         ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
         : undefined
-      const liveIdentity = identity && alive(identity.processId)
+      const processStatus = identity && runtimeProcessStatus(identity.processId)
+      const liveIdentity = identity && processStatus === 'present'
       if (
         identity === null ||
+        processStatus === 'inaccessible' ||
         (liveIdentity &&
           (identity.packageVersion !== artifact.version ||
             dirname(identity.entryPath) !== dirname(artifact.entry))) ||
@@ -671,7 +664,8 @@ export async function startSupervisor(config: PrototypeConfig) {
         if (
           closing ||
           performance.now() >= deadline ||
-          (existsSync(identityPath) && (!identity || alive(identity.processId))) ||
+          (existsSync(identityPath) &&
+            (!identity || runtimeProcessStatus(identity.processId) !== 'exited')) ||
           fingerprintBundle(artifact.entry) !== artifact.bundle
         )
           throw error
@@ -742,7 +736,7 @@ export async function startSupervisor(config: PrototypeConfig) {
         ? journal.previous
         : journal.active
     if (!fallback) throw error
-    if (hub && lease && alive(lease.hubPid)) {
+    if (hub && lease && runtimeProcessStatus(lease.hubPid) !== 'exited') {
       await drain()
       await stopHub()
     }
@@ -750,13 +744,17 @@ export async function startSupervisor(config: PrototypeConfig) {
       new Error('Hub process ownership is uncertain; the interrupted handoff remains gated.', {
         cause
       })
-    if ((pendingHub && !pendingHub.exited) || (lease && alive(lease.hubPid)))
+    if (
+      (pendingHub && !pendingHub.exited) ||
+      (lease && runtimeProcessStatus(lease.hubPid) !== 'exited')
+    )
       throw ownershipFailure()
     const identityPath = join(paths.runtime, 'hub-runtime.json')
     const identity = existsSync(identityPath)
       ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
       : undefined
-    if (identity === null || (identity && alive(identity.processId))) throw ownershipFailure()
+    if (identity === null || (identity && runtimeProcessStatus(identity.processId) !== 'exited'))
+      throw ownershipFailure()
     let present
     try {
       present = await connectSocket(hubSocketPath(config.root, paths.runtime), lifetime.signal)
@@ -792,7 +790,7 @@ export async function startSupervisor(config: PrototypeConfig) {
       const identity = existsSync(identityPath)
         ? parseHubRuntimeIdentity(JSON.parse(readFileSync(identityPath, 'utf8')))
         : undefined
-      if (identity && alive(identity.processId)) {
+      if (identity && runtimeProcessStatus(identity.processId) !== 'exited') {
         observedPid = identity.processId
         const candidates = [journal.active, journal.candidate, journal.previous].filter(
           (value): value is Artifact => !!value

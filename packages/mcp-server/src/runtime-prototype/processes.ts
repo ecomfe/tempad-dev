@@ -24,6 +24,19 @@ import { isRuntimeUnavailable, RECOVER_MS, unavailable } from './protocol'
 import { ConfigSchema, readJournal, type Artifact, type PrototypeConfig } from './state'
 export type { PrototypeConfig } from './state'
 
+/** Only ESRCH proves a recorded writer has exited. A PID alone cannot identify it. */
+export function runtimeProcessStatus(pid: number): 'present' | 'inaccessible' | 'exited' {
+  try {
+    process.kill(pid, 0)
+    return 'present'
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ESRCH') return 'exited'
+    if (code === 'EPERM') return 'inaccessible'
+    throw error
+  }
+}
+
 export function fingerprintBundle(entry: string): string {
   return startupPhase('fingerprint-bundle', () => {
     const directory = dirname(entry)
@@ -210,12 +223,10 @@ export async function waitForSocket(
   try {
     do {
       if (processId !== undefined) {
-        try {
-          process.kill(processId, 0)
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
-          throw new Error('Runtime process exited before endpoint publication.', { cause: error })
-        }
+        const status = runtimeProcessStatus(processId)
+        if (status === 'exited')
+          throw new Error('Runtime process exited before endpoint publication.')
+        if (status === 'inaccessible') throw new Error('Runtime process ownership is uncertain.')
       }
       try {
         const socket = await connectSocket(path, bounded)

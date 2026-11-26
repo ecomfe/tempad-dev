@@ -10,7 +10,7 @@ import { z } from 'zod'
 import { hubEnvironment } from '../process-environment'
 import { createPrivateTempDirectory, runtimeEndpoint } from '../runtime-platform'
 import { contractHashes, readRuntimeContract } from '../stable-edge'
-import { connectSocket, fingerprintBundle } from './processes'
+import { connectSocket, fingerprintBundle, runtimeProcessStatus } from './processes'
 import { ControlPeer, RECOVER_MS, SocketTransport } from './protocol'
 import { ArtifactSchema } from './state'
 
@@ -93,15 +93,7 @@ export async function probeArtifact(entry: string) {
   // cannot authorize activation. The prototype's idle-owner rule stops children.
   let exited = false
   for (let attempt = 0; pids && attempt < 60; attempt++) {
-    exited = pids.every((pid) => {
-      try {
-        process.kill(pid, 0)
-        return false
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true
-        throw error
-      }
-    })
+    exited = pids.every((pid) => runtimeProcessStatus(pid) === 'exited')
     if (exited) break
     await delay(100)
   }

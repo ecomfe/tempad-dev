@@ -39,7 +39,8 @@ vi.mock('../src/runtime-prototype/protocol', async (importOriginal) => ({
   },
   SocketTransport: class {}
 }))
-vi.mock('../src/runtime-prototype/processes', () => ({
+vi.mock('../src/runtime-prototype/processes', async (original) => ({
+  ...(await original<typeof import('../src/runtime-prototype/processes')>()),
   connectSocket: async () => ({}),
   fingerprintBundle: fake.fingerprint
 }))

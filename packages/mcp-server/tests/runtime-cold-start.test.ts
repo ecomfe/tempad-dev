@@ -402,6 +402,20 @@ it('removes only dead edge records before admitting a cold upgrade', async () =>
   expect(existsSync(stale)).toBe(false)
 })
 
+it('retains a prior edge and defers migration when the recorded PID cannot be inspected', async () => {
+  privateDirectory(join(root, 'edges'))
+  const path = join(root, 'edges/prior.json')
+  writeDurableJson(path, { pid: 123456789 })
+  const kill = process.kill.bind(process)
+  vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+    if (pid === 123456789) throw Object.assign(new Error('Access denied'), { code: 'EPERM' })
+    return kill(pid, signal)
+  })
+  expect((await prepare()).config.entry).toBe(config.entry)
+  expect(readJournal(root)).toEqual(journal)
+  expect(existsSync(path)).toBe(true)
+})
+
 it('ignores a prior edge registration removed by its exiting CLI during the scan', async () => {
   privateDirectory(join(root, 'edges'))
   const path = join(root, 'edges/prior.json')

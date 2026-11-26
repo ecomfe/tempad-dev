@@ -15,6 +15,7 @@ import {
   fingerprintBundle,
   hubSocketPath,
   isSocketPending,
+  runtimeProcessStatus,
   runtimePaths,
   supervisorSocketPath,
   unavailableSocket,
@@ -47,16 +48,6 @@ function controlVersion(config: PrototypeConfig) {
       .version,
     release: config.release
   }).packageVersion
-}
-
-function alive(pid: number) {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
-    throw error
-  }
 }
 
 /** Called only with startup.lock held, before any control owner is launched. */
@@ -104,7 +95,7 @@ function hasLiveEdges(root: string) {
     const edge = readPrivateJson(path, EdgeSchema)
     if (!edge) continue
     // PID reuse conservatively postpones migration, never expires a living edge.
-    if (alive(edge.pid)) live = true
+    if (runtimeProcessStatus(edge.pid) !== 'exited') live = true
     else rmSync(path, { force: true })
   }
   return live
@@ -125,13 +116,13 @@ async function hasOwner(config: PrototypeConfig) {
   const identityPath = join(paths.runtime, 'hub-runtime.json')
   if (existsSync(identityPath)) {
     const identity = readHubRuntimeIdentity(identityPath)
-    if (!identity || alive(identity.processId)) return true
+    if (!identity || runtimeProcessStatus(identity.processId) !== 'exited') return true
   }
   const supervisor = readPrivateJson(
     join(config.root, 'supervisor.json'),
     z.object({ pid: z.number().int().positive() }).passthrough()
   )
-  if (supervisor && alive(supervisor.pid)) return true
+  if (supervisor && runtimeProcessStatus(supervisor.pid) !== 'exited') return true
   const deadline = performance.now() + HUB_LOCK_STALE_MS + 5000
   do {
     const locks = await Promise.all(

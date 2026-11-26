@@ -122,7 +122,7 @@ it.each(['ESRCH', 'EPERM'])(
       12345
     )
     const rejected = expect(pending).rejects.toThrow(
-      code === 'ESRCH' ? 'process exited' : 'owner probe failed'
+      code === 'ESRCH' ? 'process exited' : 'ownership is uncertain'
     )
     socket.emit('error', Object.assign(new Error('not ready'), { code: 'ENOENT' }))
     await rejected
