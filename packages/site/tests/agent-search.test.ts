@@ -1,4 +1,4 @@
-import { AGENT_INTEGRATIONS } from '@tempad-dev/shared'
+import { AGENT_INTEGRATIONS } from '@tempad-dev/shared/install'
 import { describe, expect, it } from 'vitest'
 
 import { searchAgents } from '../src/utils/agent-search'

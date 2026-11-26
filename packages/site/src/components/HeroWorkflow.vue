@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AGENT_INTEGRATIONS } from '@tempad-dev/shared'
+import { AGENT_INTEGRATIONS } from '@tempad-dev/shared/install'
 import {
   useDocumentVisibility,
   useElementHover,

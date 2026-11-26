@@ -17,6 +17,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./install": {
+      "source": "./src/mcp/install.ts",
+      "types": "./dist/install.d.ts",
+      "import": "./dist/install.js"
+    },
     "./ui": {
       "types": "./src/ui/index.ts",
       "import": "./src/ui/index.ts"

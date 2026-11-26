@@ -3,7 +3,7 @@ import {
   AGENT_INTEGRATIONS_BY_ID,
   AGENT_SKILLS_INSTALL_COMMAND,
   MCP_SERVERS_CONFIG_SNIPPET
-} from '@tempad-dev/shared'
+} from '@tempad-dev/shared/install'
 import { afterEach, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { createApp, nextTick } from 'vue'

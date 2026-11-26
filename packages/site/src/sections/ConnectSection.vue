@@ -3,13 +3,13 @@ import type {
   AgentIntegrationAction,
   AgentIntegrationConfig,
   AgentIntegrationId
-} from '@tempad-dev/shared'
+} from '@tempad-dev/shared/install'
 
 import {
   AGENT_INTEGRATIONS,
   AGENT_SKILLS_INSTALL_COMMAND,
   MCP_SERVERS_CONFIG_SNIPPET
-} from '@tempad-dev/shared'
+} from '@tempad-dev/shared/install'
 import { ArrowUpRight, Check, Copy, Ellipsis, ExternalLink, Search, X } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 

@@ -20,8 +20,8 @@ it.each([
     try {
       const resolver = server.environments[environment]!.pluginContainer
       const importer = fileURLToPath(new URL('../src/content/landing.ts', import.meta.url))
-      expect((await resolver.resolveId('@tempad-dev/shared', importer))?.id).toBe(
-        fileURLToPath(new URL('../../shared/src/index.ts', import.meta.url))
+      expect((await resolver.resolveId('@tempad-dev/shared/install', importer))?.id).toBe(
+        fileURLToPath(new URL('../../shared/src/mcp/install.ts', import.meta.url))
       )
       expect((await resolver.resolveId('@tempad-dev/shared/ui', importer))?.id).toBe(
         fileURLToPath(new URL('../../shared/src/ui/index.ts', import.meta.url))

@@ -4,8 +4,8 @@ import { createApp, nextTick } from 'vue'
 import ConnectSection from '@/sections/ConnectSection.vue'
 
 // Exercise navigation ownership without ever launching an installed agent.
-vi.mock('@tempad-dev/shared', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@tempad-dev/shared')>()
+vi.mock('@tempad-dev/shared/install', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tempad-dev/shared/install')>()
   return {
     ...actual,
     AGENT_INTEGRATIONS: actual.AGENT_INTEGRATIONS.map((agent) => ({
