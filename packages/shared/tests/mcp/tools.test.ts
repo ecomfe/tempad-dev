@@ -1466,7 +1466,6 @@ describe('mcp/tools canvas authoring schemas', () => {
     ['https://media.example.com/video.mp4', true],
     ['https://8.8.8.8/video.mp4', true],
     ['https://[2606:4700:4700::1111]/video.mp4', true],
-    ['http://media.example.com/video.mp4', false],
     ['not a URL', false],
     ['https://user:secret@media.example.com/video.mp4', false],
     ['https://localhost./video.mp4', false],
@@ -1484,16 +1483,19 @@ describe('mcp/tools canvas authoring schemas', () => {
     ['https://[fc00::1]/video.mp4', false],
     ['https://[fe80::1]/video.mp4', false],
     ['https://[::ffff:127.0.0.1]/video.mp4', false]
-  ])('validates video URL %s before canvas resolution', (videoUrl, accepted) => {
-    expect(
-      acceptsCanvas({
-        mode: 'create',
-        markup: '<div data-key="root" class="w-20 h-20"/>',
-        bindings: {
-          root: { figma: { fills: [{ type: 'VIDEO', videoUrl, scaleMode: 'FILL' }] } }
-        }
-      })
-    ).toBe(accepted)
+  ])('validates image and video destinations %s before canvas resolution', (url, accepted) => {
+    for (const source of [
+      { type: 'IMAGE', imageUrl: url },
+      { type: 'VIDEO', videoUrl: url }
+    ]) {
+      expect(
+        acceptsCanvas({
+          mode: 'create',
+          markup: '<div data-key="root" class="w-20 h-20"/>',
+          bindings: { root: { figma: { fills: [{ ...source, scaleMode: 'FILL' }] } } }
+        })
+      ).toBe(accepted)
+    }
   })
 
   it('accepts every native Figma paint type and its mode-specific fields', () => {
@@ -1541,7 +1543,7 @@ describe('mcp/tools canvas authoring schemas', () => {
                 },
                 {
                   type: 'IMAGE',
-                  imageUrl: 'https://images.example.com/cover.png',
+                  imageUrl: 'http://images.example.com/cover.png',
                   scaleMode: 'FIT'
                 },
                 {
@@ -1660,6 +1662,7 @@ describe('mcp/tools canvas authoring schemas', () => {
       scaleMode: 'FIT'
     },
     { type: 'VIDEO', videoUrl: 'file:///tmp/demo.mp4', scaleMode: 'FIT' },
+    { type: 'VIDEO', videoUrl: 'http://media.example.com/video.mp4', scaleMode: 'FILL' },
     { type: 'IMAGE', imageHash: null, scaleMode: 'FILL', filters: {} },
     {
       type: 'PATTERN',

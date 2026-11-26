@@ -239,16 +239,14 @@ const CanvasFigmaMediaFields = {
   ...CanvasFigmaPaintFields
 }
 
-function isHttpUrl(value: string): boolean {
-  try {
-    return ['http:', 'https:'].includes(new URL(value).protocol)
-  } catch {
-    return false
-  }
-}
+export const CANVAS_MEDIA_URL_ERRORS = {
+  IMAGE:
+    'Image URLs must use public HTTP or HTTPS without credentials or local-network addresses. Use an assetKey for private images.',
+  VIDEO: 'Video URLs must use public HTTPS without credentials or local-network addresses.'
+} as const
 
-// This is a lexical guard; page-context Fetch cannot verify the IP resolved by DNS.
-export function isCanvasVideoUrl(value: string): boolean {
+// This lexical check cannot verify the IP ultimately resolved by the native importer or page.
+export function isCanvasMediaUrl(value: string, type: 'IMAGE' | 'VIDEO'): boolean {
   try {
     const parsed = new URL(value)
     const host = parsed.hostname.toLowerCase().replace(/\.$/, '')
@@ -263,7 +261,7 @@ export function isCanvasVideoUrl(value: string): boolean {
         (octets[0] === 172 && octets[1]! >= 16 && octets[1]! <= 31) ||
         (octets[0] === 192 && octets[1] === 168))
     return (
-      parsed.protocol === 'https:' &&
+      (parsed.protocol === 'https:' || (type === 'IMAGE' && parsed.protocol === 'http:')) &&
       !parsed.username &&
       !parsed.password &&
       host !== 'localhost' &&
@@ -281,9 +279,7 @@ const CanvasFigmaImageSourceFields = {
   imageHash: z.string().min(1).nullable().optional(),
   imageUrl: z
     .string()
-    .refine(isHttpUrl, {
-      message: 'Image URL must use HTTP or HTTPS.'
-    })
+    .refine((url) => isCanvasMediaUrl(url, 'IMAGE'), CANVAS_MEDIA_URL_ERRORS.IMAGE)
     .optional(),
   assetKey: CanvasStableKeySchema.optional()
 }
@@ -303,9 +299,7 @@ const CanvasFigmaVideoSourceFields = {
   videoHash: z.string().min(1).nullable().optional(),
   videoUrl: z
     .string()
-    .refine(isCanvasVideoUrl, {
-      message: 'Video URLs must use public HTTPS without credentials or local-network addresses.'
-    })
+    .refine((url) => isCanvasMediaUrl(url, 'VIDEO'), CANVAS_MEDIA_URL_ERRORS.VIDEO)
     .optional()
 }
 

@@ -6,8 +6,11 @@ import { createMediaState, importCanvasMedia } from '@/mcp/tools/canvas/media'
 
 afterEach(() => vi.unstubAllGlobals())
 
-describe('Canvas video response cleanup', () => {
-  it('rejects a blocked video before importing any sibling image', async () => {
+describe('Canvas media import', () => {
+  it.each([
+    [{ type: 'VIDEO', videoUrl: 'http://example.com/video.mp4' }, 'public HTTPS'],
+    [{ type: 'IMAGE', imageUrl: 'http://localhost/image.png' }, 'assetKey']
+  ] as const)('rejects blocked media before importing a sibling image', async (source, message) => {
     const createImageAsync = vi.fn()
     const fetch = vi.fn()
     vi.stubGlobal('window', { INITIAL_OPTIONS: { editor_type: 'design' } })
@@ -23,7 +26,7 @@ describe('Canvas video response cleanup', () => {
             figma: {
               fills: [
                 { type: 'IMAGE', imageUrl: 'https://example.com/image.png', scaleMode: 'FILL' },
-                { type: 'VIDEO', videoUrl: 'http://example.com/video.mp4', scaleMode: 'FILL' }
+                { ...source, scaleMode: 'FILL' }
               ]
             }
           }
@@ -31,10 +34,25 @@ describe('Canvas video response cleanup', () => {
       })
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
-      message: expect.stringContaining('public HTTPS')
+      message: expect.stringContaining(message)
     })
     expect(createImageAsync).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('imports public HTTP images through Figma and checks the URL at native import', async () => {
+    const createImageAsync = vi.fn().mockResolvedValue({ hash: 'native-image' })
+    vi.stubGlobal('figma', { createImageAsync })
+    const state = createMediaState(new Map())
+    const publicUrl = 'http://media.example.com/image.png'
+    state.imageUrls.set(publicUrl, 'cover')
+    await importCanvasMedia(state)
+    expect(state.imageHashes.get(publicUrl)).toBe('native-image')
+    expect(createImageAsync).toHaveBeenCalledWith(publicUrl)
+    state.imageUrls.clear()
+    state.imageUrls.set('https://user@media.example.com/image.png', 'cover')
+    await expect(importCanvasMedia(state)).rejects.toThrow('assetKey')
+    expect(createImageAsync).toHaveBeenCalledTimes(1)
   })
 
   it('cancels a rejected HTTP response before native import', async () => {

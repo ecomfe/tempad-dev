@@ -1,4 +1,8 @@
-import { isCanvasVideoUrl, TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
+import {
+  CANVAS_MEDIA_URL_ERRORS,
+  isCanvasMediaUrl,
+  TEMPAD_MCP_ERROR_CODES
+} from '@tempad-dev/shared'
 
 import { readBoundedResponseBytes } from '../../bounded-response'
 import { createCodedError } from '../../errors'
@@ -55,6 +59,7 @@ export async function importCanvasMedia(state: CanvasMediaState): Promise<void> 
 
 async function resolveImageUrls(state: CanvasMediaState): Promise<void> {
   for (const [url, usage] of state.imageUrls) {
+    if (!isCanvasMediaUrl(url, 'IMAGE')) specError(CANVAS_MEDIA_URL_ERRORS.IMAGE)
     try {
       state.imageHashes.set(url, (await figma.createImageAsync(url)).hash)
     } catch {
@@ -110,9 +115,7 @@ async function readVideoBytes(response: Response): Promise<Uint8Array> {
 
 async function resolveVideoUrls(state: CanvasMediaState): Promise<void> {
   for (const url of state.videoUrls) {
-    if (!isCanvasVideoUrl(url)) {
-      specError('Video URLs must use public HTTPS without credentials or local-network addresses.')
-    }
+    if (!isCanvasMediaUrl(url, 'VIDEO')) specError(CANVAS_MEDIA_URL_ERRORS.VIDEO)
     let bytes: Uint8Array
     try {
       const response = await fetch(url, {
