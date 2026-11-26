@@ -873,6 +873,28 @@ describe('mcp/broker/hub-client', () => {
     client.stop()
   })
 
+  it('keeps pending retry timing across background starts and allows an immediate start', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe(() => false)
+    const client = createClient([])
+
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetch).toHaveBeenCalledTimes(3)
+
+    client.start()
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(fetch).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fetch).toHaveBeenCalledTimes(6)
+
+    client.start({ immediate: true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetch).toHaveBeenCalledTimes(9)
+    client.stop()
+  })
+
   it('continues to the next candidate when a reachable WebSocket does not speak Tempad', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('WebSocket', { OPEN: 1 })

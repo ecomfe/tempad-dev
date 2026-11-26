@@ -100,11 +100,12 @@ export class McpHubClient {
     }
   }
 
-  start(): void {
+  start({ immediate = false } = {}): void {
     if (!this.enabled) {
       this.connectionEpoch++
     }
     this.enabled = true
+    if (this.reconnectTimer && !immediate) return
     this.ensureConnected()
   }
 

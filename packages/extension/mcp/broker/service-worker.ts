@@ -442,7 +442,7 @@ export class McpServiceWorkerBroker {
     if (granted)
       void this.identityReady.then(() => {
         if (acceptedRevision === this.permissionRevision && this.sessions.size > 0)
-          this.hubClient.start()
+          this.hubClient.start({ immediate: method === 'request' })
       })
     else this.hubClient.stop()
     if (wasMissing !== this.permissionMissing) this.broadcastState()
