@@ -1325,7 +1325,12 @@ const CanvasStyleResourceSchema = z.discriminatedUnion('type', [
 
 export const MAX_CANVAS_STYLE_RESOURCES = 100
 
-export const CanvasStylesSchema = stringRecord(
+// Named record types let the declaration emitter reference the underlying schemas by name.
+type CanvasStyleRecord = z.ZodRecord<
+  typeof CanvasStableKeySchema,
+  z.ZodNullable<typeof CanvasStyleResourceSchema>
+>
+export const CanvasStylesSchema: CanvasStyleRecord = stringRecord(
   CanvasStableKeySchema,
   CanvasStyleResourceSchema.nullable()
 )
@@ -1715,12 +1720,13 @@ export const MAX_CANVAS_NODES = 160
 export const MAX_CANVAS_DEPTH = 12
 export const MAX_CANVAS_MARKUP_LENGTH = 200_000
 
-const CanvasBindingsSchema = stringRecord(CanvasStableKeySchema, CanvasBindingSchema).refine(
-  (bindings) => Object.keys(bindings).length <= MAX_CANVAS_NODES,
-  {
-    message: `Canvas bindings may contain at most ${MAX_CANVAS_NODES} entries.`
-  }
-)
+type CanvasBindingRecord = z.ZodRecord<typeof CanvasStableKeySchema, typeof CanvasBindingSchema>
+const CanvasBindingsSchema: CanvasBindingRecord = stringRecord(
+  CanvasStableKeySchema,
+  CanvasBindingSchema
+).refine((bindings) => Object.keys(bindings).length <= MAX_CANVAS_NODES, {
+  message: `Canvas bindings may contain at most ${MAX_CANVAS_NODES} entries.`
+})
 
 const CanvasRemoveKeysSchema = z
   .array(CanvasStableKeySchema)
