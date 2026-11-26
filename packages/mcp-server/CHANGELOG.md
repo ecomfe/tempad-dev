@@ -1,7 +1,12 @@
 # Changelog
 
-## 1.0.6
+## 2.0.0
 
+- Require the TemPad Dev browser extension 1.0.0 or later. Update older installations
+  and reload Figma before migrating the Hub. New uploads use full SHA-256 identifiers;
+  previously stored short identifiers remain readable through the active asset endpoint.
+- Keep existing managed 1.x Hubs on their current generation. A disconnected installation
+  can explicitly migrate to 2.0 or restore its retained 1.x release with `--migrate-runtime`.
 - Let an ordinary MCP client resume its own design task after a Hub switch on the same
   running Edge. Tasks started on an older Hub still require their original host binding
   or a fresh task. Stop continues to fence the old task.

@@ -1,18 +1,18 @@
 {
   "version": 1,
-  "guidanceEpoch": 1,
+  "guidanceEpoch": 2,
   "guidanceReview": {
-    "version": "1.0.6",
-    "sourceHash": "e9786ffcd49c5e9170cd7dd8940547c41b1c60a116e5a2ab1c67b85dc73f199e",
-    "decision": "compatible",
+    "version": "2.0.0",
+    "sourceHash": "472a0e1cb4f0db5d00bfab176b0ee4570aca762ec47eb8f58b816c8be9ee1a19",
+    "decision": "new-epoch",
     "baseline": {
       "version": "1.0.5",
       "integrity": "sha512-EM02vlXuNTsPg3d85BwLMVlOhw7Pu9KqleVNdbtW+b7050ugHPTVxKs/kHoRzusbyacasQXT4SleGQwGaG4zKg=="
     },
-    "rationale": "Hub handoffs retain Stop fences and accept optional private Edge proof. Readback notices, structured results, write identity, hook crash recovery, and byte budgets remain intact. OpenCode receipts may add node IDs. Existing Frame anchors continue to work across versions; additional visual region types require extension 1.1.1. Expired asset reclamation honors the existing TTL, and imports retain admission checks. Cached packages retain the existing bundle fingerprint and full verification before launch. Legacy reads, task recovery instructions, and extension, control and hook protocols remain compatible with epoch 1."
+    "rationale": "MCP 2.0 supports browser extensions from 1.0.0 on protocol 15. Unversioned and protocol 13 adapters and short-hash uploads have retired. The published 1.x runtime remains eligible for its own compatible updates. Moving between generations requires an idle verified migration. Persisted assets, state format, Stop fences, hook and control protocols remain compatible for rollback."
   },
   "controlProtocols": [2],
   "state": { "family": "tempad-runtime", "reads": [1], "writes": 1 },
-  "extension": { "protocols": [13, 15], "legacy": true },
+  "extension": { "protocols": [15], "legacy": false },
   "hookProtocol": 2
 }

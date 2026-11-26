@@ -40,8 +40,8 @@ Root:
 - `pnpm test` (watch package-owned tests in parallel)
 - `pnpm test:run` (single run via package-owned `test:run` scripts)
 - `pnpm test:coverage` (workspace coverage)
-- `pnpm mcp:check-bridge` (build the Hub and exercise legacy/current WebSocket peers through
-  actual MCP calls, including assets, reconnects, upgrade errors, and task routing)
+- `pnpm mcp:check-bridge` (build the Hub and exercise the minimum supported and current
+  extension contracts through MCP calls, including assets, reconnects and task routing)
   - Set `TEMPAD_MCP_BRIDGE_METRICS=1` to print UTF-8 sizes of the deterministic
     Hub-to-extension, extension-to-Hub, and formatted MCP fixture responses.
 - `pnpm agent-plugin:check-installer` (networked discovery smoke test with `plugins@1.3.4`;
@@ -256,10 +256,9 @@ When changing the Hub/extension compatibility path or legacy assets:
   and a dedicated extension Origin. It does not connect to the user's Hub or Figma sessions.
   The harness rejects Windows before starting a Hub because the fixed named pipe ignores runtime
   directory overrides. Unix socket hook fixtures are also skipped on Windows.
-  One of the normal loopback candidate ports must be available. The old receiving schema is
-  frozen from extension 0.20.0 / MCP 0.7.1 and extension 0.22.0 / MCP 0.10.0; do not derive these
-  fixtures from current shared schemas. Every protocol bump must test the released extension's
-  supported calls and rejection of unsupported options against the new Hub in the same change.
+  One of the normal loopback candidate ports must be available. Verify extension 1.0.0 against
+  a frozen receiving contract, independently of current shared schemas. Exercise the minimum
+  peer, current optional features and rejected handshakes against the same built Hub.
 - Keep the broker regression for new-extension/old-Hub rejection and recovery. This deterministic
   transport check does not replace installed-host Queue/Steer/Stop acceptance.
 

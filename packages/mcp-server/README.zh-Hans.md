@@ -40,7 +40,7 @@ Checkout 开发构建使用独立的本地配置，始终不会获取线上运�
 Claude 还需要已验证的会话和支持回执与重试的 hook；身份未确认或 hook 过旧时保持暂存。
 工具调用、传输和原生操作结束并空闲五秒后，supervisor 再次检查条件并执行本地切换。
 尚未派发的新请求最多等待十秒，已派发的写入绝不重放。
-忙碌时延后更新，下载或网络故障不会停止当前 Hub；跨破坏性版本边界、契约或指导语不兼容时，仍需显式更新或重启。
+忙碌时延后更新，下载或网络故障不会停止当前 Hub。已有托管 1.x 安装首次启动 2.x CLI 时仍使用 1.x Hub。
 兼容切换时，已有 MCP
 会话保留原有工具说明；Figma 会重新连接，设计任务可能需要 resume 和读回。正在运行的入口进程、
 supervisor、Node、浏览器扩展和已安装插件仍需按原方式升级或重启。
@@ -50,6 +50,23 @@ supervisor、Node、浏览器扩展和已安装插件仍需按原方式升级或
 未经校验的本地构建继续运行随包版本，不下载线上版本，且会拒绝显式启用更新。
 Windows 的托管更新使用命名管道和经过 ACL 校验的私有存储；
 [进程级 CI](../../TESTING.md#windows-runtime-ci) 与已安装桌面宿主的交互验收分别进行。
+
+### 将托管 Hub 升级到 2.0
+
+先把浏览器扩展升级到 1.0.0 或以上，重新加载使用 MCP 的 Figma 标签页。关闭所有 Agent
+宿主的 TemPad MCP 连接，等 Hub 退出后，在使用相同运行目录的终端执行：
+
+```sh
+npx -y @tempad-dev/mcp@2.0.0 --migrate-runtime 2.0.0
+```
+
+核对提示中的版本和摘要，输入 `update 2.0.0`。看到阶段为 `committed`、活动版本为
+`2.0.0` 后重新连接宿主。全新安装直接使用 2.0。迁移沿用原有任务和素材存储，保留已取消
+任务的 Stop 状态，以及尚待确认的画布写入保护。
+
+如需回退到留存的 1.0.5，再次断开所有宿主，执行
+`npx -y @tempad-dev/mcp@2.0.0 --migrate-runtime 1.0.5`，输入 `update 1.0.5` 并核对
+活动版本。此前使用其他版本时，替换为相应版本号。运行日志仍然记录该版本时才可回退。
 
 ### 工具和资源
 
@@ -86,16 +103,12 @@ Windows 的托管更新使用命名管道和经过 ACL 校验的私有存储；
 - `get_code.resolveTokens` 只控制代码；无论是否启用，`tokens` 都保留定义、全部模式和 alias。
   启用后按每个实际消费节点的 Figma 有效模式解析；无法解析的引用保留在代码中，并返回
   `token-resolution` warning。定义缺失或名称有歧义时返回 `token-definition` warning；
-  warning 按节点独立去重并限制大小。旧版启用该选项时会把 `tokens` 展开为字面量，
-  旧扩展需要升级才能使用 `resolveTokens: true`。
+  warning 按节点独立去重并限制大小。
 - 工具响应共用 `64 KiB` 的 inline budget，按 `CallToolResult` 整体响应体积计算。若选区过大而超出 `get_code` 的预算，TemPad Dev 可能返回 shell response 而不是直接失败。shell 会保留当前节点的包裹结构，并在内联代码注释中列出被省略的直接子节点 id，方便 agent 逐个继续拉取；配套 warning 只保留最小化的提示信息，用来指向这条注释。
 - 启用 MCP access 且当前 Figma Design 文件可编辑时，`apply_canvas` 即可使用；Dev Mode 和
   只读文件仍不可写。
-- 上述多节点读取与 token 定义语义要求 Hub 和扩展均使用匹配的 protocol 15 构建。
-  扩展 0.22.0 仍通过 protocol 13 支持既有读取、会话、任务和画布写入。新版读取选项会提示升级，响应会标注旧版选区和 token 语义。
-  请更新扩展并重新加载 Figma 以启用新版能力，再更新 plugin 或已安装的 skill，
-  将固定 alpha 版本的 MCP 配置改为 `@tempad-dev/mcp@latest`，然后重新连接 MCP client 并新建任务。
-  最低版本要求和更新步骤详见[升级指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#升级)。
+- MCP 2.0 支持 **1.0.0 或更高版本**的 TemPad Dev 浏览器扩展。迁移 Hub 前，请先更新旧扩展并重新加载 Figma 标签页。
+  详见[升级指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#升级)。
 - 资源是临时且与工具调用关联的。本地 stdio client 在 Hub 持有字节时会收到
   `asset.localPath`，可直接打开而不必经过 loopback 下载；其他 client 使用带 capability 的
   HTTP `asset.url`。完整 URL 应视作临时密钥，不要持久化到日志中。

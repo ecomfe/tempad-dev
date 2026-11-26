@@ -109,8 +109,8 @@ idle MCP sessions. Agent Plugin 1.0.0 and the setup commands select this policy 
 Existing clients take it up after restarting onto the new release. See
 [runtime update controls](./packages/mcp-server/README.md#runtime-updates-100) for limits and opt-out.
 
-See the [upgrade guide](./agent-plugin/src/README.md#upgrading) for minimum versions
-and instructions for updating an existing installation.
+MCP 2.0 requires browser extension **1.0.0 or later**. If you already run a managed 1.x Hub,
+follow the [migration and rollback instructions](./packages/mcp-server/README.md#moving-a-managed-hub-to-20).
 
 Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context. An agent can also list connected sessions and pass an exact `sessionId` to an independent read without changing the active badge.
 

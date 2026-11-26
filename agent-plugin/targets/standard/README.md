@@ -85,11 +85,8 @@ For Figma's beta 3D transforms, update the extension to **1.1.0 or later** and t
 Agent Plugin to **1.0.2 or later**, then reload Figma and refresh the installed skills.
 MCP **1.0.3** already supports the required transport; a coordinated MCP update is unnecessary.
 MCP **1.0.4** adds tool descriptions for sparse native 3D readback and omission semantics.
-Multi-node reads and consumer-aware token resolution require matching protocol 15 Hub and
-extension builds. MCP 0.11.0 also supports extension 0.22.0 through protocol 13, preserving
-existing reads, sessions, tasks, and canvas writes during the store rollout. New read options
-prompt an extension upgrade; results identify older selection and token semantics.
-MCP 0.10.0 and later use `manage_design_task` in place of the older lifecycle tools.
+MCP 2.0 requires TemPad Dev extension **1.0.0 or later**. Upgrade the extension, reload
+Figma, then follow the [managed 1.x migration procedure](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/README.md#moving-a-managed-hub-to-20).
 
 1. Update the browser extension to 1.0.0 or later and reload the Figma tab.
 2. Update the installed plugin through the client or installer used originally. With standalone

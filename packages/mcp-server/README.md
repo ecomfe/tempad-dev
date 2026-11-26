@@ -47,7 +47,7 @@ hooks; unknown sessions and older hooks keep updates staged.
 After five seconds without calls, transfers or native actions, the supervisor rechecks eligibility
 and switches locally. New, undispatched requests wait up to ten seconds; dispatched writes are
 never replayed. Busy work defers the update, and downloads or network failures leave the Hub serving.
-Breaking release boundaries, incompatible contracts and guidance require an explicit update or restart.
+Existing managed 1.x installations stay on 1.x when a host first launches the 2.x CLI.
 Existing MCP sessions retain their tool descriptions through a compatible switch;
 Figma reconnects and design tasks may require resume/read-back. The running edge and supervisor,
 Node, browser extension, and installed plugin still require their normal upgrade/restart.
@@ -57,6 +57,26 @@ with a fixed npm version; a conflict reports a restart requirement instead of cr
 Unverified local builds keep their bundled runtime and never download releases; explicit enrollment
 is rejected. Windows uses named pipes and ACL-checked private storage for managed updates. Its
 [process CI](../../TESTING.md#windows-runtime-ci) is separate from installed desktop-host acceptance.
+
+### Moving a managed Hub to 2.0
+
+Update the browser extension to at least 1.0.0 and reload the Figma tabs that use MCP. Close
+all TemPad MCP connections across your agent hosts and wait for the Hub to exit. In a terminal
+using the same runtime directories, run:
+
+```sh
+npx -y @tempad-dev/mcp@2.0.0 --migrate-runtime 2.0.0
+```
+
+Check the version and digest in the prompt, enter `update 2.0.0`, and wait for the active
+version to show `2.0.0` and the phase to show `committed`. Then reconnect the hosts.
+Fresh installations start directly on 2.0. The migration reopens the existing task and asset
+stores, including cancellations and any outstanding write fences.
+
+To return to a retained 1.0.5 release, disconnect the hosts again and run
+`npx -y @tempad-dev/mcp@2.0.0 --migrate-runtime 1.0.5`. Confirm `update 1.0.5` and
+check the active version before reconnecting. Use the actual prior version if it differs.
+Rollback is available while the managed journal still retains that release.
 
 ### Tools and resources
 
@@ -98,17 +118,11 @@ Notes:
   modes and aliases. Enabled resolution uses each actual consumer's effective Figma modes;
   unresolved references remain in code with `token-resolution` warnings. Missing or ambiguous
   definitions produce `token-definition` warnings. Warnings are bounded per node result.
-  This replaces older responses that flattened `tokens` when resolution was enabled; legacy
-  extensions must upgrade to use `resolveTokens: true`.
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
 - `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
   editable. Dev Mode and view-only files remain read-only.
-- The node-set and token-definition semantics above require matching protocol 15 Hub and extension
-  builds. Extension 0.22.0 remains supported through protocol 13 for existing reads, sessions,
-  tasks, and canvas writes. New read options prompt an upgrade, and responses identify older
-  selection/token semantics. Update the extension and reload Figma for the new capabilities, update
-  the plugin or installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
-  then reconnect the MCP client and start a new task. For minimum versions and update steps, see the
+- MCP 2.0 supports TemPad Dev extension **1.0.0 or later**. Update older installations and
+  reload the Figma tab before migrating the Hub. See the
   [upgrade guide](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#upgrading).
 - Assets are ephemeral and tool-linked. Local stdio clients receive `asset.localPath` when the Hub
   has the bytes and can open it without a loopback download; other clients use the

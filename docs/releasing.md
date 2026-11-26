@@ -88,63 +88,24 @@ with negotiated waiting support at an idle boundary. Claude additionally require
 session with receipt/retry-capable hooks; `off` and
 `pinned` policies remain available. See the [runtime design](engineering/mcp-runtime-updates.md).
 
-| Hub change                                          | Release requirement                                                                                           |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Still serves the released extension's wire contract | Verify old-extension/new-Hub interoperability before publishing `latest`.                                     |
-| Drops the released extension's wire contract        | Block `latest` until a tested compatibility transition or an explicitly approved breaking migration is ready. |
+MCP 2.0 supports TemPad Dev extension **1.0.0 and later**. Extension 1.0.0 uses the
+`tempad-mcp` WebSocket subprotocol and declares protocol 15 in its runtime hello. Select
+capabilities such as terminal receipts from the wire handshake. A compatible handshake from
+an older build does not extend the supported
+version range.
 
-Keep the previous extension protocol in `TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS` for at
-least one store cycle so the first case stays the normal one. Listing a version is a promise about
-the bytes. For versioned peers, an added hub-to-extension _envelope_
-field is tolerated by the schemas, but a field added inside a payload object (`task`, `route`,
-`result`) is not, so such a change must either preserve the older payload shape or follow a
-separate migration plan. An entry in the support list is not itself compatibility evidence.
-
-Extension 0.20.0 strictly rejects versioned registration. MCP 0.8.0 now selects a separate legacy
-wire path before the first frame: no WebSocket subprotocol selects the released read-only contract;
-`tempad-mcp` selects versioned registration. Do not add the unversioned client to the numeric version
-list. See the [gateway design](extension/mcp-browser-gateway-design.md#released-unversioned-extensions)
-for argument restrictions and collision-safe legacy asset uploads.
-
-### Compatible rollout
-
-| Extension | Hub                   | Behavior and recovery                                                                                                                                                                                                                                                                         |
-| --------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0.20.0    | 0.8.0                 | Existing taskless code, structure, and screenshot reads and asset exports continue working. Authoring and new read options explain how to update the extension and reload Figma.                                                                                                              |
-| 0.21.0    | 0.8.0                 | Versioned session routing, runtime identity, and task fences apply.                                                                                                                                                                                                                           |
-| 0.22.0    | 0.9.0                 | Adds exact-session independent reads and page-scoped design-system discovery, with bounded structure construction and request-scoped codegen reuse.                                                                                                                                           |
-| 0.22.0    | 0.10.0                | Consolidates public lifecycle tools into `manage_design_task` without changing the extension wire contract. Update to Agent Plugin 0.3.0 and reconnect the MCP client to refresh tools and skills.                                                                                            |
-| 0.21.0    | 0.7.1 already running | Registration is rejected with instructions to restart the agent's MCP connection using `@tempad-dev/mcp@latest`. Close other agents keeping the old shared Hub alive, then restart. Reloading Figma alone does not upgrade the Hub. The extension reconnects automatically after replacement. |
-
-MCP 0.11.0 retains the unversioned legacy adapter and serves protocol 13 and 15 versioned peers.
-Extension 0.23.0 adds the matching protocol 15 node-set and token contracts; pair it with Agent
-Plugin 0.4.0 for the new capabilities. Extension 0.22.0 continues working with its released
-selection and token semantics; new read options explain how to upgrade without disconnecting it.
-The design-system
-`scope: "pages"` and `pageId` options require extension 0.22.0; do not treat an older
-extension's argument rejection as an empty catalog. Exact independent-read `sessionId` is
-resolved by the Hub and is not forwarded as an extension tool argument. Task-bound reads
-remain fixed to the original extension connection and session.
-
-1. Run `pnpm mcp:check-bridge` against the candidate. It builds and launches a real isolated Hub
-   and uses frozen 0.20.0 and 0.22.0 receiving schemas and representative result fixtures to check
-   reads, writes, task lifecycle, short/full-hash uploads/downloads, reconnects, upgrade errors,
-   and isolation of task-bound calls. Broker tests
-   cover rejection of an old Hub and automatic recovery after replacement. These are deterministic
-   protocol checks; they do not attest to a live store-installed Figma runtime or host controls.
-2. Complete the installed-host acceptance gates and record the exact candidate artifacts. Verify
-   the released 0.20.0 and 0.22.0 extensions' read/export workflows against the candidate Hub in an isolated
-   browser profile before publication, and verify the new extension against that same Hub.
-3. Publish the backward-compatible MCP to `latest` first, then release the new extension and
-   expose the new Agent Plugin on `main`. Existing extension installations must continue working
-   throughout the store rollout. Keep the independent native-host acceptance requirement.
-4. Retain the unversioned adapter through the 1.x rollout. Extension 0.20.0 discards WebSocket
-   close reasons and reports an unreachable Hub even when the Hub sends explicit upgrade instructions.
-   Before a breaking release requires protocol 13 (extension 0.22.0) or newer, verify that an
-   ordinary read from an unversioned peer gives the agent an actionable upgrade error, and that a
-   disconnected extension still gives the usual connection error. Test mixed old and new peers,
-   installing the store update and reloading Figma, and restoring the last compatible Hub.
-   A managed switch that removes an adapter must leave the previous Hub available.
+1. Run `pnpm mcp:check-bridge` against the built Hub and unpacked release. Exercise the
+   minimum supported extension's receiving contract as well as the candidate's optional features.
+   Verify reads, writes, task fences, assets and reconnects. Reject unversioned connections
+   and unsupported protocol versions before admitting tool calls.
+2. Verify a managed upgrade from the published baseline and a rollback after the last client
+   disconnects. For this boundary, run
+   `node packages/mcp-server/scripts/check-bridge-migration.mjs <verified-2.0.0.tgz> <published-1.0.5.tgz>`
+   with the candidate's packaging receipt beside its archive. Verify preservation of private
+   state and task fences. The stable updater keeps active 1.x sessions on a compatible runtime.
+3. Verify the 1.0.0 extension and current candidate in an isolated browser profile. Complete
+   installed-host acceptance before publishing. Update any pre-1.0 browser installations and
+   reload Figma before migrating their Hub.
 
 Older extensions install both standalone skills with a single name filter. The installer
 accepts a partial match, so retain the `figma-canvas-authoring` migration notice in the
