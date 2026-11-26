@@ -75,8 +75,8 @@ async function renderNode(
   if (!snapshot) return null
   const node = snapshot.node
 
-  if (ctx.svgs.has(snapshot.id)) {
-    const svgEntry = ctx.svgs.get(snapshot.id)!
+  const svgEntry = ctx.svgs.get(snapshot.id)
+  if (svgEntry) {
     const svgStyle: Record<string, string> = {
       ...(ctx.layout.get(snapshot.id) ?? {}),
       ...(svgEntry.presentationStyle ?? {})
@@ -107,17 +107,12 @@ async function renderNode(
       includeDataHint: false
     })
 
-    const svgProps: RenderProps = { ...(svgEntry.props ?? {}) }
-    const legacyAssetUrl = svgProps['data-asset-url']
-    if (!svgProps['data-src'] && legacyAssetUrl) {
-      svgProps['data-src'] = legacyAssetUrl
-      delete svgProps['data-asset-url']
-    }
     if (svgEntry.raw) {
       const mergedProps = Object.keys(props).length ? toMarkupAttributes(props) : undefined
       const content = nativeSvg(svgEntry.raw, mergedProps)
       return wrapperProps ? { name: 'div', props: wrapperProps, children: [content] } : content
     }
+    const svgProps: RenderProps = { ...svgEntry.props }
     const className = props[classAttr]
     if (classNames.length && className) svgProps[classAttr] = className
     Object.entries(props).forEach(([key, val]) => {
