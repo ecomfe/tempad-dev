@@ -546,7 +546,7 @@ or activates a downloaded candidate merely because it is staged. The change from
 to the extension-adapter retention check. From 2.0.1 a stable installed CLI can apply it
 at a fully stopped restart. An explicit rollback with that CLI keeps 1.x selected until
 the operator chooses 2.x again. See the
-[migration and retained-release rollback procedure](../../packages/mcp-server/README.md#moving-a-managed-hub-to-20).
+[migration and retained-release rollback procedure](../../packages/mcp-server/RUNTIME.md#migrate-or-roll-back-a-managed-hub).
 
 The extension's integration status may display a concise pending-update or recovery
 message through a negotiated status capability. Older extensions keep the existing

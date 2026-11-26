@@ -1,12 +1,20 @@
 # @tempad-dev/mcp
 
-<a href="./README.zh-Hans.md"><img src="https://img.shields.io/badge/Simplified%20Chinese%20%C2%BB-000" alt="Read in Simplified Chinese"></a>
+[简体中文](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/README.zh-Hans.md)
 
-The TemPad Dev MCP server connects coding agents to the Figma file open in your browser. It provides design context for UI implementation and tools to create and edit native Figma layers.
+Connect your coding agent to Figma. It can inspect selected layers and implement the design in your project. With edit access, it can also change the canvas in Design Mode.
 
-Requires the TemPad Dev extension, an open panel, and **MCP access** enabled. Canvas writes also require edit access to the Figma Design file. See the [user guide](../../README.md#agent-integration) for setup and workflows.
+## Connect to Figma
 
-## Usage
+1. Install Node.js **22.x, 24.x, or 26+** and the [TemPad Dev Chrome extension](https://chromewebstore.google.com/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc) **1.0.0 or later**.
+2. Open a Figma Design file and keep the TemPad Dev panel open. In **Preferences → Agent integration**, enable **MCP access**.
+3. Click **Set up agents**, choose your client, and follow its instructions. If you have multiple Figma tabs open, click the **MCP** badge in the tab you want to use.
+
+Select a layer in Figma and ask your agent **“How is my selection laid out?”**
+
+### Manual configuration
+
+For clients that use `mcpServers`, add the following entry to your MCP settings.
 
 ```json
 {
@@ -19,230 +27,11 @@ Requires the TemPad Dev extension, an open panel, and **MCP access** enabled. Ca
 }
 ```
 
-For agent-specific setup, open TemPad Dev's **Preferences → Agent integration → Set up agents**. It provides guided paths for Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, and TRAE, plus **Other** for compatible clients not listed.
+<a id="runtime-updates-100"></a>
+<a id="moving-a-managed-hub-to-20"></a>
 
-### Runtime updates (1.0.0+)
+## Updates
 
-Verified releases enable background downloads and compatible automatic Hub updates on
-macOS, Linux and Windows by default, including existing `npx @latest` configurations after they restart onto
-1.0.0 or later. The configuration above and Agent Plugin 1.0.0 select this policy explicitly
-with `--runtime-updates=stable`. First enrollment requires closing all existing TemPad MCP
-connections once, then restarting them. It preserves the release task and asset stores.
-Until that restart, new clients keep using an existing legacy Hub without interrupting it.
-Checkout development builds use a separate local configuration and never fetch release runtimes.
+The server downloads compatible updates in the background. If all connected clients support switching and have stable updates enabled, they stay connected while the server updates during an idle period. See [update controls and 1.x migration](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/RUNTIME.md#runtime-update-controls).
 
-In a terminal using the same runtime configuration:
-
-- `npx -y @tempad-dev/mcp@latest --runtime-update-status` shows the active/staged versions and blockers.
-- `npx -y @tempad-dev/mcp@latest --check-runtime-update` searches for the newest compatible stable
-  release, no newer than npm's `latest` tag. Large histories resume in bounded batches; status
-  reports the remaining search and why the latest version was skipped.
-- `npx -y @tempad-dev/mcp@latest --update-runtime <version>` asks you to confirm the exact version
-  and integrity before switching. Incompatible tool contracts/guidance, unfinished operations,
-  legacy Claude hooks, and attached clients without opt-in prevent activation.
-
-Automatic activation requires initialized MCP clients, all using the stable update policy and
-capable of waiting through a switch. Claude also requires a verified session with receipt/retry-capable
-hooks; unknown sessions and older hooks keep updates staged.
-After five seconds without calls, transfers or native actions, the supervisor rechecks eligibility
-and switches locally. New, undispatched requests wait up to ten seconds; dispatched writes are
-never replayed. Busy work defers the update, and downloads or network failures leave the Hub serving.
-Existing MCP sessions retain their tool descriptions through a compatible switch;
-Figma reconnects and design tasks may require resume/read-back. The running edge and supervisor,
-Node, browser extension, and installed plugin still require their normal upgrade/restart.
-Use `--runtime-updates=off` to stop background checks when no enrolled
-client remains. To enforce the launch package's exact version, use `--runtime-updates=pinned`
-with a fixed npm version; a conflict reports a restart requirement instead of creating another Hub.
-Unverified local builds keep their bundled runtime and never download releases; explicit enrollment
-is rejected. Windows uses named pipes and ACL-checked private storage for managed updates. Its
-[process CI](../../TESTING.md#windows-runtime-ci) is separate from installed desktop-host acceptance.
-
-### Moving a managed Hub to 2.0
-
-With the standard `@latest` setup, MCP 2.0.1 upgrades the Hub automatically on its first
-launch after all previous MCP connections, the Hub and its supervisor have exited. If
-another host is still connected, both hosts keep using 1.x for that session. To upgrade
-sooner, disconnect TemPad MCP in every host, let the Hub exit, then reconnect normally.
-Tasks, cancellations, pending write fences and assets carry over. If your browser extension
-predates 1.0.0, update it and reload the Figma tabs that use MCP.
-
-To return to a retained 1.0.5 release, disconnect the hosts again and run
-`npx -y @tempad-dev/mcp@2.0.1 --migrate-runtime 1.0.5`. Confirm `update 1.0.5` and
-check the active version before reconnecting. Use the actual retained version if it differs.
-A rollback made with 2.0.1 persists across normal launches. When ready to upgrade again,
-disconnect the hosts and explicitly select the installed 2.x version with the same command.
-If you rolled back with 2.0.0 and want to stay on 1.x, pin the host to the retained
-1.x package before its next launch. Version 2.0.0 did not record a rollback preference.
-
-### Tools and resources
-
-- `get_code`: Tailwind-first JSX/Vue markup plus assets and token references.
-- `get_design_system`: An immutable, deterministic catalog. It returns compact pages of component
-  definitions on accessible pages plus local or directly referenced variable, collection/mode,
-  style, and shader definitions without inspecting canvas usage. Cursor continuation exposes
-  omitted definitions; exact-ref lookup returns one bounded definition. `scope: "fonts"` queries
-  available font families and exact native styles without reading file resources. `scope: "pages"`
-  lists page IDs without scanning components; a resource call with `pageId` scans only that page's
-  components while retaining file-wide variable, style, and shader definitions.
-- `manage_design_task` (`begin`, `resume`, `complete`, `cancel`) and `set_design_anchor`: Bind canvas writes to
-  a design task, resume a paused task, place its status controls, and finish or cancel the task.
-  Stop permanently fences the old task across reconnects. Native Codex App comments support Queue
-  and Steer; confirmed admission clears submitted drafts before execution finishes. See the
-  [comment guide and host validation scope](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#task-controls-and-client-enhancements).
-- `get_design_task`: Read the task state and current write lease.
-- `list_design_sessions`: List connected Figma files for exact-session reads.
-- `apply_canvas`: Creates, updates, removes, or activates exact pages and managed roots using
-  restricted HTML, deterministic Tailwind utilities, typed native state, SVG, and image assets.
-  Variable utilities and named text-style classes bind existing resources or resources declared
-  in the same call. Page-only operations and native-only updates can omit markup. The extension
-  resolves, validates, diffs, applies, and structurally verifies the result.
-- `upload_asset`: A bounded Hub-only bridge from a programmatically composed generated PNG/JPEG/GIF
-  data URL to a content-addressed `assetHash` for `apply_canvas`; encoded bytes are never returned.
-- `get_screenshot`: A bounded rendered PNG per requested node for selective visual validation.
-- `get_structure`: Hierarchy/geometry outline for an exact node, page, or one or more visible selected nodes, including stable authoring keys on
-  TemPad-managed nodes and optional native mask, IMAGE paint, layout-grid, and frame-guide read-back.
-
-Notes:
-
-- `get_code`, `get_structure`, and `get_screenshot` accept `nodeIds` or the current multi-selection.
-  Single `nodeId` calls retain their existing result shape. Code and screenshots return independent
-  `{ nodeId, result }` or `{ nodeId, error }` entries for batches; continue `remainingNodeIds` with
-  exact `nodeIds` and unchanged options. Structure retains exact roots, reports failed roots in
-  `errors`, and supports `options.depth: 0` for roots only. Node-set reads require matching Hub and
-  extension builds using bridge protocol 15; older peers cannot silently ignore the new selectors.
-- `get_code.resolveTokens` controls code only. Both settings return token definitions with all
-  modes and aliases. Enabled resolution uses each actual consumer's effective Figma modes;
-  unresolved references remain in code with `token-resolution` warnings. Missing or ambiguous
-  definitions produce `token-definition` warnings. Warnings are bounded per node result.
-- Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
-- `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
-  editable. Dev Mode and view-only files remain read-only.
-- MCP 2.0 supports TemPad Dev extension **1.0.0 or later**. Update older installations and
-  reload the Figma tab before migrating the Hub. See the
-  [upgrade guide](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#upgrading).
-- Assets are ephemeral and tool-linked. Local stdio clients receive `asset.localPath` when the Hub
-  has the bytes and can open it without a loopback download; other clients use the
-  capability-bearing HTTP `asset.url`. Treat the full URL as a temporary secret and do not persist
-  it in logs.
-- Canvas authoring may refer to content already in the local asset store by its full SHA-256 digest;
-  bytes stay inside the extension bridge and never enter the tool payload.
-- Asset resources are not exposed via MCP `resources/list`/`resources/read`.
-- The HTTP fallback URL uses `/{capability}/assets/{hash}` and may include an image extension (for example `/{capability}/assets/{hash}.png`). Both filename forms are accepted.
-
-## Configuration
-
-Optional environment variables:
-
-- `TEMPAD_MCP_TOOL_TIMEOUT`: General tool call timeout in milliseconds (default `15000`).
-- `TEMPAD_MCP_GET_CODE_TIMEOUT`: `get_code` timeout in milliseconds (default `30000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set).
-- `TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT`: Initial `get_design_system` resource-discovery timeout in milliseconds (default `45000`; continuation, exact-ref, font, and page-list reads use the general timeout). Falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set.
-- `TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT`: `get_structure` timeout for an explicit page ID or key, which may require loading a cold Figma page (default `45000` milliseconds; node and selection reads use the general timeout). Falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set.
-- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`: `apply_canvas` slow-call warning threshold in milliseconds (default `120000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set). At twice this threshold, the Hub reports an unknown outcome. Further writes require both definitive completion or session recovery and a read of that file returning at least one structure root or code result, or an exact `get_structure` page snapshot (including an empty page). Empty selections and failed node reads do not count. `CANVAS_APPLY_FAILED` also requires readback because rollback is unconfirmed, including with older extensions. `CANVAS_APPLY_ABORTED` confirms a preparation failure before writing and does not require an extra file read. Undo-boundary failures remain conservative because rollback verification covers only part of native state. The read requirement survives Hub restarts. Inspect the canvas before continuing; do not replay the write.
-- `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`: Delay before auto-activating the sole connected extension (default `1500`).
-- `TEMPAD_MCP_HUB_LOCK_STALE_MS` / `TEMPAD_MCP_HUB_LOCK_UPDATE_MS`: Writer lock expiry and heartbeat interval (defaults `60000` / `10000`). Expiry must be at least `2000`; heartbeat must be at least `1000` and at most half the expiry. When only expiry is reduced, the default heartbeat is reduced to fit.
-- `TEMPAD_MCP_CONTROL_LEASE_MS` / `TEMPAD_MCP_CONTROL_RENEW_MS`: Runtime control lease and renewal interval (defaults `10000` / `2000`). Lease must be at least `100`; renewal must be positive and at most half the lease. When only the lease is reduced, the default renewal is reduced to fit.
-- `TEMPAD_MCP_RUNTIME_AUTO_IDLE_MS`: Idle window before an eligible runtime update can activate (default `5000`). This is separate from extension auto-selection. Timing overrides must be positive integer milliseconds no greater than `2147483647`; invalid values fall back to defaults. Use matching settings for processes sharing a runtime; isolated tests use shorter intervals while keeping startup deadlines unchanged.
-- `TEMPAD_MCP_MAX_PAYLOAD_BYTES`: Maximum incoming extension WebSocket message size in bytes (default `4194304`). An override can reduce this limit but cannot exceed the shared protocol ceiling. Invalid values fall back to the default.
-- `TEMPAD_MCP_MAX_ASSET_BYTES`: Maximum upload size for captured assets/screenshots in bytes (default `8388608`).
-- `TEMPAD_MCP_MAX_ASSET_STORE_BYTES`: Maximum aggregate size of the local asset store in bytes (default `268435456`).
-- `TEMPAD_MCP_MAX_CONCURRENT_ASSET_UPLOADS`: Maximum simultaneous asset uploads (default `4`).
-- `TEMPAD_MCP_MAX_EXTENSION_CONNECTIONS`: Maximum simultaneous browser extension connections to one Hub (default `16`).
-- `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS`: Comma-separated exact `chrome-extension://...` origins allowed to connect. Invalid configured values fail startup rather than weakening the policy. When omitted, any syntactically valid Chrome extension origin is accepted for backward compatibility.
-- `TEMPAD_MCP_ASSET_TTL_MS`: Asset cleanup TTL in milliseconds based on last access; set `0` to disable (default `2592000000`).
-- `TEMPAD_MCP_RUNTIME_DIR`: Override runtime directory (defaults to `run` under the temporary root described below).
-- `TEMPAD_MCP_STATE_DIR`: Override durable task and feedback storage (defaults to `~/.tempad-dev/state`, or `state` under an explicitly overridden runtime directory). Isolated Hub checks set this to temporary storage.
-- `TEMPAD_MCP_LOG_DIR`: Override log directory (defaults to `log` under the temporary root).
-- `TEMPAD_MCP_ASSET_DIR`: Override asset storage directory (defaults to `assets` under the temporary root).
-
-The Hub exclusively locks its state and asset directories before loading either store, even
-when another Hub uses a different runtime directory. These locks remain held until process
-exit so shutdown writes cannot overlap a replacement Hub. Older releases do not honor these
-additional locks; do not run them against shared storage concurrently with this version.
-
-On Unix, overridden runtime, state, log, and asset directories must belong to the current
-user, must not be symlinks, and must deny group and other access (for example, mode `0700`).
-
-Before its first connection, transient connection failures get a bounded recovery window
-covering the Hub's 60-second orphan-lock lease plus startup time. Other failures stop after
-three attempts. The CLI reports exhausted retries on stderr; resolve the reported problem
-and reconnect the MCP client to retry.
-After a working bridge, transient connection failures continue retrying without a limit;
-three consecutive permission, trust, or invalid-bridge failures still stop the CLI.
-
-Each process log is capped at 10 MiB. Crossing the limit discards older entries in that file;
-oversized entries are truncated with a marker. Logs from exited processes are removed after
-seven days without writes. This is a per-file limit, not an aggregate directory quota.
-
-Startup phases are also written synchronously to `startup-mcp-*.log` in the same directory,
-up to 1 MiB per process, until the first readiness or startup failure. These files distinguish
-verification, cache writes, lock waits, and runtime launch failures, but cannot measure `npx`
-downloads before the CLI starts.
-
-On Linux, the runtime claims `<system temp>/tempad-dev` with mode `0700` when absent, or reuses
-that directory when owned by the current user with mode `0700`. This keeps older installed hooks
-working after a reboot and upgrading clients connected to the same Hub and lifecycle locks. An
-unsafe legacy root, including one owned by another user, selects `<system temp>/tempad-dev-<uid>`
-instead. An existing private UID root remains selected if the legacy root disappears or an empty
-legacy root appears later. If both roots contain a socket or Hub lock, or a current-user root
-contains those files with unsafe permissions, startup refuses automatic migration. Shut down the
-existing runtimes and correct ownership/permissions before reconnecting. Other platforms retain
-`<system temp>/tempad-dev`. Explicit directory overrides take precedence. Unix clients and lifecycle
-hooks check the socket inode, ownership, and private permissions before connecting; an untrusted
-socket is rejected without launching a replacement Hub. Correct its ownership/permissions or shut
-down the old runtime before reconnecting. Windows retains the released compatibility pipe name;
-managed control/data pipes are scoped by user and runtime directory. Windows ACL checks restrict
-managed storage and endpoints to the current user, SYSTEM and Administrators rather than relying
-on Unix permission bits. If the default runtime root belongs to the current user and
-inherits access for another account, MCP can rename it to `tempad-dev.legacy` and create
-a private directory at the original path. Old files stay in the backup. A runtime lock or
-an existing backup blocks this recovery. If startup asks you to rename the old directory,
-stop all TemPad MCP clients first, then rename it and reconnect.
-
-The hub accepts WebSocket handshakes only from Chrome extension origins on its root path. For a locked-down installation, configure `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS` with the TemPad Dev extension origin shown by the browser. This origin check and the per-process asset capability reduce cross-origin loopback abuse, but do not authenticate local processes, including another OS user's process that binds the port first; see the [local MCP threat model](../../docs/security/local-mcp-threat-model.md).
-
-## Task storage recovery
-
-An operation that may still be executing keeps its file blocked across Hub restarts. Reading
-or resuming does not release this exclusion. Reconnect the original Figma browser: a verified
-completion, tab closure or document replacement releases execution, followed by required readback.
-If that browser cannot return, run `npx -y @tempad-dev/mcp@latest --runtime-status` to inspect
-the file and executor, then `npx -y @tempad-dev/mcp@latest --resolve-runtime-block <block-id>`
-in an interactive terminal. Confirm only after closing the original execution environment.
-This command cannot stop remote code; it retires that execution, preserves Stop fences and
-requires an explicit task resume and readback. It does not replay a request or reset task storage.
-The CLI is the only operator recovery interface; no MCP tool or Figma page can perform this action.
-
-An incompatible saved task may have been written by a newer Hub. In that case, upgrade the MCP
-runtime and reconnect all clients. If the current version still rejects a record, preserve the
-snapshot for diagnosis or restore a verified complete backup containing the latest Stop fences.
-The recovery command deliberately refuses readable storage; do not delete it to bypass a block.
-
-If task storage cannot be read safely, the error names the affected snapshot. Reads remain
-available, but canvas writes stay blocked across restarts because the snapshot may contain
-permanent Stop fences. The Hub preserves unreadable state in a `.corrupt` file when possible.
-
-To recover, disconnect all MCP clients and wait for the Hub to exit before changing its state.
-Keep copies of the snapshot and any `.corrupt` file. Restore a verified complete snapshot
-that includes the latest Stop fences to the original path using an atomic replacement, then
-reconnect a client. A valid restored snapshot is accepted while the `.corrupt` evidence remains.
-After upgrading from a version that quarantined newer data, `.corrupt` may itself be valid.
-Verify that it is the latest complete snapshot before restoring it; its filename alone is not proof.
-
-An older backup or leftover `.tmp` file may predate a Stop action. Without a trustworthy complete
-snapshot, disconnect all MCP clients and run `npx -y @tempad-dev/mcp@latest --recover-task-storage`.
-Run it with the same `TEMPAD_MCP_STATE_DIR` and `TEMPAD_MCP_RUNTIME_DIR` environment overrides
-as the MCP client configuration; the command does not read that configuration. It prints the
-resolved snapshot path even when recovery is refused. Confirm that it names the affected storage.
-The command refuses an active writer or readable storage, preserves the original files in the
-reported backup directory, and starts a new task generation. Every old task stays retired:
-old reviews cannot restore execution, and taskless writes remain blocked. Every subsequent begin
-must include `recoveryGeneration`, including in new sessions and after Hub restarts. A rejected
-begin supplies it to clients in `_meta.recoveryGeneration` and to agents in the error text. Each new task
-must read its target before writing. This requirement does not expire. Reads remain available.
-Keep the backups; this operation does not recover task history.
-Do not delete the quarantine marker or replace the snapshot with empty state to bypass the fence.
-
-## Requirements
-
-- Node.js 22.x, 24.x, or 26+. MCP 0.8.0 no longer supports Node.js 18 or 20 because its runtime
-  dependencies require newer Node.js versions.
+[Tool reference](https://github.com/ecomfe/tempad-dev/blob/main/README.md#mcp-tools) · [Configuration and recovery](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/RUNTIME.md#configuration)

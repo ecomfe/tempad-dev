@@ -107,12 +107,12 @@ All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
 From MCP 1.0.0, the standard setup checks for the newest compatible stable Hub in the
 background, even during tool calls. When all clients support switching and have stable updates
 enabled, the Hub can update after five seconds of idle time while those clients stay connected.
-See [runtime update controls](./packages/mcp-server/README.md#runtime-updates-100) for host requirements and opt-out.
+See [runtime update controls](./packages/mcp-server/RUNTIME.md#runtime-update-controls) for host requirements and opt-out.
 
 MCP 2.x requires browser extension **1.0.0 or later**. The 1.x to 2.x upgrade changes the
 tool contract and retires older extension protocols. For this transition, MCP 2.0.1 upgrades
 the Hub on the next launch after all prior clients and runtime processes have exited.
-See [upgrade and rollback details](./packages/mcp-server/README.md#moving-a-managed-hub-to-20).
+See [upgrade and rollback details](./packages/mcp-server/RUNTIME.md#migrate-or-roll-back-a-managed-hub).
 
 Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context. An agent can also list connected sessions and pass an exact `sessionId` to an independent read without changing the active badge.
 
@@ -146,7 +146,7 @@ When the MCP server is enabled, a badge appears in the TemPad Dev panel title ba
 
 ### Configuration
 
-For optional environment variables, see [`packages/mcp-server/README.md`](./packages/mcp-server/README.md).
+See [MCP configuration](./packages/mcp-server/RUNTIME.md#configuration) for optional environment variables.
 
 ### MCP tools
 

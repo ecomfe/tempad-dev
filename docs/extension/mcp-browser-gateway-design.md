@@ -192,7 +192,7 @@ writes persist in task storage before dispatch, including for peers without rece
 files stay blocked across cold restarts. Reads cannot clear this exclusion. Original-browser
 tab closure or document replacement can release it; a different browser ID and ordinary idle
 snapshots cannot. A lost worker cannot reconstruct receipts. Operator recovery then requires
-the interactive CLI described in the [MCP README](../../packages/mcp-server/README.md#task-storage-recovery),
+the interactive CLI described in [task storage recovery](../../packages/mcp-server/RUNTIME.md#task-storage-recovery),
 preserves Stop and records abandonment plus mandatory readback atomically. No page bridge exposes
 that control. Peers without durable receipts cannot transfer unresolved writes during a planned
 runtime switch.
