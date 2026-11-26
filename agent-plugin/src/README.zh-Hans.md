@@ -121,8 +121,8 @@ MCP server 要求 Node.js **22.x、24.x 或 26+**。
 并将 Agent Plugin 更新到 **1.0.2 或更高版本**，然后重新加载 Figma 并更新已安装的 skill。
 MCP **1.0.3** 已支持所需字段的传输，无需配套升级 MCP。
 MCP **1.0.4** 补充了稀疏 3D 回读和字段省略语义的工具描述。
-MCP 2.0 要求 TemPad Dev 浏览器扩展为 **1.0.0 或更高版本**。请先更新扩展、重新加载 Figma，
-再按[托管 1.x 迁移步骤](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/README.zh-Hans.md#将托管-hub-升级到-20)升级。
+MCP 2.x 要求 TemPad Dev 浏览器扩展为 **1.0.0 或更高版本**。使用标准插件配置时，
+旧连接全部断开且运行时退出后，MCP 2.0.1 会自动升级[托管的 1.x Hub](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/README.zh-Hans.md#将托管-hub-升级到-20)。
 
 1. 将浏览器扩展更新到 1.0.0 或更高版本并重新加载 Figma 标签页。
 2. 通过原先使用的客户端或安装器更新 plugin。独立配置时，请同时更新

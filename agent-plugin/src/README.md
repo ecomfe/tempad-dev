@@ -85,8 +85,9 @@ For Figma's beta 3D transforms, update the extension to **1.1.0 or later** and t
 Agent Plugin to **1.0.2 or later**, then reload Figma and refresh the installed skills.
 MCP **1.0.3** already supports the required transport; a coordinated MCP update is unnecessary.
 MCP **1.0.4** adds tool descriptions for sparse native 3D readback and omission semantics.
-MCP 2.0 requires TemPad Dev extension **1.0.0 or later**. Upgrade the extension, reload
-Figma, then follow the [managed 1.x migration procedure](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/README.md#moving-a-managed-hub-to-20).
+MCP 2.x requires TemPad Dev extension **1.0.0 or later**. With the standard plugin setup,
+MCP 2.0.1 automatically upgrades a [managed 1.x Hub](https://github.com/ecomfe/tempad-dev/blob/main/packages/mcp-server/README.md#moving-a-managed-hub-to-20)
+after all prior MCP connections and runtime processes have exited.
 
 1. Update the browser extension to 1.0.0 or later and reload the Figma tab.
 2. Update the installed plugin through the client or installer used originally. With standalone

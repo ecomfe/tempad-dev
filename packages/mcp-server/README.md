@@ -47,7 +47,6 @@ hooks; unknown sessions and older hooks keep updates staged.
 After five seconds without calls, transfers or native actions, the supervisor rechecks eligibility
 and switches locally. New, undispatched requests wait up to ten seconds; dispatched writes are
 never replayed. Busy work defers the update, and downloads or network failures leave the Hub serving.
-Existing managed 1.x installations stay on 1.x when a host first launches the 2.x CLI.
 Existing MCP sessions retain their tool descriptions through a compatible switch;
 Figma reconnects and design tasks may require resume/read-back. The running edge and supervisor,
 Node, browser extension, and installed plugin still require their normal upgrade/restart.
@@ -60,23 +59,20 @@ is rejected. Windows uses named pipes and ACL-checked private storage for manage
 
 ### Moving a managed Hub to 2.0
 
-Update the browser extension to at least 1.0.0 and reload the Figma tabs that use MCP. Close
-all TemPad MCP connections across your agent hosts and wait for the Hub to exit. In a terminal
-using the same runtime directories, run:
-
-```sh
-npx -y @tempad-dev/mcp@2.0.0 --migrate-runtime 2.0.0
-```
-
-Check the version and digest in the prompt, enter `update 2.0.0`, and wait for the active
-version to show `2.0.0` and the phase to show `committed`. Then reconnect the hosts.
-Fresh installations start directly on 2.0. The migration reopens the existing task and asset
-stores, including cancellations and any outstanding write fences.
+With the standard `@latest` setup, MCP 2.0.1 upgrades the Hub automatically on its first
+launch after all previous MCP connections, the Hub and its supervisor have exited. If
+another host is still connected, both hosts keep using 1.x for that session. To upgrade
+sooner, disconnect TemPad MCP in every host, let the Hub exit, then reconnect normally.
+Tasks, cancellations, pending write fences and assets carry over. If your browser extension
+predates 1.0.0, update it and reload the Figma tabs that use MCP.
 
 To return to a retained 1.0.5 release, disconnect the hosts again and run
-`npx -y @tempad-dev/mcp@2.0.0 --migrate-runtime 1.0.5`. Confirm `update 1.0.5` and
-check the active version before reconnecting. Use the actual prior version if it differs.
-Rollback is available while the managed journal still retains that release.
+`npx -y @tempad-dev/mcp@2.0.1 --migrate-runtime 1.0.5`. Confirm `update 1.0.5` and
+check the active version before reconnecting. Use the actual retained version if it differs.
+A rollback made with 2.0.1 persists across normal launches. When ready to upgrade again,
+disconnect the hosts and explicitly select the installed 2.x version with the same command.
+If you rolled back with 2.0.0 and want to stay on 1.x, pin the host to the retained
+1.x package before its next launch. Version 2.0.0 did not record a rollback preference.
 
 ### Tools and resources
 

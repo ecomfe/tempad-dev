@@ -542,8 +542,10 @@ resumes its recorded decision without restoring task or receipt snapshots. Cold 
 may cross a wire/guidance boundary, but still requires state/extension compatibility and a
 common control protocol for binary rollback. It never downgrades, retries quarantined bytes,
 or activates a downloaded candidate merely because it is staged. The change from protocol
-13/15 and the unversioned bridge in 1.x to protocol 15 in 2.x requires a confirmed, offline
-handoff even when launching a freshly installed 2.x CLI. See the
+13/15 and the unversioned bridge in 1.x to protocol 15 in 2.x is a reviewed exception
+to the extension-adapter retention check. From 2.0.1 a stable installed CLI can apply it
+at a fully stopped restart. An explicit rollback with that CLI keeps 1.x selected until
+the operator chooses 2.x again. See the
 [migration and retained-release rollback procedure](../../packages/mcp-server/README.md#moving-a-managed-hub-to-20).
 
 The extension's integration status may display a concise pending-update or recovery

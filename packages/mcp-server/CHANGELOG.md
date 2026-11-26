@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.1
+
+- Upgrade a managed 1.x Hub automatically when the stable 2.0.1 CLI starts after all
+  previous clients and runtime processes have exited. Active sessions finish on 1.x.
+  A rollback to a retained 1.x release performed with this CLI persists across restarts.
+
 ## 2.0.0
 
 - Require the TemPad Dev browser extension 1.0.0 or later. Update older installations

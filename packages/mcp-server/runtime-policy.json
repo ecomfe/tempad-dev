@@ -2,14 +2,14 @@
   "version": 1,
   "guidanceEpoch": 2,
   "guidanceReview": {
-    "version": "2.0.0",
-    "sourceHash": "472a0e1cb4f0db5d00bfab176b0ee4570aca762ec47eb8f58b816c8be9ee1a19",
-    "decision": "new-epoch",
+    "version": "2.0.1",
+    "sourceHash": "81184f54c0c7856173ffbeba8e2d141476004988cd139a6ecaee70299c08e718",
+    "decision": "compatible",
     "baseline": {
-      "version": "1.0.5",
-      "integrity": "sha512-EM02vlXuNTsPg3d85BwLMVlOhw7Pu9KqleVNdbtW+b7050ugHPTVxKs/kHoRzusbyacasQXT4SleGQwGaG4zKg=="
+      "version": "2.0.0",
+      "integrity": "sha512-mSRs3D9ana7D/CP4FNiYIlhi39MyBLh+iiIFBxoNpQBuAlhDyOchDBnTS1Z7RWF7Dh/MxBI1/jTLgYHzdN09QA=="
     },
-    "rationale": "MCP 2.0 supports browser extensions from 1.0.0 on protocol 15. Unversioned and protocol 13 adapters and short-hash uploads have retired. The published 1.x runtime remains eligible for its own compatible updates. Moving between generations requires an idle verified migration. Persisted assets, state format, Stop fences, hook and control protocols remain compatible for rollback."
+    "rationale": "A stable installed CLI can select the 2.x Hub during a fully stopped 1.x restart. This changes local startup selection only. All MCP 2.0 tool guidance, wire contracts and persisted task state remain valid."
   },
   "controlProtocols": [2],
   "state": { "family": "tempad-runtime", "reads": [1], "writes": 1 },

@@ -100,9 +100,10 @@ version range.
    and unsupported protocol versions before admitting tool calls.
 2. Verify a managed upgrade from the published baseline and a rollback after the last client
    disconnects. For this boundary, run
-   `node packages/mcp-server/scripts/check-bridge-migration.mjs <verified-2.0.0.tgz> <published-1.0.5.tgz>`
+   `node packages/mcp-server/scripts/check-bridge-migration.mjs <verified-2.x.tgz> <published-1.0.5.tgz>`
    with the candidate's packaging receipt beside its archive. Verify preservation of private
-   state and task fences. The stable updater keeps active 1.x sessions on a compatible runtime.
+   state and task fences across normal startup and explicit rollback. A stable CLI from
+   2.0.1 upgrades a fully stopped 1.x runtime and lets active 1.x sessions finish.
 3. Verify the 1.0.0 extension and current candidate in an isolated browser profile. Complete
    installed-host acceptance before publishing. Update any pre-1.0 browser installations and
    reload Figma before migrating their Hub.
