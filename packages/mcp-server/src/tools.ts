@@ -47,8 +47,6 @@ export type {
   ApplyCanvasParametersInput,
   ApplyCanvasResult,
   AssetDescriptor,
-  GetAssetsParametersInput,
-  GetAssetsResult,
   GetCodeParametersInput,
   GetCodeResult,
   GetDesignSystemParametersInput,
@@ -535,8 +533,6 @@ function getBudgetRetryGuidance(toolName: ToolName): string {
       return 'Reduce requested names or split them into smaller batches and retry.'
     case 'get_screenshot':
       return 'Pass a smaller nodeId and retry.'
-    case 'get_assets':
-      return 'Request fewer hashes in a single call and retry.'
     case 'upload_asset':
       return 'Generate a smaller PNG, JPEG, or GIF and retry without printing its data URL.'
   }

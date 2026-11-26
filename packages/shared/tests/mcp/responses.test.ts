@@ -6,7 +6,6 @@ import type { ToolResultMap } from '../../src/mcp/tools'
 import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from '../../src/mcp/constants'
 import {
   buildApplyCanvasToolResult,
-  buildGetAssetsToolResult,
   buildGetCodeToolResult,
   buildGetDesignSystemToolResult,
   buildGetScreenshotToolResult,
@@ -83,19 +82,7 @@ describe('mcp/responses helpers', () => {
     expect(result.isError).toBeUndefined()
   })
 
-  it('reports missing assets separately from successfully uploaded images', () => {
-    const empty = buildGetAssetsToolResult({ assets: [], missing: [ASSET_HASH] })
-    expect(empty.content?.[0]?.text).toContain('No assets were resolved')
-    expect(empty.content?.[0]?.text).toContain(`Missing: ${ASSET_HASH}`)
-    const asset = {
-      hash: ASSET_HASH,
-      url: 'http://127.0.0.1/asset',
-      mimeType: 'image/png',
-      size: 10
-    }
-    expect(buildGetAssetsToolResult({ assets: [asset], missing: [] }).content?.[0]?.text).toContain(
-      'Resolved 1 asset'
-    )
+  it('reports uploaded images and empty token definitions', () => {
     const uploaded = { assetHash: ASSET_HASH, mimeType: 'image/png' as const, size: 10 }
     expect(buildUploadAssetToolResult(uploaded).structuredContent).toEqual(uploaded)
     expect(buildUploadAssetToolResult(uploaded).content?.[0]?.text).toContain('10 B')

@@ -6,8 +6,6 @@ import {
   ApplyCanvasResultSchema,
   CanvasResolvedApplyParametersSchema as ApplyCanvasParametersSchema,
   AssetDescriptorSchema,
-  GetAssetsParametersSchema,
-  GetAssetsResultSchema,
   GetCodeParametersSchema,
   GetDesignSystemParametersSchema,
   GetDesignSystemResultSchema,
@@ -20,7 +18,6 @@ import {
 } from '../../src/mcp/tools'
 
 const ASSET_HASH = 'a'.repeat(64)
-const OTHER_ASSET_HASH = 'b'.repeat(64)
 
 function acceptsCanvas(value: unknown): boolean {
   return ApplyCanvasParametersSchema.safeParse(value).success
@@ -2562,36 +2559,5 @@ describe('mcp/tools parameter schemas', () => {
         }
       }
     })
-  })
-
-  it('validates get_assets hash inputs and get_assets result shape', () => {
-    expect(
-      GetAssetsParametersSchema.safeParse({
-        hashes: [ASSET_HASH, OTHER_ASSET_HASH]
-      }).success
-    ).toBe(true)
-
-    expect(
-      GetAssetsParametersSchema.safeParse({
-        hashes: ['bad-hash']
-      }).success
-    ).toBe(false)
-
-    expect(
-      GetAssetsResultSchema.safeParse({
-        assets: [
-          {
-            hash: ASSET_HASH,
-            url: 'https://example.com/a.png',
-            mimeType: 'image/png',
-            size: 10
-          }
-        ],
-        missing: [OTHER_ASSET_HASH]
-      }).success
-    ).toBe(true)
-    expect(GetAssetsResultSchema.safeParse({ assets: [], missing: ['not-a-hash'] }).success).toBe(
-      false
-    )
   })
 })

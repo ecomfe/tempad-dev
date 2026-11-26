@@ -505,26 +505,6 @@ export type DesignSystemFontsResult = z.output<typeof DesignSystemFontsResultSch
 export type DesignSystemPagesResult = z.output<typeof DesignSystemPagesResultSchema>
 export type GetDesignSystemResult = z.output<typeof GetDesignSystemResultSchema>
 
-// get_assets (hub only)
-export const GetAssetsParametersSchema = z.object({
-  taskId: DesignTaskParameterSchema,
-  taskEpoch: DesignTaskEpochSchema,
-  hashes: z
-    .array(z.string().regex(MCP_HASH_PATTERN))
-    .min(1)
-    .describe(
-      'Asset hashes returned from get_code (or other tools) to download/resolve exact bytes for rasterized images or SVGs before routing through your asset pipeline.'
-    )
-})
-
-export const GetAssetsResultSchema = z.object({
-  assets: z.array(AssetDescriptorSchema),
-  missing: z.array(z.string().regex(MCP_HASH_PATTERN))
-})
-
-export type GetAssetsParametersInput = z.input<typeof GetAssetsParametersSchema>
-export type GetAssetsResult = z.infer<typeof GetAssetsResultSchema>
-
 export type AssetDescriptor = z.infer<typeof AssetDescriptorSchema>
 
 // upload_asset (hub only)
@@ -567,7 +547,6 @@ export type ToolResultMap = {
   get_token_defs: GetTokenDefsResult
   get_screenshot: GetScreenshotReadResult
   get_structure: GetStructureResult
-  get_assets: GetAssetsResult
   upload_asset: UploadAssetResult
 }
 

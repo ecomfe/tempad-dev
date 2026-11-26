@@ -1,6 +1,5 @@
 import type {
   ApplyCanvasResult,
-  GetAssetsResult,
   GetCodeReadResult,
   GetDesignSystemResult,
   GetScreenshotResult,
@@ -234,21 +233,6 @@ function buildNodeReadBatchToolResult<T>(
     structuredContent: payload,
     ...(failures && failures === payload.results.length && !remaining ? { isError: true } : {})
   }
-}
-
-export function buildGetAssetsToolResult(payload: GetAssetsResult): ToolResponseLike {
-  const summary: string[] = []
-  summary.push(
-    payload.assets.length
-      ? `Resolved ${formatCount(payload.assets.length, 'asset')}.`
-      : 'No assets were resolved for the requested hashes.'
-  )
-  if (payload.missing.length) {
-    summary.push(`Missing: ${payload.missing.join(', ')}`)
-  }
-  summary.push('Use asset.localPath directly when present; otherwise download asset.url.')
-
-  return buildTextToolResult(summary.join('\n'), payload)
 }
 
 export function buildUploadAssetToolResult(payload: UploadAssetResult): ToolResponseLike {

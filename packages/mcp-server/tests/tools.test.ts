@@ -613,24 +613,24 @@ describe('tools response helpers', () => {
       ).toContain('Check the reported rollback outcome')
     }
 
-    const unknownError = createToolErrorResponse('get_assets', 42)
+    const unknownError = createToolErrorResponse('upload_asset', 42)
     expect(unknownError.isError).toBe(true)
     expect(textContent(unknownError.content[0])).toBe(
-      'Tool "get_assets" failed: Unknown error occurred.'
+      'Tool "upload_asset" failed: Unknown error occurred.'
     )
 
-    const missingCode = createToolErrorResponse('get_assets', { cause: { code: 123 } })
+    const missingCode = createToolErrorResponse('upload_asset', { cause: { code: 123 } })
     expect(textContent(missingCode.content[0])).toBe(
-      'Tool "get_assets" failed: Unknown error occurred.'
+      'Tool "upload_asset" failed: Unknown error occurred.'
     )
 
-    const unknownCode = createToolErrorResponse('get_assets', {
+    const unknownCode = createToolErrorResponse('upload_asset', {
       code: 'NOT_A_TEMPAD_ERROR',
       message: 'failed'
     })
-    expect(textContent(unknownCode.content[0])).toBe('Tool "get_assets" failed: failed')
+    expect(textContent(unknownCode.content[0])).toBe('Tool "upload_asset" failed: failed')
 
-    const nonObjectCause = createToolErrorResponse('get_assets', {
+    const nonObjectCause = createToolErrorResponse('upload_asset', {
       cause: 'timeout',
       message: 'websocket connection failed'
     })
@@ -644,12 +644,15 @@ describe('tools response helpers', () => {
     expect(textContent(stableKeyError.content[0])).toContain('Canvas key "websocket"')
     expect(textContent(stableKeyError.content[0])).not.toContain('Troubleshooting:')
 
-    const emptyErrorMessage = createToolErrorResponse('get_assets', new Error(''))
+    const emptyErrorMessage = createToolErrorResponse('upload_asset', new Error(''))
     expect(textContent(emptyErrorMessage.content[0])).toBe(
-      'Tool "get_assets" failed: Unknown error occurred.'
+      'Tool "upload_asset" failed: Unknown error occurred.'
     )
 
-    const stringError = createToolErrorResponse('get_assets', 'asset server url is not configured')
+    const stringError = createToolErrorResponse(
+      'upload_asset',
+      'asset server url is not configured'
+    )
     expect(textContent(stringError.content[0])).toContain('asset server url is not configured')
     expect(textContent(stringError.content[0])).toContain('Troubleshooting:')
   })
