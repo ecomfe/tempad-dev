@@ -477,7 +477,7 @@ export function createInlineBudgetExceededToolResponse(
 }
 
 /** OpenCode's model adapter reads content. Since 1.17.12 an empty list selects its JSON fallback. */
-export function presentClientReadResult(
+export function presentClientToolResult(
   name: ToolName,
   client: { name: string; version: string } | undefined,
   result: CallToolResult,
@@ -485,27 +485,41 @@ export function presentClientReadResult(
 ): CallToolResult {
   if (
     client?.name !== 'opencode' ||
-    !['get_code', 'get_structure', 'get_design_system'].includes(name) ||
+    !['get_code', 'get_structure', 'get_design_system', 'apply_canvas'].includes(name) ||
     result.isError ||
     !result.structuredContent ||
     result.content.some((item) => item.type !== 'text')
   )
     return result
 
-  const version = VersionSchema.safeParse(client.version)
-  if (
-    !preserveNotices &&
-    version.success &&
-    version.data.startsWith('1.') &&
-    compareVersions(version.data, '1.17.12') >= 0
-  )
-    return { ...result, content: [] }
+  let payload = result.structuredContent
+  if (name === 'apply_canvas') {
+    const { rootNodeId, rootRemoved, nodeIdsByKey } = payload
+    if (!rootNodeId || rootRemoved || !isRecord(nodeIdsByKey) || !Object.keys(nodeIdsByKey).length)
+      return result
+    // Always preserve the write summary, warnings and any outstanding readback fence.
+    payload = { nodeIdsByKey }
+  } else if (!preserveNotices) {
+    const version = VersionSchema.safeParse(client.version)
+    if (
+      version.success &&
+      version.data.startsWith('1.') &&
+      compareVersions(version.data, '1.17.12') >= 0
+    )
+      return { ...result, content: [] }
+  }
 
   // Keep separate compatibility/readback notices and the payload consumed by host plugins.
-  const text = { type: 'text' as const, text: JSON.stringify(result.structuredContent) }
+  const text = { type: 'text' as const, text: JSON.stringify(payload) }
   const mirrored = { ...result, content: [...result.content, text] }
   if (measureCallToolResultBytes(mirrored) <= MCP_TOOL_INLINE_BUDGET_BYTES) return mirrored
-  const guidance = { type: 'text' as const, text: getBudgetRetryGuidance(name) }
+  const guidance = {
+    type: 'text' as const,
+    text:
+      name === 'apply_canvas'
+        ? 'Read the reported root with get_structure for node IDs before continuing. Do not replay this write.'
+        : getBudgetRetryGuidance(name)
+  }
   const retry = { ...result, content: [...result.content, guidance] }
   return measureCallToolResultBytes(retry) <= MCP_TOOL_INLINE_BUDGET_BYTES ? retry : result
 }

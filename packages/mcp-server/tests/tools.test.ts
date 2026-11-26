@@ -15,7 +15,7 @@ import {
   createStructureToolResponse,
   createToolErrorResponse,
   createUploadAssetToolResponse,
-  presentClientReadResult
+  presentClientToolResult
 } from '../src/tools'
 
 const codePayload: ToolResultMap['get_code'] = {
@@ -43,13 +43,13 @@ describe('tools response helpers', () => {
     const modern = { name: 'opencode', version: '1.19.6' }
     const older = { name: 'opencode', version: '1.1.51' }
     const result = createCodeToolResponse(codePayload)
-    const current = presentClientReadResult('get_code', modern, result)
+    const current = presentClientToolResult('get_code', modern, result)
     expect(current.content).toEqual([])
     expect(current.structuredContent).toEqual(codePayload)
-    const legacy = presentClientReadResult('get_code', older, result)
+    const legacy = presentClientToolResult('get_code', older, result)
     expect(JSON.parse(textContent(legacy.content.at(-1)))).toEqual(codePayload)
     expect(legacy.structuredContent).toEqual(codePayload)
-    expect(presentClientReadResult('get_code', { ...modern, name: 'other' }, result)).toBe(result)
+    expect(presentClientToolResult('get_code', { ...modern, name: 'other' }, result)).toBe(result)
   })
 
   it('preserves readback notices, resources, errors and the final UTF-8 budget', () => {
@@ -57,23 +57,69 @@ describe('tools response helpers', () => {
     const result = createCodeToolResponse(codePayload)
     const notice = { type: 'text' as const, text: 'Read the original target before writing.' }
     const provisional = { ...result, content: [notice, ...result.content] }
-    expect(presentClientReadResult('get_code', client, provisional, true).content[0]).toEqual(
+    expect(presentClientToolResult('get_code', client, provisional, true).content[0]).toEqual(
       notice
     )
     const large = createCodeToolResponse({ ...codePayload, code: '设'.repeat(16_000) })
     for (const version of ['dev', '2.0.0']) {
-      const limited = presentClientReadResult('get_code', { ...client, version }, large)
+      const limited = presentClientToolResult('get_code', { ...client, version }, large)
       expect(limited.structuredContent).toEqual(large.structuredContent)
       expect(textContent(limited.content.at(-1))).toContain('smaller nodeId')
     }
-    expect(presentClientReadResult('get_code', client, large).structuredContent).toEqual(
+    expect(presentClientToolResult('get_code', client, large).structuredContent).toEqual(
       large.structuredContent
     )
     for (const name of ['get_screenshot', 'apply_canvas'] as const) {
-      expect(presentClientReadResult(name, client, result)).toBe(result)
+      expect(presentClientToolResult(name, client, result)).toBe(result)
     }
     const failed = { ...result, isError: true }
-    expect(presentClientReadResult('get_structure', client, failed)).toBe(failed)
+    expect(presentClientToolResult('get_structure', client, failed)).toBe(failed)
+  })
+
+  it('shows committed canvas identities in OpenCode text without hiding warnings or replaying writes', () => {
+    const base: ToolResultMap['apply_canvas'] = {
+      rootNodeId: '2:1',
+      nodeIdsByKey: { root: '2:1', caption: '2:2' },
+      createdNodeIds: ['2:2'],
+      updatedNodeIds: [],
+      removedNodeIds: [],
+      mutationCount: 1,
+      verification: {
+        status: 'warning',
+        nodesChecked: 2,
+        referencesChecked: 0,
+        warnings: [
+          { code: 'layout-affecting-visibility-property', key: 'caption', message: 'Check layout.' }
+        ]
+      }
+    }
+    const result = createApplyCanvasToolResponse(base)
+    const notice = { type: 'text' as const, text: 'Read the original target before writing.' }
+    result.content.unshift(notice)
+    for (const version of ['1.1.51', '1.19.6']) {
+      const presented = presentClientToolResult(
+        'apply_canvas',
+        { name: 'opencode', version },
+        result,
+        true
+      )
+      expect(presented.content.slice(0, -1)).toEqual(result.content)
+      expect(JSON.parse(textContent(presented.content.at(-1)))).toEqual({
+        nodeIdsByKey: base.nodeIdsByKey
+      })
+      expect(presented.structuredContent).toBe(result.structuredContent)
+    }
+    const large = createApplyCanvasToolResponse({
+      ...base,
+      nodeIdsByKey: { ['设'.repeat(14500)]: '2:2' }
+    })
+    const fallback = presentClientToolResult(
+      'apply_canvas',
+      { name: 'opencode', version: '1.19.6' },
+      large
+    )
+    expect(textContent(fallback.content.at(-1))).toContain('Do not replay')
+    expect(fallback.structuredContent).toBe(large.structuredContent)
   })
 
   it('formats independent code results, failures, and exact continuation', () => {

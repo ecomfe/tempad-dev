@@ -117,7 +117,7 @@ import {
   createInlineBudgetExceededToolResponse,
   createToolErrorResponse,
   createUploadAssetToolResponse,
-  presentClientReadResult
+  presentClientToolResult
 } from './tools'
 import { assertVersionedToolSupport, versionedReadNotice } from './versioned-extension'
 import { startExtensionWebSocketServer } from './websocket-server'
@@ -944,7 +944,7 @@ export async function startHub(
     const connectionId = ownerId
     const isCanvasWrite = tool.name === 'apply_canvas'
     const present = (result: CallToolResult, preserveNotices = false) =>
-      presentClientReadResult(tool.name, mcp.server.getClientVersion(), result, preserveNotices)
+      presentClientToolResult(tool.name, mcp.server.getClientVersion(), result, preserveNotices)
     const handler = async (args: unknown, extra: { _meta?: unknown; signal: AbortSignal }) => {
       const activity = Symbol()
       let requestId: string | undefined
