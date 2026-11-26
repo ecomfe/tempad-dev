@@ -1,4 +1,4 @@
-import { useColorMode, useStorage } from '@vueuse/core'
+import { useColorMode, useMounted, useStorage } from '@vueuse/core'
 import { computed, type ComputedRef } from 'vue'
 
 export type SiteColorMode = 'auto' | 'light' | 'dark'
@@ -22,12 +22,13 @@ export function useSiteColorMode(): UseSiteColorModeResult {
   const colorMode = useColorMode<SiteColorMode>({
     storageRef: store
   })
+  const mounted = useMounted()
 
   // VueUse attaches the persisted preference ref to the color mode ref.
   // eslint-disable-next-line vue/no-ref-as-operand
-  const selectedColorMode = computed(() => colorMode.store.value)
+  const selectedColorMode = computed(() => (mounted.value ? colorMode.store.value : 'auto'))
   const resolvedColorMode = computed<SiteResolvedColorMode>(() =>
-    colorMode.value === 'dark' ? 'dark' : 'light'
+    mounted.value && colorMode.value === 'dark' ? 'dark' : 'light'
   )
 
   return {

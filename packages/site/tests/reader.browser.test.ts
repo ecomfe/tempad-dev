@@ -38,7 +38,7 @@ it.each([1280, 768, 390])(
     app = createApp(App)
     app.mount(host)
 
-    await expect.poll(() => OverlayScrollbars.valid(OverlayScrollbars(document.body))).toBe(true)
+    expect(OverlayScrollbars(document.body)).toBeUndefined()
     window.scrollTo({ top: 500, behavior: 'instant' })
     await expect.poll(() => window.scrollY).toBe(500)
     await page
@@ -46,7 +46,7 @@ it.each([1280, 768, 390])(
       .first()
       .click()
     await expect.poll(() => element<HTMLDialogElement>('.site-skill-dialog').open).toBe(true)
-    expect(OverlayScrollbars(document.body)?.options().overflow.y).toBe('hidden')
+    expect(getComputedStyle(document.documentElement).overflowY).toBe('hidden')
 
     const article = element('.site-skill-prose')
     const sidebar = element('.site-skill-dialog-sidebar')
@@ -168,7 +168,7 @@ it.each([1280, 768, 390])(
     ).toBe('false')
     await userEvent.keyboard('{Escape}')
     await expect.poll(() => element<HTMLDialogElement>('.site-skill-dialog').open).toBe(false)
-    expect(OverlayScrollbars(document.body)?.options().overflow.y).toBe('scroll')
+    expect(getComputedStyle(document.documentElement).overflowY).not.toBe('hidden')
 
     for (const withFileOptions of [false, true]) {
       await page
@@ -185,7 +185,7 @@ it.each([1280, 768, 390])(
       ).toBe(closeButton)
       await page.getByRole('button', { name: 'Close skill preview', exact: true }).click()
       await expect.poll(() => element<HTMLDialogElement>('.site-skill-dialog').open).toBe(false)
-      expect(OverlayScrollbars(document.body)?.options().overflow.y).toBe('scroll')
+      expect(getComputedStyle(document.documentElement).overflowY).not.toBe('hidden')
     }
   },
   30_000

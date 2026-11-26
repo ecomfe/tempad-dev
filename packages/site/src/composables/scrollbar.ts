@@ -1,6 +1,7 @@
 import type { ObjectDirective } from 'vue'
 
 import { ClickScrollPlugin, OverlayScrollbars, ScrollbarsHidingPlugin } from 'overlayscrollbars'
+import 'overlayscrollbars/styles/overlayscrollbars.css'
 
 OverlayScrollbars.plugin([ScrollbarsHidingPlugin, ClickScrollPlugin])
 
@@ -11,7 +12,7 @@ export function createSiteScrollbar(
   axis: ScrollAxis = 'y'
 ): OverlayScrollbars {
   return OverlayScrollbars(
-    { target, elements: { viewport: target }, cancel: { body: null } },
+    { target, elements: { viewport: target } },
     {
       overflow: { x: axis === 'y' ? 'hidden' : 'scroll', y: axis === 'x' ? 'hidden' : 'scroll' },
       scrollbars: {
@@ -31,8 +32,4 @@ export const vScrollbar: ObjectDirective<HTMLElement, ScrollAxis | undefined> = 
   beforeUnmount(element) {
     OverlayScrollbars(element)?.destroy()
   }
-}
-
-export function setPageScrollLocked(locked: boolean): void {
-  OverlayScrollbars(document.body)?.options({ overflow: { y: locked ? 'hidden' : 'scroll' } })
 }

@@ -2,6 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      let mode
+      try {
+        mode = localStorage.getItem('tempad-dev-site-color-mode')
+      } catch {}
+      const dark =
+        mode === 'dark' || (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
+      document.documentElement.classList.toggle('dark', dark)
+    </script>
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="apple-touch-icon" href="/icon-128.png" />
     <link rel="canonical" href="https://tempad.dev/" />

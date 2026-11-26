@@ -1,12 +1,13 @@
 <script setup lang="ts">
+import { useMounted } from '@vueuse/core'
 import { ArrowLeft, ArrowRight, Maximize2, X, ZoomIn, ZoomOut } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
-import { setPageScrollLocked } from '@/composables/scrollbar'
 import { useSiteColorMode } from '@/composables/useSiteColorMode'
 import { INSPECTION_SLIDES } from '@/content/landing'
 
 const activeIndex = ref(0)
+const mounted = useMounted()
 const viewer = ref<HTMLDialogElement>()
 const imageTrigger = ref<HTMLButtonElement>()
 const viewerMedia = ref<HTMLDivElement>()
@@ -58,7 +59,6 @@ function openViewer(): void {
   zoomed.value = false
   savedOverflow = document.body.style.overflow
   document.body.style.overflow = 'hidden'
-  setPageScrollLocked(true)
   viewer.value?.showModal()
 }
 
@@ -78,30 +78,22 @@ async function toggleZoom(): Promise<void> {
 
 function restoreViewer(): void {
   document.body.style.overflow = savedOverflow
-  setPageScrollLocked(false)
   imageTrigger.value?.focus({ preventScroll: true })
 }
 
-watch(
-  [activeIndex, resolvedColorMode],
-  () => {
-    for (const offset of [-1, 1]) {
-      const slide =
-        INSPECTION_SLIDES[
-          (activeIndex.value + offset + INSPECTION_SLIDES.length) % INSPECTION_SLIDES.length
-        ]!
-      const image = new Image()
-      image.src = slide.image[resolvedColorMode.value]
-    }
-  },
-  { immediate: true }
-)
+watch([activeIndex, resolvedColorMode, mounted], () => {
+  for (const offset of [-1, 1]) {
+    const slide =
+      INSPECTION_SLIDES[
+        (activeIndex.value + offset + INSPECTION_SLIDES.length) % INSPECTION_SLIDES.length
+      ]!
+    const image = new Image()
+    image.src = slide.image[resolvedColorMode.value]
+  }
+})
 
 onBeforeUnmount(() => {
-  if (viewer.value?.open) {
-    document.body.style.overflow = savedOverflow
-    setPageScrollLocked(false)
-  }
+  if (viewer.value?.open) document.body.style.overflow = savedOverflow
 })
 </script>
 
@@ -161,7 +153,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </figcaption>
-    <Teleport to="body">
+    <Teleport v-if="mounted" to="body">
       <dialog
         ref="viewer"
         class="site-image-viewer"

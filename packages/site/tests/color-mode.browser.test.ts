@@ -4,6 +4,8 @@ import { createApp, nextTick } from 'vue'
 import App from '@/App.vue'
 import '@/styles.css'
 
+import pageTemplate from '../index.html?raw'
+
 const key = 'tempad-dev-site-color-mode'
 let app: ReturnType<typeof createApp> | undefined
 let host: HTMLElement | undefined
@@ -39,6 +41,30 @@ function expectAutoMode() {
   const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
   expect(document.documentElement.classList.contains(dark ? 'dark' : 'light')).toBe(true)
 }
+
+it.each(['dark', 'light', 'auto', 'obsolete-mode'])(
+  'applies the stored %s appearance before the application bundle runs',
+  async (mode) => {
+    localStorage.setItem(key, mode)
+    const frame = document.createElement('iframe')
+    const head = new DOMParser().parseFromString(pageTemplate, 'text/html').head
+    const script = head.querySelector('script:not([src])')!
+    frame.srcdoc = `<!doctype html><head>${script.outerHTML}</head><body></body>`
+    const loaded = new Promise<void>((resolve) =>
+      frame.addEventListener('load', () => resolve(), { once: true })
+    )
+    document.body.append(frame)
+    try {
+      await loaded
+      const systemDark = matchMedia('(prefers-color-scheme: dark)').matches
+      expect(frame.contentDocument!.documentElement.classList.contains('dark')).toBe(
+        mode === 'dark' || (mode !== 'light' && systemDark)
+      )
+    } finally {
+      frame.remove()
+    }
+  }
+)
 
 it.each(['obsolete-mode', 'constructor'])(
   'renders the site using system appearance with stored value %j',

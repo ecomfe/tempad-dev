@@ -160,8 +160,8 @@ it.each([1280, 390])('offers the extension setup paths at %ipx', async (width) =
     await expect.poll(() => panel.getAttribute('aria-labelledby')).toBe(tab.id)
     expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth)
     expect(host.scrollWidth).toBeLessThanOrEqual(window.innerWidth)
-    expect(tab.querySelector('svg')).not.toBeNull()
-    expect(tab.querySelector('svg path, svg circle')).not.toBeNull()
+    const icon = tab.querySelector('svg')!
+    await expect.poll(() => icon.getBBox().width).toBeGreaterThan(0)
     expect(tab.innerText.trim()).toBe('')
     expect(tab.getAttribute('data-tooltip')).toBe(tab.getAttribute('aria-label'))
     const agent = AGENT_INTEGRATIONS.find(({ id }) => tab.id === `site-agent-${id}`)

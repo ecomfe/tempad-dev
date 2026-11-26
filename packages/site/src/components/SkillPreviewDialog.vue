@@ -4,7 +4,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 import SkillMetadata from '@/components/SkillMetadata.vue'
 import SkillSelect from '@/components/SkillSelect.vue'
-import { createSiteScrollbar, setPageScrollLocked, vScrollbar } from '@/composables/scrollbar'
+import { createSiteScrollbar, vScrollbar } from '@/composables/scrollbar'
 
 import canvasSkillPreview from '../../../../agent-plugin/src/skills/design-in-figma/SKILL.md?skill-preview'
 import codeSkillPreview from '../../../../agent-plugin/src/skills/figma-design-to-code/SKILL.md?skill-preview'
@@ -136,12 +136,10 @@ function lockRootScroll(): void {
 
   previousRootOverflow = root.style.overflow
   root.style.overflow = 'hidden'
-  setPageScrollLocked(true)
 }
 
 function unlockRootScroll(): void {
   document.documentElement.style.overflow = previousRootOverflow
-  setPageScrollLocked(false)
 }
 
 function restorePreviousFocus(): void {
@@ -564,6 +562,19 @@ html.dark .site-skill-dialog-sidebar {
 .site-skill-prose :deep(blockquote),
 .site-skill-prose :deep(hr) {
   margin: 1rem 0 0;
+}
+
+.site-skill-prose :deep(table) {
+  margin-top: 1rem;
+  border-collapse: collapse;
+  text-align: start;
+}
+
+.site-skill-prose :deep(th),
+.site-skill-prose :deep(td) {
+  padding: 0.4em 0.65em;
+  border: 1px solid var(--site-line);
+  vertical-align: top;
 }
 
 .site-skill-prose :deep(ul),

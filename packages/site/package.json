@@ -7,14 +7,14 @@
     "dev": "vite",
     "build": "pnpm typecheck && pnpm build-only",
     "preview": "vite preview",
-    "build-only": "vite build",
+    "build-only": "vite build && vite build --ssr scripts/prerender.mjs --outDir node_modules/.tmp/prerender && node node_modules/.tmp/prerender/prerender.js",
     "typecheck": "vue-tsc --build",
     "lint": "eslint . --cache",
     "lint:fix": "eslint . --fix --cache",
     "format": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore",
     "format:check": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore --check",
     "test:run": "vitest run && pnpm test:browser",
-    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:browser": "vitest run --config vitest.browser.config.ts && pnpm build-only && node scripts/check-prerender.mjs",
     "test:setup": "pnpm exec playwright install chromium"
   },
   "dependencies": {

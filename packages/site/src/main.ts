@@ -1,11 +1,11 @@
 import { inject } from '@vercel/analytics'
-import { createApp } from 'vue'
+import { createApp, createSSRApp } from 'vue'
 
 import App from './App.vue'
-import 'overlayscrollbars/styles/overlayscrollbars.css'
-
 import './styles.css'
 
 inject()
 
-createApp(App).mount('#app')
+const root = document.querySelector<HTMLElement>('#app')!
+const app = root.hasChildNodes() ? createSSRApp(App) : createApp(App)
+app.mount(root)

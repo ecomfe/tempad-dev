@@ -7,7 +7,6 @@ import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 
 import BrandMark from '@/components/BrandMark.vue'
 import DiscordIcon from '@/components/icons/DiscordIcon.vue'
 import GitHubIcon from '@/components/icons/GitHubIcon.vue'
-import { createSiteScrollbar } from '@/composables/scrollbar'
 import { useSiteColorMode, type SiteColorMode } from '@/composables/useSiteColorMode'
 import { SITE_LINKS, type SiteSkill } from '@/content/landing'
 import AgentSection from '@/sections/AgentSection.vue'
@@ -83,17 +82,12 @@ function cycleColorMode(): void {
   }
 }
 
-let destroyPageScrollbar: (() => void) | undefined
-
 onMounted(() => {
-  const scrollbar = createSiteScrollbar(document.body)
-  destroyPageScrollbar = () => scrollbar.destroy()
   syncHeaderState()
   window.addEventListener('scroll', syncHeaderState, { passive: true })
 })
 
 onBeforeUnmount(() => {
-  destroyPageScrollbar?.()
   window.removeEventListener('scroll', syncHeaderState)
 })
 </script>
