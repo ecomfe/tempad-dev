@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.4
+
+- Old standalone installs of `figma-canvas-authoring` now direct users to the current
+  `design-in-figma` skill. Its authoring instructions and references ship under the current name.
+
 ## 1.0.3
 
 - Claude lifecycle hooks on Windows verify the connected Hub pipe's owner and access rules

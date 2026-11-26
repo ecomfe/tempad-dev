@@ -55,7 +55,8 @@ Supported hosts receive submitted feedback through native conversation messages.
 set up a helper process or host control endpoint.
 
 Begin without waiting to choose a canvas location. Once an existing design region is
-known, use `set_design_anchor` with its exact Frame node ID and `taskId`. Otherwise
+known, use `set_design_anchor` with its exact node ID and `taskId`. Frames work across versions;
+extension 1.1.1+ also accepts a Section, Component, or ComponentSet. Otherwise
 the first created top-level Frame anchors automatically. The region stays stable
 across reads and writes; call this tool again only to explicitly change design regions.
 

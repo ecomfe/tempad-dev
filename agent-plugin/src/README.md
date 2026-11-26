@@ -75,8 +75,8 @@ Design file is editable.
 The authoring skill is now named `design-in-figma`, matching its **Design in Figma**
 display name. Update saved invocations from `figma-canvas-authoring`; standalone
 skill installations should also remove the old skill after installing the new one.
-The standalone package retains the former name as a generated alias for one extension store
-release cycle so setup commands in older installed extensions continue to work.
+Older extension setup commands still install a short migration notice under the former name.
+It includes the command to install the current authoring skill.
 
 For the complete 1.0 release, update the TemPad Dev extension, MCP server, and
 Agent Plugin (or its standalone skills) to **1.0.0 or later**.

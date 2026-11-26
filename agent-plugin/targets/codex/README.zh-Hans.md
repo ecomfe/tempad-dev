@@ -112,7 +112,7 @@ Agent 会在对话中报告结果并附上 Figma 链接，用户可以继续提�
 设计 skill 已更名为 `design-in-figma`，与展示名 **Design in Figma** 一致。
 请将已保存的 `figma-canvas-authoring` 调用更新为新名称；单独安装 skill 的用户，
 安装新版后还应移除旧名称的 skill。
-独立 skill 包会保留旧名称的生成兼容入口一个扩展商店发布周期，让已安装旧扩展中的配置命令继续有效。
+旧版扩展中的安装命令仍会在旧名称下安装迁移说明，其中包含新版设计 skill 的安装命令。
 
 如需使用完整的 1.0 发布，请将 TemPad Dev 扩展、MCP server、Agent Plugin（或其独立 skill）
 均更新到 **1.0.0 或更高版本**。

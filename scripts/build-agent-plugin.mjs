@@ -75,20 +75,8 @@ console.log(
 function buildStandard() {
   const target = join(targetRoot, 'standard')
   stageSharedContent(target)
-  // Old store extensions install this exact standalone skill name from main.
-  // Retain the alias for one store release cycle; native host packages use only current names.
-  const alias = join(target, 'skills/figma-canvas-authoring')
-  cpSync(join(target, 'skills/design-in-figma'), alias, { recursive: true })
-  const skillPath = join(alias, 'SKILL.md')
-  writeFileSync(
-    skillPath,
-    readFileSync(skillPath, 'utf8')
-      .replace(/^name: design-in-figma$/m, 'name: figma-canvas-authoring')
-      .replace(
-        /^description: >-\n/m,
-        'description: >-\n  Legacy compatibility entry. Use only when design-in-figma is not installed; otherwise use design-in-figma.\n'
-      )
-  )
+  // Old setup commands select both standalone names; a partial match silently skips the other.
+  cpSync(join(srcRoot, 'standalone'), join(target, 'skills'), { recursive: true })
   writeJson(join(target, 'plugin.json'), manifest)
   writeJson(join(target, 'mcp.json'), portableMcp)
 }
