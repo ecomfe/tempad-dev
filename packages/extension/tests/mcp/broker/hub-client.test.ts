@@ -473,10 +473,11 @@ describe('mcp/broker/hub-client', () => {
     expect(client.getSnapshot().status).toBe('connected')
   })
 
-  it('retries after every candidate is unreachable', async () => {
+  it('backs off failed discovery and automatically connects when a Hub starts later', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('WebSocket', { OPEN: 1 })
-    installHubProbe(() => false)
+    let reachable = false
+    installHubProbe(() => reachable)
     const sockets: FakeWebSocket[] = []
     const client = createClient(sockets)
 
@@ -492,6 +493,18 @@ describe('mcp/broker/hub-client', () => {
     await vi.advanceTimersByTimeAsync(3000)
     await flushMicrotasks()
     expect(fetch).toHaveBeenCalledTimes(6)
+    await vi.advanceTimersByTimeAsync(6000 + 12000 + 15000)
+    expect(fetch).toHaveBeenCalledTimes(15)
+    reachable = true
+    await vi.advanceTimersByTimeAsync(14999)
+    expect(sockets).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(1)
+    completeHandshake(sockets[0]!)
+    await flushMicrotasks()
+    expect(client.getSnapshot().status).toBe('connected')
+    sockets[0]!.close()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(sockets).toHaveLength(2)
     client.stop()
   })
 

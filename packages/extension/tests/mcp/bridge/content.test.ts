@@ -309,6 +309,15 @@ describe('mcp/bridge/content', () => {
 
     expect(ports).toHaveLength(2)
     expect(ports[1]?.postMessage).toHaveBeenCalledWith(enable)
+    ports[1]!.disconnect()
+    vi.advanceTimersByTime(1999)
+    expect(ports).toHaveLength(2)
+    vi.advanceTimersByTime(1)
+    expect(ports[2]?.postMessage).toHaveBeenCalledWith(enable)
+    ports[2]!.receive(stateMessage())
+    ports[2]!.disconnect()
+    vi.advanceTimersByTime(1000)
+    expect(ports[3]?.postMessage).toHaveBeenCalledWith(enable)
   })
 
   it.each(['owner', 'other-tab'])(
@@ -376,7 +385,7 @@ describe('mcp/bridge/content', () => {
     // A replaced runtime port cannot overwrite the current task snapshot.
     ports[0]!.receive(taskState({ ...task, status: 'cancelled', revision: 4 }))
     ports[1]!.disconnect()
-    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(2000)
     expect(ports[2]!.postMessage).toHaveBeenCalledWith({ ...enableReview(), reviewTask: next })
   })
 

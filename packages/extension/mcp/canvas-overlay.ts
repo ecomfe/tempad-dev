@@ -29,8 +29,13 @@ const ACTIVITY_EVENTS = [
   'keydown',
   'resize'
 ] as const
-function markActivity() {
-  if (document.hidden) return
+function markActivity(event: Event) {
+  // Hover-only changes are covered by the idle sample. Drag, pan and zoom track every frame.
+  if (
+    document.hidden ||
+    (event.type === 'pointermove' && 'buttons' in event && event.buttons === 0)
+  )
+    return
   activeUntil = performance.now() + 500
   if (observers.size && frameId === undefined) {
     clearTimeout(idleTimer)
@@ -58,15 +63,17 @@ function readFrame(): CanvasOverlayFrame | null {
   try {
     const canvas = getCanvas()
     const api = window.figma
-    if (!canvas || !api?.currentPage) return null
+    const page = api?.currentPage
+    if (!canvas || !api || !page) return null
     const rect = canvas.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) return null
-    const selection = api.currentPage.selection ?? []
+    const selection = page.selection ?? []
+    const viewport = api.viewport
     return {
       canvas: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-      bounds: api.viewport.bounds,
-      zoom: api.viewport.zoom,
-      pageId: api.currentPage.id,
+      bounds: viewport.bounds,
+      zoom: viewport.zoom,
+      pageId: page.id,
       fileKey: readFigmaFileKey(api),
       selectedNode: selection.length === 1 ? selection[0]! : null,
       tooltips: (tooltipElements ??= [

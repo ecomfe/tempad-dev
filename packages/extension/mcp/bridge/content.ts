@@ -31,6 +31,7 @@ export function startMcpContentBridge(): () => void {
   let permissionGranted = false
   let permissionRequest: Promise<boolean> | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let reconnectDelay = RECONNECT_DELAY_MS
 
   function clearReconnectTimer(): void {
     if (!reconnectTimer) return
@@ -63,7 +64,8 @@ export function startMcpContentBridge(): () => void {
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       if (enableMessage) postToServiceWorker(enableMessage)
-    }, RECONNECT_DELAY_MS)
+    }, reconnectDelay)
+    reconnectDelay = Math.min(reconnectDelay * 2, 15_000)
   }
 
   function connect(): boolean {
@@ -83,6 +85,8 @@ export function startMcpContentBridge(): () => void {
       if (invalidated || port !== nextPort) return
       const message = parseBridgeToPageMessage(raw)
       if (!message) return
+      if (message.type === 'mcp.state' && message.payload.status === 'connected')
+        reconnectDelay = RECONNECT_DELAY_MS
       if (message.type === 'mcp.designTaskState') rememberTask(message.task)
       if (
         message.type === 'mcp.designReviewClosed' &&
@@ -189,6 +193,7 @@ export function startMcpContentBridge(): () => void {
         rememberTask({ ...latestTask, status: 'cancelled', operation: null })
       if (message.type === 'mcp.disable') {
         enableMessage = null
+        reconnectDelay = RECONNECT_DELAY_MS
         latestTask = undefined
         permissionGranted = false
         clearReconnectTimer()

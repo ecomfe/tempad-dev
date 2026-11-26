@@ -22,6 +22,7 @@ import {
 } from '@tempad-dev/shared'
 
 const RECONNECT_DELAY_MS = 3000
+const MAX_RECONNECT_DELAY_MS = 15000
 const KEEPALIVE_INTERVAL_MS = 20000
 const PORT_PROBE_TIMEOUT_MS = 500
 const HUB_HANDSHAKE_TIMEOUT_MS = 1000
@@ -71,6 +72,7 @@ export class McpHubClient {
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null
   private lastSuccessfulPort: number | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private reconnectDelay = RECONNECT_DELAY_MS
   private registeredId: string | null = null
   private status: HubConnectionStatus = 'idle'
   private ws: WebSocket | null = null
@@ -108,6 +110,7 @@ export class McpHubClient {
 
   stop(): void {
     this.enabled = false
+    this.reconnectDelay = RECONNECT_DELAY_MS
     this.connectionEpoch++
     this.connectPromise = null
     this.clearReconnectTimer()
@@ -199,6 +202,7 @@ export class McpHubClient {
         this.handleHubMessage(connection.state)
         if (!this.isCurrentConnection(epoch) || this.ws !== connection.ws) return
         this.lastSuccessfulPort = candidatePort
+        this.reconnectDelay = RECONNECT_DELAY_MS
         this.startKeepalive()
         return
       } catch (error) {
@@ -442,7 +446,8 @@ export class McpHubClient {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       this.ensureConnected()
-    }, RECONNECT_DELAY_MS)
+    }, this.reconnectDelay)
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, MAX_RECONNECT_DELAY_MS)
   }
 
   private clearReconnectTimer(): void {
