@@ -128,16 +128,11 @@ function getChildren(node: SceneNode): DesignNode[] | null {
         break
       }
       case 'VECTOR': {
-        type FillArray = Exclude<typeof child.fills, symbol>
-        if (!Array.isArray(child.fills)) {
-          break
-        }
+        const source = child.fills
+        const paints: readonly Paint[] = Array.isArray(source) ? source : []
         const fills: Fill[] = []
-        ;(child.fills as FillArray).forEach((fill) => {
-          if (fill.type !== 'SOLID') {
-            return
-          }
-
+        for (const fill of paints) {
+          if (fill.type !== 'SOLID') continue
           const { color: rgb, boundVariables } = fill
           const hex = rgbToHex(rgb)
           let color: string | Variable
@@ -150,7 +145,7 @@ function getChildren(node: SceneNode): DesignNode[] | null {
           }
 
           fills.push({ color })
-        })
+        }
 
         result.push({
           name: child.name,

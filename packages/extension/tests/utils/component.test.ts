@@ -312,6 +312,15 @@ describe('utils/component', () => {
     })
   })
 
+  it('keeps vector children when Figma reports mixed fills', () => {
+    const vector = createNode('VECTOR', 'Icon shape', { fills: Symbol('mixed') })
+    const instance = createNode('INSTANCE', 'icon', { componentProperties: {} }, [vector])
+
+    expect(getDesignComponent(instance)?.children).toEqual([
+      { type: 'VECTOR', name: 'Icon shape', visible: true, fills: [] }
+    ])
+  })
+
   it('stringifies component trees for vue/jsx and supports compact raw tags', () => {
     const vue = stringifyComponent(
       {
