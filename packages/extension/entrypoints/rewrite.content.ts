@@ -1,6 +1,5 @@
-import { GROUPS } from '@/rewrite/config'
 import { REWRITE_TARGET_REGEX } from '@/rewrite/rules'
-import { applyGroups } from '@/rewrite/shared'
+import { fetchRewrittenScript, scriptFallbackUrl } from '@/rewrite/runtime'
 import { logger } from '@/utils/log'
 
 import type { BlobHandle, CacheEntry } from '../types/rewrite'
@@ -21,35 +20,27 @@ function preserveWindowFigma(): void {
   })
 }
 
-function createBlobCache(): (src: string) => Promise<BlobHandle> {
-  const cache = new Map<string, Promise<CacheEntry>>()
+function createBlobCache(): (src: string) => Promise<BlobHandle | null> {
+  const cache = new Map<string, Promise<CacheEntry | null>>()
 
-  async function createEntry(src: string): Promise<CacheEntry> {
-    const response = await fetch(src, { credentials: 'include', cache: 'force-cache' })
-    if (!response.ok) throw new Error(`Script request failed with HTTP ${response.status}: ${src}`)
-    const originalText = await response.text()
-    const { content, changed } = applyGroups(originalText, GROUPS)
-
-    if (changed) {
-      logger.log(`Rewrote async script: ${src}`)
-    }
-
+  async function createEntry(src: string): Promise<CacheEntry | null> {
+    const content = await fetchRewrittenScript(src)
+    if (content === null) return null
     const blob = new Blob([content], { type: 'application/javascript; charset=utf-8' })
     return { url: URL.createObjectURL(blob), ref: 0 }
   }
 
-  async function acquireBlobUrl(src: string): Promise<BlobHandle> {
+  async function acquireBlobUrl(src: string): Promise<BlobHandle | null> {
     let pending = cache.get(src)
     if (!pending) {
       pending = createEntry(src)
       cache.set(src, pending)
     }
-    let entry: CacheEntry
-    try {
-      entry = await pending
-    } catch (error) {
+    // A failed fetch or unchanged source uses the original classic-script loader.
+    const entry = await pending.catch(() => null)
+    if (!entry) {
       if (cache.get(src) === pending) cache.delete(src)
-      throw error
+      return null
     }
     entry.ref += 1
     let released = false
@@ -73,63 +64,60 @@ function createBlobCache(): (src: string) => Promise<BlobHandle> {
   return acquireBlobUrl
 }
 
-function isRewritableScript(node: Node): node is HTMLScriptElement {
-  return node instanceof HTMLScriptElement && node.src.length > 0
-}
-
 function installScriptRewriteInterceptor(): void {
   const acquireBlobUrl = createBlobCache()
   const { appendChild, insertBefore } = Element.prototype
-  const processedScripts = new WeakSet<HTMLScriptElement>()
+  const pendingScripts = new WeakSet<HTMLScriptElement>()
+  let orderedInsertion: Promise<void> | undefined
 
-  function normalizedInsert(parent: Element, node: Node, before: Node | null): void {
-    if (before) {
-      insertBefore.call(parent, node, before)
-    } else {
-      appendChild.call(parent, node)
-    }
-  }
-
-  async function rewriteAndInsert(
+  function insertScript<T extends Node>(
     parent: Element,
-    script: HTMLScriptElement,
+    node: T,
+    insert: (node: Node, before: Node | null) => Node,
     before: Node | null
-  ): Promise<void> {
-    if (processedScripts.has(script)) {
-      normalizedInsert(parent, script, before)
-      return
+  ): T {
+    if (!(node instanceof HTMLScriptElement) || !node.src) {
+      return insert.call(parent, node, before) as T
     }
-    processedScripts.add(script)
+    if (pendingScripts.has(node)) return node
 
-    if (!REWRITE_TARGET_REGEX.test(script.src)) {
-      normalizedInsert(parent, script, before)
-      return
-    }
+    const src = node.src
+    const rewritable = REWRITE_TARGET_REGEX.test(src)
+    const ordered = !node.async
+    const previous = ordered ? orderedInsertion : undefined
+    if (!rewritable && !previous) return insert.call(parent, node, before) as T
 
-    try {
-      const { url, release } = await acquireBlobUrl(script.src)
-      script.removeAttribute('integrity')
-      script.addEventListener('load', release, { once: true })
-      script.addEventListener('error', release, { once: true })
-      script.src = url
-    } catch {
-      // noop
-    }
-
-    normalizedInsert(parent, script, before)
-  }
-
-  Element.prototype.appendChild = function <T extends Node>(this: Element, node: T): T {
-    if (isRewritableScript(node)) {
-      void rewriteAndInsert(this, node, null).catch((error) => {
+    pendingScripts.add(node)
+    const prepared = rewritable ? acquireBlobUrl(src) : null
+    // Fetch in parallel while preserving insertion order for script.async = false.
+    const pending = Promise.all([prepared, previous])
+      .then(([blob]) => {
+        if (node.src !== src) {
+          blob?.release()
+        } else if (blob) {
+          node.removeAttribute('integrity')
+          node.addEventListener('load', blob.release, { once: true })
+          node.addEventListener('error', blob.release, { once: true })
+          node.src = blob.url
+        } else if (rewritable) {
+          node.src = scriptFallbackUrl(src)
+        }
+        insert.call(parent, node, before)
+      })
+      .catch((error) => {
         logger.error('Failed to insert rewritten script:', error)
         node.dispatchEvent(new Event('error'))
       })
-      return node
-    }
-
-    appendChild.call(this, node)
+      .finally(() => {
+        pendingScripts.delete(node)
+        if (orderedInsertion === pending) orderedInsertion = undefined
+      })
+    if (ordered) orderedInsertion = pending
     return node
+  }
+
+  Element.prototype.appendChild = function <T extends Node>(this: Element, node: T): T {
+    return insertScript(this, node, appendChild, null)
   }
 
   Element.prototype.insertBefore = function <T extends Node>(
@@ -137,16 +125,7 @@ function installScriptRewriteInterceptor(): void {
     node: T,
     before: Node | null
   ): T {
-    if (isRewritableScript(node)) {
-      void rewriteAndInsert(this, node, before).catch((error) => {
-        logger.error('Failed to insert rewritten script:', error)
-        node.dispatchEvent(new Event('error'))
-      })
-      return node
-    }
-
-    insertBefore.call(this, node, before)
-    return node
+    return insertScript(this, node, insertBefore, before)
   }
 }
 

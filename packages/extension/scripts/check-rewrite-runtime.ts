@@ -76,7 +76,8 @@ async function verifyScripts(context: BrowserContext) {
     if (file === 'rewrite-fixture') {
       return await route.fulfill({
         contentType: 'text/html',
-        body: `<!doctype html><script defer src="${base}/entry.min.js"></script>`
+        body: `<!doctype html><script defer src="${base}/entry.min.js"></script>
+          <script defer src="${base}/plain-entry.min.js"></script>`
       })
     }
     counts.set(file, (counts.get(file) ?? 0) + 1)
@@ -92,6 +93,13 @@ async function verifyScripts(context: BrowserContext) {
         body: 'var nativeImageHelper = {src:document.currentScript.src};'
       })
     }
+    if (file === 'plain-entry.min.js' || file === 'plain-chunk.min.js') {
+      const name = file === 'plain-entry.min.js' ? 'plainEntry' : 'plainChunk'
+      return await route.fulfill({
+        contentType: 'application/javascript',
+        body: `var ${name} = document.currentScript.src;`
+      })
+    }
     if (file === 'entry.min.js') {
       if (failEntry && !url.searchParams.has('fallback')) return await route.abort()
       return await route.fulfill({
@@ -103,13 +111,19 @@ async function verifyScripts(context: BrowserContext) {
       })
     }
     const id = file.replace('.min.js', '')
-    if (id === 'network-error') return await route.abort()
+    if (
+      id === 'network-error' ||
+      (id === 'fallback-recovery' && !url.searchParams.has('fallback'))
+    ) {
+      return await route.abort()
+    }
     return await route.fulfill({
       contentType: 'application/javascript',
       body:
         id === 'missing'
           ? 'window.missingChunkExecuted = true;'
-          : `var nativeChunkGlobal = "native";
+          : `${id === 'a' || id === 'b' ? '"use strict"; delete window.figma;' : ''}
+           var nativeChunkGlobal = "native";
            window.webpackChunk_figma_web_bundler.push([[${JSON.stringify(id)}], {
              ${JSON.stringify(id)}: () => testModel.appModel.isReadOnly
            }]);`
@@ -118,11 +132,17 @@ async function verifyScripts(context: BrowserContext) {
   const page = await context.newPage()
   page.setDefaultTimeout(10000)
   await page.goto(fixtureUrl)
-  await page.waitForFunction(() => Reflect.get(window, 'staticRewrite'))
+  await page.waitForFunction(
+    () => Reflect.get(window, 'staticRewrite') && Reflect.get(window, 'plainEntry')
+  )
   assert.deepEqual(await page.evaluate(() => Reflect.get(window, 'staticRewrite')), {
     readOnly: false,
     src: entryUrl
   })
+  assert.equal(
+    await page.evaluate(() => Reflect.get(window, 'plainEntry')),
+    `https://www.figma.com${base}/plain-entry.min.js?fallback`
+  )
   assert.deepEqual(await page.evaluate(() => Reflect.get(window, 'figma')), { fixture: true })
   // Dedicated Worker requests are classified as scripts by Chromium too. They
   // must never be redirected to the extension's document-only rewrite bootstrap.
@@ -146,25 +166,35 @@ async function verifyScripts(context: BrowserContext) {
   // Unmatched resource helpers retain native global declarations and their source
   // URL; replacing even unchanged code with a Blob can break relative asset URLs.
   assert.deepEqual(
-    await page.evaluate(
-      async (src) =>
-        await new Promise((resolve, reject) => {
-          const script = document.createElement('script')
-          const timer = setTimeout(() => reject(new Error('Image helper startup timed out')), 3000)
-          script.onload = () => {
-            clearTimeout(timer)
-            resolve(Reflect.get(window, 'nativeImageHelper'))
-          }
-          script.onerror = () => {
-            clearTimeout(timer)
-            reject(new Error('Image helper startup failed'))
-          }
-          script.src = src
-          document.head.appendChild(script)
-        }),
-      `${base}/image_loader.min.js`
-    ),
-    { src: `https://www.figma.com${base}/image_loader.min.js` }
+    await page.evaluate(async (base) => {
+      await Promise.all(
+        ['image_loader.min.js', 'plain-chunk.min.js'].map(
+          (path) =>
+            new Promise<void>((resolve, reject) => {
+              const script = document.createElement('script')
+              const timer = setTimeout(
+                () => reject(new Error(`Helper startup timed out: ${path}`)),
+                3000
+              )
+              script.onload = () => {
+                clearTimeout(timer)
+                resolve()
+              }
+              script.onerror = () => {
+                clearTimeout(timer)
+                reject(new Error(`Helper startup failed: ${path}`))
+              }
+              script.src = `${base}/${path}`
+              document.head.appendChild(script)
+            })
+        )
+      )
+      return [Reflect.get(window, 'nativeImageHelper').src, Reflect.get(window, 'plainChunk')]
+    }, base),
+    [
+      `https://www.figma.com${base}/image_loader.min.js`,
+      `https://www.figma.com${base}/plain-chunk.min.js?fallback`
+    ]
   )
   assert.deepEqual(
     await page.evaluate(async () => {
@@ -176,6 +206,12 @@ async function verifyScripts(context: BrowserContext) {
   assert.equal(counts.get('a.min.js'), 1)
   assert.equal(counts.get('b.min.js'), 1)
   assert.equal(await page.evaluate(() => Reflect.get(window, 'nativeChunkGlobal')), 'native')
+  assert.deepEqual(await page.evaluate(() => Reflect.get(window, 'figma')), { fixture: true })
+  assert.equal(
+    await page.evaluate(async () => Reflect.get(window, 'loadTestChunk')('fallback-recovery')),
+    true
+  )
+  assert.equal(counts.get('fallback-recovery.min.js'), 2)
   assert.deepEqual(
     await page.evaluate(async () => {
       const load = Reflect.get(window, 'loadTestChunk')

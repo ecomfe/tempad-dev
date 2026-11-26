@@ -21,11 +21,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function createScript(): HTMLScriptElement {
+const base = 'https://www.figma.com/webpack-artifacts/assets/'
+
+function createScript(name = 'shared.min.js'): HTMLScriptElement {
   const script = document.createElement('script')
   // Keep loading under test control while exercising native DOM insertion and Blob URLs.
   script.type = 'application/json'
-  script.src = 'https://www.figma.com/webpack-artifacts/assets/shared.min.js'
+  script.src = base + name
   script.dataset.rewriteTest = ''
   return script
 }
@@ -41,7 +43,7 @@ describe('dynamic script rewriting', () => {
     const second = createScript()
     document.head.appendChild(first)
     document.head.appendChild(second)
-    response.resolve(new Response('/* shared chunk */'))
+    response.resolve(new Response('window.shared = node.appModel.isReadOnly'))
     await vi.waitFor(() => expect(first.isConnected && second.isConnected).toBe(true))
 
     expect(fetch).toHaveBeenCalledOnce()
@@ -57,7 +59,7 @@ describe('dynamic script rewriting', () => {
 
   it('retains the original script on HTTP failure and retries the source on its next insertion', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response('', { status: 503 }))
-    fetch.mockResolvedValueOnce(new Response('/* available now */'))
+    fetch.mockResolvedValueOnce(new Response('window.retry = node.appModel.isReadOnly'))
     vi.stubGlobal('fetch', fetch)
     const create = vi.spyOn(URL, 'createObjectURL')
     const revoke = vi.spyOn(URL, 'revokeObjectURL')
@@ -67,7 +69,7 @@ describe('dynamic script rewriting', () => {
     document.head.appendChild(first)
     await vi.waitFor(() => expect(first.isConnected).toBe(true))
 
-    expect(first.src).toBe(original)
+    expect(first.src).toBe(`${original}?fallback`)
     expect(first.integrity).toBe('sha256-original')
     expect(create).not.toHaveBeenCalled()
     const retry = createScript()
@@ -77,5 +79,50 @@ describe('dynamic script rewriting', () => {
     expect(retry.src).toMatch(/^blob:/)
     retry.dispatchEvent(new Event('load'))
     expect(revoke).toHaveBeenCalledExactlyOnceWith(retry.src)
+  })
+
+  it('leaves unchanged and query-qualified scripts on the native loader', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response('var unchanged = true;'))
+    vi.stubGlobal('fetch', fetch)
+    const create = vi.spyOn(URL, 'createObjectURL')
+    const unchanged = createScript()
+    unchanged.integrity = 'sha256-original'
+    const qualified = createScript('shared.min.js?key=value')
+    document.head.appendChild(unchanged)
+    document.head.appendChild(qualified)
+
+    expect(qualified.isConnected).toBe(true)
+    await vi.waitFor(() => expect(unchanged.isConnected).toBe(true))
+    expect(qualified.src).toBe(`${base}shared.min.js?key=value`)
+    expect(unchanged.src).toBe(`${base}shared.min.js?fallback`)
+    expect(unchanged.integrity).toBe('sha256-original')
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('preserves ordered insertion through rewritten and native scripts', async () => {
+    const firstResponse = Promise.withResolvers<Response>()
+    const secondPrepared = Promise.withResolvers<void>()
+    const fetch = vi.fn().mockReturnValueOnce(firstResponse.promise)
+    fetch.mockResolvedValueOnce(new Response('window.second = node.appModel.isReadOnly'))
+    vi.stubGlobal('fetch', fetch)
+    const create = URL.createObjectURL.bind(URL)
+    vi.spyOn(URL, 'createObjectURL').mockImplementationOnce((blob) => {
+      secondPrepared.resolve()
+      return create(blob)
+    })
+    const scripts = ['first.min.js', 'second.min.js', 'native.min.js?keep'].map(createScript)
+    for (const script of scripts) {
+      script.async = false
+      document.head.appendChild(script)
+    }
+
+    await secondPrepared.promise
+    expect(scripts.map(({ isConnected }) => isConnected)).toEqual([false, false, false])
+    firstResponse.resolve(new Response('window.first = node.appModel.isReadOnly'))
+    await vi.waitFor(() => {
+      expect([...document.querySelectorAll('[data-rewrite-test]')]).toEqual(scripts)
+    })
+    for (const script of scripts) script.dispatchEvent(new Event('load'))
   })
 })

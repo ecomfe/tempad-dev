@@ -1,24 +1,25 @@
-import type { Group } from '@/types/rewrite'
-
 import { logger } from '../utils/log'
+import { GROUPS } from './config'
+import { REWRITE_TARGET_REGEX } from './rules'
 import { applyGroups } from './shared'
 
-const FIGMA_DELETE_PATCH_TARGET = 'delete window.figma'
-const FIGMA_DELETE_PATCH_VALUE = 'window.figma = undefined'
-
-function getCurrentScript(): HTMLScriptElement | null {
-  const current = document.currentScript
-  if (!(current instanceof HTMLScriptElement) || !current.src) {
-    return null
-  }
-  return current
+export async function fetchRewrittenScript(src: string): Promise<string | null> {
+  const response = await fetch(src, { credentials: 'include', cache: 'force-cache' })
+  if (!response.ok) throw new Error(`Script request failed with HTTP ${response.status}: ${src}`)
+  const original = await response.text()
+  const { content } = applyGroups(original, GROUPS)
+  // The main-world content script preserves window.figma through its setter.
+  const rewritten = content.replaceAll('delete window.figma', 'window.figma = undefined')
+  if (rewritten === original) return null
+  logger.log(`Rewrote script: ${src}`)
+  return rewritten
 }
 
-function replaceScript(current: HTMLScriptElement, src: string): void {
-  const script = document.createElement('script')
-  script.src = src
-  script.defer = true
-  current.replaceWith(script)
+export function scriptFallbackUrl(src: string): string {
+  const url = new URL(src)
+  // The packaged DNR redirect only matches URLs without a query.
+  url.search += url.search ? '&fallback' : '?fallback'
+  return url.href
 }
 
 function withCurrentScript(current: HTMLScriptElement, run: () => void): void {
@@ -42,34 +43,31 @@ function withCurrentScript(current: HTMLScriptElement, run: () => void): void {
   }
 }
 
-function patchFigmaDelete(code: string): string {
-  return code.replaceAll(FIGMA_DELETE_PATCH_TARGET, FIGMA_DELETE_PATCH_VALUE)
-}
-
-export async function rewriteCurrentScript(groups: Group[]): Promise<void> {
-  const current = getCurrentScript()
-  if (!current) {
-    return
-  }
-
+export async function rewriteCurrentScript(): Promise<void> {
+  const current = document.currentScript
+  if (!(current instanceof HTMLScriptElement) || !REWRITE_TARGET_REGEX.test(current.src)) return
   const src = current.src
+  let started = false
 
   try {
-    const response = await fetch(src)
-    if (!response.ok) throw new Error(`Script request failed with HTTP ${response.status}: ${src}`)
-    const original = await response.text()
-    const { content: rewritten, changed } = applyGroups(original, groups)
-
-    if (changed) {
-      logger.log(`Rewrote script: ${src}`)
+    const content = await fetchRewrittenScript(src)
+    if (content !== null) {
+      const execute = new Function(content)
+      withCurrentScript(current, () => {
+        started = true
+        execute()
+      })
+      return
     }
-
-    const content = patchFigmaDelete(rewritten)
-    withCurrentScript(current, () => {
-      new Function(content)()
-    })
   } catch (error) {
     logger.error(error)
-    replaceScript(current, `${src}?fallback`)
+    // Top-level side effects may already have run before the exception.
+    if (started) return
   }
+
+  const script = document.createElement('script')
+  script.async = current.async
+  script.defer = true
+  script.src = scriptFallbackUrl(src)
+  current.replaceWith(script)
 }
