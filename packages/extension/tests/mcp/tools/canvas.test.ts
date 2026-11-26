@@ -7569,6 +7569,29 @@ describe('mcp/tools/canvas', () => {
     expect(figma.loadAllPagesAsync).toHaveBeenCalledOnce()
   })
 
+  it('samples each text reference property once per surviving node on a different page', async () => {
+    createFixture()
+    const target = figma.createFrame()
+    target.setSharedPluginData('tempad_dev', 'canvas-key', 'target')
+    const page = figma.createPage()
+    const readFills = vi.fn(() => [])
+    const readHyperlink = vi.fn(() => null)
+    for (let i = 0; i < 24; i++) {
+      const text = figma.createText()
+      page.appendChild(text)
+      Object.defineProperties(text, {
+        fills: { get: readFills },
+        hyperlink: { get: readHyperlink }
+      })
+    }
+
+    await expect(applyCanvas({ mode: 'remove', targetNodeId: target.id })).resolves.toMatchObject({
+      rootRemoved: true
+    })
+    expect(readFills).toHaveBeenCalledTimes(24)
+    expect(readHyperlink).toHaveBeenCalledTimes(24)
+  })
+
   it('removes a component set when async lookup returns a stale attached snapshot', async () => {
     const fixture = createFixture()
     const created = await applyCanvasFromTool({

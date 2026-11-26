@@ -151,7 +151,8 @@ function collectComponentReferences(
 
 function collectSceneReferences(node: SceneNode, references: RemovalReferences): void {
   const record = node as unknown as Record<string, unknown>
-  collectReferences(record.fills, references)
+  const fills = record.fills
+  collectReferences(fills, references)
   collectReferences(record.strokes, references)
   collectReferences(record.effects, references)
   if (node.type === 'VECTOR') {
@@ -163,8 +164,9 @@ function collectSceneReferences(node: SceneNode, references: RemovalReferences):
     collectComponentReferences(node.componentProperties, references)
   }
   if (node.type !== 'TEXT') return
-  collectReferences(node.hyperlink, references)
-  if (node.hyperlink !== figma.mixed && node.fills !== figma.mixed) return
+  const hyperlink = node.hyperlink
+  collectReferences(hyperlink, references)
+  if (hyperlink !== figma.mixed && fills !== figma.mixed) return
   let segments: Array<Pick<StyledTextSegment, 'fills' | 'hyperlink'>>
   try {
     segments = node.getStyledTextSegments(['fills', 'hyperlink'])
