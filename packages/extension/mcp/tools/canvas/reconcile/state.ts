@@ -112,11 +112,12 @@ export function moveIntoParent<Child extends BaseNode>(
   // Moving out of a Group can remove that Group (and empty ancestor Groups)
   // from this parent, shifting the requested insertion slot.
   const expectedIndex = index - preceding.filter((sibling) => sibling.removed).length
-  if ((sameParent || expectedIndex !== index) && parent.children.indexOf(node) !== expectedIndex) {
-    const currentIndex = parent.children.indexOf(node)
+  let currentIndex = parent.children.indexOf(node)
+  if ((sameParent || expectedIndex !== index) && currentIndex !== expectedIndex) {
     parent.insertChild(currentIndex < expectedIndex ? expectedIndex + 1 : expectedIndex, node)
+    currentIndex = parent.children.indexOf(node)
   }
-  if (parent.children.indexOf(node) !== expectedIndex) {
+  if (currentIndex !== expectedIndex) {
     specError(`Node "${node.id}" could not be placed at child index ${expectedIndex}.`)
   }
   markMutation(state, node)

@@ -630,36 +630,19 @@ export function extractLeadingGradient(value: string): string | null {
 }
 
 function getBorderWidth(style: Record<string, string>): string | null {
-  if (style.border) {
-    const parsed = parseBorderShorthand(normalizeStyleValue(style.border))
-    if (parsed.width) {
-      return normalizeStyleValue(parsed.width)
-    }
-  }
-
-  if (style['border-width']) {
-    return normalizeStyleValue(style['border-width'])
-  }
-
-  const sideWidths = BORDER_SIDES.map((side) => {
+  const shorthand = normalizeStyleValue(style['border-width'] ?? '')
+  const defaults = shorthand
+    ? parseBoxValues(shorthand)
+    : parseBoxValues(parseBorderShorthand(normalizeStyleValue(style.border ?? '')).width ?? '')
+  const sideWidths = BORDER_SIDES.map((side, index) => {
     const width = style[`border-${side}-width`]
     if (width) return normalizeStyleValue(width)
-
     const border = style[`border-${side}`]
-    if (!border) return null
-
-    const parsed = parseBorderShorthand(normalizeStyleValue(border))
-    return parsed.width ? normalizeStyleValue(parsed.width) : null
+    const parsed = border && parseBorderShorthand(normalizeStyleValue(border)).width
+    return parsed ? normalizeStyleValue(parsed) : defaults?.[index]
   })
-
-  if (sideWidths.every((width): width is string => typeof width === 'string' && width.length > 0)) {
-    const [first, ...rest] = sideWidths
-    if (first !== undefined && rest.every((width) => width === first)) {
-      return first
-    }
-  }
-
-  return null
+  const [first] = sideWidths
+  return first && sideWidths.every((width) => width === first) ? first : null
 }
 
 export function isZeroBorderWidth(value: string): boolean {
@@ -692,18 +675,11 @@ export function hasOverflowClipping(style: Record<string, string>): boolean {
   })
 }
 
-function isNonRadiusBorderProperty(name: string): boolean {
-  return name.startsWith('border') && !name.includes('radius')
-}
-
-type GradientBorderSpec = {
-  gradient: string
-  borderWidth: string
-  preserveBorder: boolean
-  inset: string
-}
-
-function resolveGradientBorder(style: Record<string, string>): GradientBorderSpec | null {
+export function resolveGradientBorder(style: Record<string, string>): {
+  base: Record<string, string>
+  pseudo: Record<string, string>
+  preservedWidth: string | null
+} | null {
   const gradient = extractLeadingGradient(style['border-image'] ?? '')
   if (!gradient) return null
 
@@ -715,51 +691,26 @@ function resolveGradientBorder(style: Record<string, string>): GradientBorderSpe
     ? (negateLengthLiteral(borderWidth) ?? `calc(-1 * ${borderWidth})`)
     : '0'
 
-  return {
-    gradient,
-    borderWidth,
-    preserveBorder,
-    inset
-  }
-}
-
-function buildGradientBorderBaseStyle(
-  style: Record<string, string>,
-  spec: GradientBorderSpec
-): Record<string, string> {
   const base: Record<string, string> = {}
-
   for (const [key, value] of Object.entries(style)) {
     if (!value) continue
-    if (key === 'border-image' || key === 'border-image-slice') continue
-    if (isNonRadiusBorderProperty(key)) continue
+    if (/^border(?:$|-)/.test(key) && !key.includes('radius')) continue
     base[key] = value
   }
-
-  if (!base.position) {
-    base.position = 'relative'
-  }
-  if (!base.isolation) {
-    base.isolation = 'isolate'
-  }
-  if (spec.preserveBorder) {
-    base.border = `${spec.borderWidth} solid transparent`
-  }
-
-  return base
-}
-
-function buildGradientBorderPseudoStyle(spec: GradientBorderSpec): Record<string, string> {
+  base.position ||= 'relative'
+  base.isolation ||= 'isolate'
   return {
-    content: '""',
-    position: 'absolute',
-    inset: spec.inset,
-    padding: spec.borderWidth,
-    'border-radius': 'inherit',
-    background: spec.gradient,
-    'pointer-events': 'none',
-    mask: RING_MASK,
-    'mask-composite': 'exclude'
+    base,
+    preservedWidth: preserveBorder ? borderWidth : null,
+    pseudo: {
+      content: '""',
+      position: 'absolute',
+      inset,
+      padding: borderWidth,
+      'border-radius': 'inherit',
+      background: gradient,
+      'pointer-events': 'none'
+    }
   }
 }
 
@@ -851,48 +802,30 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
     }
   }
 
-  if (expanded['grid-row']) {
-    const val = normalizeStyleValue(expanded['grid-row'])
-    const parts = splitCssTopLevel(val, '/', true)
-    if (parts.length === 2 && parts.every(Boolean) && !hasUnresolvedShorthand(val)) {
-      const start = parts[0]!.trim()
-      const end = parts[1]!.trim()
-
-      if (start.startsWith('span')) {
-        expanded['grid-row-span'] = start.replace(/^span\s*/, '')
-      } else {
-        expanded['grid-row-start'] = start
+  for (const axis of ['grid-row', 'grid-column']) {
+    const shorthand = expanded[axis]
+    if (!shorthand) continue
+    const value = normalizeStyleValue(shorthand)
+    const [start, end, ...rest] = splitCssTopLevel(value, '/', true).map((line) => line.trim())
+    if (!start || !end || rest.length || hasUnresolvedShorthand(value)) continue
+    if (
+      start === '1' &&
+      end === '-1' &&
+      expanded[`${axis}-start`] === undefined &&
+      expanded[`${axis}-end`] === undefined
+    ) {
+      expanded[`${axis}-span`] = '1 / -1'
+    } else {
+      for (const [edge, line] of [
+        ['start', start],
+        ['end', end]
+      ] as const) {
+        const span = /^span\s+(.+)$/.exec(line)
+        if (span) expanded[`${axis}-span`] = span[1]!
+        else expanded[`${axis}-${edge}`] = line
       }
-
-      if (end.startsWith('span')) {
-        expanded['grid-row-span'] = end.replace(/^span\s*/, '')
-      } else {
-        expanded['grid-row-end'] = end
-      }
-      delete expanded['grid-row']
     }
-  }
-
-  if (expanded['grid-column']) {
-    const val = normalizeStyleValue(expanded['grid-column'])
-    const parts = splitCssTopLevel(val, '/', true)
-    if (parts.length === 2 && parts.every(Boolean) && !hasUnresolvedShorthand(val)) {
-      const start = parts[0]!.trim()
-      const end = parts[1]!.trim()
-
-      if (start.startsWith('span')) {
-        expanded['grid-column-span'] = start.replace(/^span\s*/, '')
-      } else {
-        expanded['grid-column-start'] = start
-      }
-
-      if (end.startsWith('span')) {
-        expanded['grid-column-span'] = end.replace(/^span\s*/, '')
-      } else {
-        expanded['grid-column-end'] = end
-      }
-      delete expanded['grid-column']
-    }
+    delete expanded[axis]
   }
 
   const borderKeys: Array<{ key: string; sides: Array<'top' | 'right' | 'bottom' | 'left'> }> = [
@@ -1082,8 +1015,9 @@ export function serializeCSS(
   let code: string
 
   if (gradientBorder) {
-    const baseStyle = buildGradientBorderBaseStyle(processedStyle, gradientBorder)
-    const pseudoStyle = buildGradientBorderPseudoStyle(gradientBorder)
+    const { base: baseStyle, pseudo, preservedWidth } = gradientBorder
+    if (preservedWidth) baseStyle.border = `${preservedWidth} solid transparent`
+    const pseudoStyle = { ...pseudo, mask: RING_MASK, 'mask-composite': 'exclude' }
 
     if (toJS) {
       const baseLines = Object.entries(baseStyle).map(

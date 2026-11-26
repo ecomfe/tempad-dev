@@ -144,7 +144,7 @@ it.each(['grid', 'inline-grid', 'flex'])(
 
     expect(code.includes('row-span-2')).toBe(display !== 'flex')
     expect(code.includes('col-span-3')).toBe(display !== 'flex')
-    expect(code.includes('-col-end-1')).toBe(display !== 'flex')
+    expect(code.includes('col-span-full')).toBe(display !== 'flex')
   }
 )
 

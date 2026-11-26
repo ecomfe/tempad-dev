@@ -615,6 +615,18 @@ describe('utils/css serializeCSS regression paths', () => {
     expect(sideShorthand).toContain('border: 3px solid transparent;')
   })
 
+  it.each<Record<string, string>>([
+    { 'border-width': '1px 2px' },
+    { border: '1px solid red', 'border-left-width': '2px' }
+  ])('keeps the native gradient border when the effective widths vary', (widths) => {
+    const code = serializeCSS(
+      { ...widths, 'border-image': 'linear-gradient(red, blue) 1' },
+      baseOptions
+    )
+    expect(code).toContain('border-image: linear-gradient(red, blue) 1;')
+    expect(code).not.toContain('&::before')
+  })
+
   it('covers gradient-border fallback paths with missing/uneven/blank widths', () => {
     const nestedGradient = serializeCSS(
       {

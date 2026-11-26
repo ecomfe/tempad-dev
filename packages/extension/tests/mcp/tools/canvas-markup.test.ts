@@ -5,11 +5,13 @@ import type {
 } from '@tempad-dev/shared'
 
 import { MAX_CANVAS_NODES } from '@tempad-dev/shared'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { ParsedCanvasTreeInput } from '@/mcp/tools/canvas/model'
 
 import { parseCanvasMarkup } from '@/mcp/tools/canvas/markup'
+import * as canvasTailwind from '@/mcp/tools/canvas/tailwind'
+import { cssToClassNames } from '@/utils/tailwind'
 
 function parse(
   markup: string,
@@ -45,6 +47,51 @@ const BLEND_MODE_CLASSES = [
 ] as const satisfies ReadonlyArray<readonly [string, BlendMode]>
 
 describe('canvas markup', () => {
+  it('reuses each normalized class list across validation and compilation', () => {
+    const parseClasses = vi.spyOn(canvasTailwind, 'parseCanvasClasses')
+    try {
+      const result = parse(`
+        <div data-key="root" class="flex flex-col w-80 h-80">
+          <div data-key="first" class="size-10" />
+          <div data-key="second" class=" size-10 " />
+        </div>`)
+      expect(result.root.children?.map(({ key }) => key)).toEqual(['first', 'second'])
+      expect(parseClasses.mock.calls).toEqual([['flex flex-col w-80 h-80'], ['size-10']])
+    } finally {
+      parseClasses.mockRestore()
+    }
+  })
+
+  it('round-trips zero lengths and full explicit grid spans', () => {
+    const spans = cssToClassNames({ 'grid-row-span': '1 / -1', 'grid-column-span': '1 / -1' })
+    const zeros = cssToClassNames({ top: '0px', left: '0', padding: '0px' })
+    expect(spans).toEqual(['row-span-full', 'col-span-full'])
+    expect(zeros).toEqual(['top-0', 'left-0', 'p-0'])
+
+    const grid = `<div data-key="root" class="grid grid-cols-3 grid-rows-2 size-40">
+      <div data-key="full" class="size-full ${spans.join(' ')}" />
+    </div>`
+    expect(parse(grid).root.children?.[0]?.gridChild).toMatchObject({
+      row: 0,
+      column: 0,
+      rowSpan: 2,
+      columnSpan: 3
+    })
+    expect(() => parse(grid.replace('grid-rows-2', 'grid-flow-row'))).toThrow(
+      /requires explicit grid rows/
+    )
+
+    const absolute = (offsets: string) => `<div data-key="root" class="size-40">
+      <div data-key="child" class="absolute size-10 ${offsets}" />
+    </div>`
+    expect(parse(absolute('top-[0] left-[0]')).root).toEqual(
+      parse(absolute(zeros.slice(0, 2).join(' '))).root
+    )
+    expect(parse('<div data-key="root" class="flex size-40 p-[0]" />').root.layout).toEqual(
+      parse('<div data-key="root" class="flex size-40 p-0" />').root.layout
+    )
+  })
+
   it('preserves live grid flow and reserves omitted manual cells', () => {
     const input = {
       mode: 'update' as const,
@@ -2386,7 +2433,7 @@ describe('canvas markup', () => {
 
   it('reports distinct unsupported classes across the markup tree in one pass', () => {
     const markup =
-      '<div data-key="root" class="flex flex-col w-[320px] h-[200px] p-[0]"><div data-key="panel" class="flex flex-col w-full h-[100px] shrink-[0] self-stretch border-t-[#152A46]"><span data-key="copy" class="w-full h-fit font-[Inter]">Copy</span></div></div>'
+      '<div data-key="root" class="flex flex-col w-[320px] h-[200px] p-[1]"><div data-key="panel" class="flex flex-col w-full h-[100px] shrink-[0] self-stretch border-t-[#152A46]"><span data-key="copy" class="w-full h-fit font-[Inter]">Copy</span></div></div>'
 
     let message = ''
     try {
@@ -2396,7 +2443,7 @@ describe('canvas markup', () => {
     }
 
     expect(message).toContain('Unsupported Canvas classes:')
-    expect(message).toContain('"p-[0]"')
+    expect(message).toContain('"p-[1]"')
     expect(message).toContain('"shrink-[0]"')
     expect(message).toContain('"self-stretch"')
     expect(message).toContain('"border-t-[#152A46]"')

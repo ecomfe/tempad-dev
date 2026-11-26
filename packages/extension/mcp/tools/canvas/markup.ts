@@ -324,11 +324,14 @@ function hasText(value: string): boolean {
 
 const MAX_REPORTED_MARKUP_ISSUES = 16
 
-function unsupportedClassesIssue(root: CanvasMarkupElement): string | undefined {
+function unsupportedClassesIssue(
+  root: CanvasMarkupElement,
+  scanClasses: typeof findUnsupportedCanvasClasses
+): string | undefined {
   const found = new Set<string>()
   let truncated = false
   const visit = (element: CanvasMarkupElement): void => {
-    const scan = findUnsupportedCanvasClasses(element.attributes.class ?? '')
+    const scan = scanClasses(element.attributes.class ?? '')
     for (const token of scan.classes) found.add(token)
     truncated ||= scan.truncated
     for (const child of element.children) visit(child)
@@ -386,15 +389,25 @@ function childLayoutIssues(
 
 function assertStaticMarkupLegality(
   root: CanvasMarkupElement,
-  bindings: Record<string, CanvasBinding>
+  bindings: Record<string, CanvasBinding>,
+  readClasses: typeof parseCanvasClasses
 ): void {
+  const scans = new Map<string, ReturnType<typeof findUnsupportedCanvasClasses>>()
+  const scanClasses = (className: string) => {
+    let scan = scans.get(className)
+    if (!scan) {
+      scan = findUnsupportedCanvasClasses(className, readClasses)
+      scans.set(className, scan)
+    }
+    return scan
+  }
   const issues: string[] = []
   let issueCount = 0
   const add = (message: string): void => {
     issueCount += 1
     if (issues.length < MAX_REPORTED_MARKUP_ISSUES) issues.push(message)
   }
-  const unsupported = unsupportedClassesIssue(root)
+  const unsupported = unsupportedClassesIssue(root, scanClasses)
   if (unsupported) add(unsupported)
 
   const visit = (element: CanvasMarkupElement, parentClasses?: CanvasClasses): void => {
@@ -410,9 +423,9 @@ function assertStaticMarkupLegality(
       return
     }
     let classes: CanvasClasses | undefined
-    if (!findUnsupportedCanvasClasses(className).classes.length) {
+    if (!scanClasses(className).classes.length) {
       try {
-        classes = parseCanvasClasses(className)
+        classes = readClasses(className)
         if ((!classes.width || !classes.height) && !bindings[key]?.component) {
           add(`Element "${key}" requires exactly one width and one height class.`)
         }
@@ -808,6 +821,7 @@ type CompileState = {
   removedKeys: Set<string>
   mode: CanvasResolvedApplyParameters['mode']
   nodeIds: Set<string>
+  readClasses: typeof parseCanvasClasses
 }
 
 function applyInlineBindings(element: CanvasMarkupElement, key: string, state: CompileState): void {
@@ -932,6 +946,7 @@ function validateNewAutoLayoutMinimum(
 type GridPlacement = {
   columns: number
   rows: number
+  explicitRows: boolean
   manual: boolean
   occupied: Set<string>
 }
@@ -973,8 +988,12 @@ function placeGridChild(
   classes: CanvasClasses,
   placement: GridPlacement
 ): NonNullable<CanvasNodeSpec['gridChild']> {
-  const rowSpan = classes.gridRowSpan ?? 1
-  const columnSpan = classes.gridColumnSpan ?? 1
+  if (classes.gridRowSpan === 'full' && !placement.explicitRows) {
+    markupError(`Grid child "${key}" requires explicit grid rows for row-span-full.`)
+  }
+  const rowSpan = classes.gridRowSpan === 'full' ? placement.rows : (classes.gridRowSpan ?? 1)
+  const columnSpan =
+    classes.gridColumnSpan === 'full' ? placement.columns : (classes.gridColumnSpan ?? 1)
   const hasRow = classes.gridRow !== undefined
   const hasColumn = classes.gridColumn !== undefined
   if (hasRow !== hasColumn) {
@@ -1125,12 +1144,12 @@ function compileElementUnchecked(
   }
 
   applyInlineBindings(element, key, state)
-  const classes = parseCanvasClasses(className)
+  let classes = state.readClasses(className)
   const hasWidth = classes.width !== undefined
   const hasHeight = classes.height !== undefined
   const liveGrid = state.existingNodeTypes?.grids?.get(nodeId ?? key)
   if (classes.grid && classes.gridFlow === undefined && liveGrid) {
-    classes.gridFlow = liveGrid.itemsPositioning
+    classes = { ...classes, gridFlow: liveGrid.itemsPositioning }
   }
   if (state.bindings[key]?.component) {
     classes.width ??= { mode: 'FIXED' }
@@ -1868,6 +1887,7 @@ function compileElementUnchecked(
         ? {
             columns: node.layout.columns.length,
             rows: node.layout.rows?.length ?? MAX_GRID_TRACKS,
+            explicitRows: !!node.layout.rows,
             manual: node.layout.itemsPositioning !== 'ROW_AUTO_FLOW',
             occupied: new Set<string>()
           }
@@ -1906,6 +1926,25 @@ function compileElementUnchecked(
   return node
 }
 
+function createClassReader(): typeof parseCanvasClasses {
+  const classes = new Map<string, CanvasClasses | Error>()
+  return (value) => {
+    // Theme normalization and the diagnostic scanner already space-join tokens.
+    let result = classes.get(value)
+    if (!result) {
+      try {
+        result = parseCanvasClasses(value)
+      } catch (error) {
+        if (!(error instanceof Error)) throw error
+        result = error
+      }
+      classes.set(value, result)
+    }
+    if (result instanceof Error) throw result
+    return result
+  }
+}
+
 export function parseCanvasMarkup(
   input: CanvasResolvedApplyParameters,
   catalog?: DesignSystemCatalog,
@@ -1922,9 +1961,17 @@ export function parseCanvasMarkup(
   )
   const parsedElement = preparedTheme?.element ?? parseCanvasHtml(input.markup)
   const resources = preparedTheme?.resources ?? createThemeResources(input, catalog)
-  const themedElement = normalizeThemeClasses(parsedElement, bindings, input, catalog, resources)
+  const readClasses = createClassReader()
+  const themedElement = normalizeThemeClasses(
+    parsedElement,
+    bindings,
+    input,
+    catalog,
+    resources,
+    readClasses
+  )
   const rootElement = normalizeCatalogElement(themedElement, bindings, catalog)
-  assertStaticMarkupLegality(rootElement, bindings)
+  assertStaticMarkupLegality(rootElement, bindings, readClasses)
   const state: CompileState = {
     bindings,
     ...(catalog ? { catalog } : {}),
@@ -1933,6 +1980,7 @@ export function parseCanvasMarkup(
     removedKeys: new Set(input.removeKeys ?? []),
     mode: input.mode,
     nodeIds: new Set(),
+    readClasses,
     themeFields: resources.boundFields
   }
   const root = compileElement(rootElement, state, 1)

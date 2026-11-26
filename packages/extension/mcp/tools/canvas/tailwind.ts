@@ -273,8 +273,8 @@ export type CanvasClasses = {
   gridFlow?: 'MANUAL' | 'ROW_AUTO_FLOW'
   gridColumn?: number
   gridRow?: number
-  gridColumnSpan?: number
-  gridRowSpan?: number
+  gridColumnSpan?: number | 'full'
+  gridRowSpan?: number | 'full'
   gridHorizontalAlign?: 'AUTO' | 'CENTER' | 'MAX' | 'MIN'
   gridVerticalAlign?: 'AUTO' | 'CENTER' | 'MAX' | 'MIN'
   grow?: boolean
@@ -355,7 +355,10 @@ export function unsupportedCanvasClassGuidance(tokens: Iterable<string>): string
   return null
 }
 
-export function findUnsupportedCanvasClasses(value: string): {
+export function findUnsupportedCanvasClasses(
+  value: string,
+  readClasses = parseCanvasClasses
+): {
   classes: string[]
   truncated: boolean
 } {
@@ -364,7 +367,7 @@ export function findUnsupportedCanvasClasses(value: string): {
 
   while (remaining.length && classes.length < MAX_UNSUPPORTED_CLASS_SCAN) {
     try {
-      parseCanvasClasses(remaining.join(' '))
+      readClasses(remaining.join(' '))
       return { classes, truncated: false }
     } catch (error) {
       const match = error instanceof Error ? UNSUPPORTED_CLASS_MESSAGE.exec(error.message) : null
@@ -379,7 +382,7 @@ export function findUnsupportedCanvasClasses(value: string): {
 
   if (!remaining.length) return { classes, truncated: false }
   try {
-    parseCanvasClasses(remaining.join(' '))
+    readClasses(remaining.join(' '))
     return { classes, truncated: false }
   } catch (error) {
     return {
@@ -409,6 +412,7 @@ function pixels(
   token: string,
   options: { allowNegative?: boolean; numericScale?: number } = {}
 ): number | null {
+  if (raw === '[0]') return 0
   const arbitrary = /^\[(-?(?:\d+(?:\.\d+)?|\.\d+))px\]$/.exec(raw)
   if (arbitrary) {
     return finiteNumber(arbitrary[1]!, token, { allowNegative: options.allowNegative })
@@ -761,21 +765,23 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       classes.layoutClass ??= token
       continue
     }
-    const gridPosition = /^(col|row)-(start|span)-(\d+)$/.exec(token)
+    const gridPosition = /^(col|row)-(?:start-(\d+)|span-(\d+|full))$/.exec(token)
     if (gridPosition) {
-      const value = Number(gridPosition[3])
-      if (!Number.isSafeInteger(value) || value < 1) {
+      const start = gridPosition[2] !== undefined
+      const raw = gridPosition[2] ?? gridPosition[3]
+      const value = raw === 'full' ? raw : Number(raw)
+      if (value !== 'full' && (!Number.isSafeInteger(value) || value < 1)) {
         classError(`Invalid grid placement class "${token}".`)
       }
       const field =
         gridPosition[1] === 'col'
-          ? gridPosition[2] === 'start'
+          ? start
             ? 'gridColumn'
             : 'gridColumnSpan'
-          : gridPosition[2] === 'start'
+          : start
             ? 'gridRow'
             : 'gridRowSpan'
-      assign(classes, field, gridPosition[2] === 'start' ? value - 1 : value, token)
+      assign(classes, field, start && value !== 'full' ? value - 1 : value, token)
       classes.gridChildClass ??= token
       continue
     }

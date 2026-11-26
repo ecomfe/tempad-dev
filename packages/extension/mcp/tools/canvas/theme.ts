@@ -466,7 +466,8 @@ export function normalizeThemeClasses(
   bindings: Record<string, CanvasBinding>,
   input: CanvasResolvedApplyParameters,
   catalog: DesignSystemCatalog | undefined,
-  resources: ThemeResources
+  resources: ThemeResources,
+  readClasses = parseCanvasClasses
 ): CanvasMarkupElement {
   const key = element.attributes['data-key'] ?? ''
   const className = element.attributes.class ?? ''
@@ -520,7 +521,7 @@ export function normalizeThemeClasses(
   if (textStyle || variableFields.length) {
     let parsed
     try {
-      parsed = parseCanvasClasses(classes.join(' '))
+      parsed = readClasses(classes.join(' '))
     } catch (error) {
       specError(sourceClassMessage(sourceClasses, errorMessage(error)))
     }
@@ -584,7 +585,7 @@ export function normalizeThemeClasses(
     sourceClasses,
     attributes: { ...element.attributes, class: classes.join(' ') },
     children: element.children.map((child) =>
-      normalizeThemeClasses(child, bindings, input, catalog, resources)
+      normalizeThemeClasses(child, bindings, input, catalog, resources, readClasses)
     )
   }
 }

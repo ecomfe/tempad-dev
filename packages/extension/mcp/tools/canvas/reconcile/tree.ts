@@ -402,8 +402,8 @@ async function reconcileNewWrappedContainer(
         state,
         node,
         desiredChildIndex(
-          child,
-          children.slice(childIndex + 1),
+          children,
+          childIndex,
           state,
           node,
           reconciled.at(-1)?.node,
@@ -427,8 +427,8 @@ async function reconcileNewWrappedContainer(
         state,
         stagingParent,
         desiredChildIndex(
-          child,
-          spec.children!.slice(childIndex + 1),
+          spec.children!,
+          childIndex,
           state,
           stagingParent,
           children.at(-1)?.node,
@@ -455,27 +455,30 @@ async function reconcileNewWrappedContainer(
 }
 
 function desiredChildIndex(
-  spec: CanvasNodeSpec,
-  following: CanvasNodeSpec[],
+  specs: CanvasNodeSpec[],
+  index: number,
   state: ApplyState,
   parent: CanvasParentNode,
   previous?: SupportedCanvasNode,
   forcedNode?: SupportedCanvasNode,
   minimumIndex = 0
 ): number {
-  const existing = findExistingNode(spec, state, forcedNode)
-  const currentIndex = existing?.parent?.id === parent.id ? parent.children.indexOf(existing) : -1
+  const existing = findExistingNode(specs[index]!, state, forcedNode)
+  // Read the live sibling list once for this placement. Recursive reconciliation
+  // can change it before the next child is processed.
+  const siblings = parent.children
+  const currentIndex = existing?.parent?.id === parent.id ? siblings.indexOf(existing) : -1
   if (!previous) {
     if (currentIndex >= 0) return currentIndex
-    for (const candidate of following) {
-      const followingNode = findExistingNode(candidate, state)
+    for (let next = index + 1; next < specs.length; next += 1) {
+      const followingNode = findExistingNode(specs[next]!, state)
       if (followingNode?.parent?.id !== parent.id) continue
-      return Math.max(minimumIndex, parent.children.indexOf(followingNode))
+      return Math.max(minimumIndex, siblings.indexOf(followingNode))
     }
-    return Math.max(minimumIndex, parent.children.length)
+    return Math.max(minimumIndex, siblings.length)
   }
 
-  const previousIndex = parent.children.indexOf(previous)
+  const previousIndex = siblings.indexOf(previous)
   if (currentIndex > previousIndex) return currentIndex
   return currentIndex >= 0 && currentIndex < previousIndex ? previousIndex : previousIndex + 1
 }
@@ -528,13 +531,7 @@ export async function reconcileNode(
           child,
           state,
           node,
-          desiredChildIndex(
-            child,
-            spec.children.slice(childIndex + 1),
-            state,
-            node,
-            children.at(-1)?.node
-          )
+          desiredChildIndex(spec.children, childIndex, state, node, children.at(-1)?.node)
         ),
         spec: child
       })

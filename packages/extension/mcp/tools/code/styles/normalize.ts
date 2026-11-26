@@ -1,16 +1,10 @@
 import type { CodegenConfig } from '@/utils/codegen'
-import type { NestedStyleMap } from '@/utils/tailwind'
 
 import {
   expandShorthands,
-  extractLeadingGradient,
-  hasOverflowClipping,
   isZeroBorderWidth,
-  negateLengthLiteral,
-  normalizeStyleValue,
   normalizeStyleValues,
-  parseBorderShorthand,
-  parseBoxValues
+  resolveGradientBorder
 } from '@/utils/css'
 import { isRenderablePaint } from '@/utils/figma-paint'
 import { nestedCssToClassNames } from '@/utils/tailwind'
@@ -147,8 +141,27 @@ export function buildLayoutStyles(
 
 export function styleToClassNames(style: StyleMap, config: CodegenConfig): string[] {
   const normalizedStyle = canonicalizeUniformVisibleBorderColor(normalizeStyleValues(style, config))
-  const resolved = resolveGradientBorderClasses(normalizedStyle)
-  return nestedCssToClassNames(resolved?.style ?? normalizedStyle)
+  const gradient = resolveGradientBorder(normalizedStyle)
+  if (!gradient) return nestedCssToClassNames(normalizedStyle)
+
+  const { base, pseudo, preservedWidth } = gradient
+  if (preservedWidth) {
+    for (const side of BORDER_SIDES) {
+      base[`border-${side}-width`] = preservedWidth
+      base[`border-${side}-style`] = 'solid'
+      base[`border-${side}-color`] = 'transparent'
+    }
+  }
+  return nestedCssToClassNames({
+    ...base,
+    '&::before': {
+      ...pseudo,
+      'mask-image': RING_MASK_IMAGE,
+      'mask-origin': RING_MASK_BOX,
+      'mask-clip': RING_MASK_BOX,
+      'mask-composite': 'exclude'
+    }
+  })
 }
 
 function canonicalizeUniformVisibleBorderColor(style: StyleMap): StyleMap {
@@ -167,98 +180,6 @@ function canonicalizeUniformVisibleBorderColor(style: StyleMap): StyleMap {
     next[`border-${side}-color`] = color
   }
   return next
-}
-
-type GradientBorderClassResult = {
-  style: NestedStyleMap
-}
-
-function resolveGradientBorderClasses(style: StyleMap): GradientBorderClassResult | null {
-  const gradient = extractLeadingGradient(style['border-image'] ?? '')
-  if (!gradient) return null
-
-  const borderWidth = getBorderWidth(style)
-  if (!borderWidth || isZeroBorderWidth(borderWidth)) return null
-
-  const preserveBorder = !hasOverflowClipping(style)
-  const inset = preserveBorder
-    ? (negateLengthLiteral(borderWidth) ?? `calc(-1 * ${borderWidth})`)
-    : '0'
-
-  const base: StyleMap = {}
-  for (const [key, value] of Object.entries(style)) {
-    if (!value) continue
-    if (key === 'border-image' || key === 'border-image-slice') continue
-    if (isNonRadiusBorderProperty(key)) continue
-    base[key] = value
-  }
-
-  if (!base.position) {
-    base.position = 'relative'
-  }
-  if (!base.isolation) {
-    base.isolation = 'isolate'
-  }
-
-  if (preserveBorder) {
-    for (const side of BORDER_SIDES) {
-      base[`border-${side}-width`] = borderWidth
-      base[`border-${side}-style`] = 'solid'
-      base[`border-${side}-color`] = 'transparent'
-    }
-  }
-
-  return {
-    style: {
-      ...base,
-      '&::before': {
-        content: '""',
-        position: 'absolute',
-        inset,
-        padding: borderWidth,
-        'border-radius': 'inherit',
-        background: gradient,
-        'pointer-events': 'none',
-        'mask-image': RING_MASK_IMAGE,
-        'mask-origin': RING_MASK_BOX,
-        'mask-clip': RING_MASK_BOX,
-        'mask-composite': 'exclude'
-      }
-    }
-  }
-}
-
-function getBorderWidth(style: StyleMap): string | null {
-  const sideWidths = BORDER_SIDES.map((side) => {
-    const width = style[`border-${side}-width`]
-    if (width) return normalizeStyleValue(width)
-    const border = style[`border-${side}`]
-    if (!border) return null
-    const parsed = parseBorderShorthand(normalizeStyleValue(border))
-    return parsed.width ? normalizeStyleValue(parsed.width) : null
-  })
-
-  const [first] = sideWidths
-  if (first && sideWidths.every((width) => width === first)) {
-    return first
-  }
-
-  const borderWidth = style['border-width']
-  if (borderWidth) {
-    const widths = parseBoxValues(normalizeStyleValue(borderWidth))
-    if (widths && widths.every((width) => width === widths[0])) return widths[0]
-  }
-
-  if (style.border) {
-    const parsed = parseBorderShorthand(normalizeStyleValue(style.border))
-    if (parsed.width) return normalizeStyleValue(parsed.width)
-  }
-
-  return null
-}
-
-function isNonRadiusBorderProperty(name: string): boolean {
-  return /^border(?:$|-)/.test(name) && !name.includes('radius')
 }
 
 function stripSvgLayout(style: StyleMap): StyleMap {

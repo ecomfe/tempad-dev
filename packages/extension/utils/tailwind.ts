@@ -440,7 +440,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'col-span',
     mode: 'direct',
     valueKind: 'integer',
-    keywords: [['full', '1 / -1'], ...range(1, 12)],
+    keywords: [['1 / -1', 'full'], ...range(1, 12)],
     props: { v: 'grid-column-span' }
   },
   gridRow: {
@@ -471,7 +471,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'row-span',
     mode: 'direct',
     valueKind: 'integer',
-    keywords: [['full', '1 / -1'], ...range(1, 12)],
+    keywords: [['1 / -1', 'full'], ...range(1, 12)],
     props: { v: 'grid-row-span' }
   },
   padding: {
@@ -904,6 +904,24 @@ Object.entries(TAILWIND_CONFIG).forEach(([familyKey, config]) => {
   }
 })
 
+const ZERO_LENGTH_UTILITIES = new Set([
+  'bottom',
+  'gap',
+  'height',
+  'inset',
+  'left',
+  'margin',
+  'maxHeight',
+  'maxWidth',
+  'minHeight',
+  'minWidth',
+  'padding',
+  'paddingShorthand',
+  'right',
+  'top',
+  'width'
+])
+
 function extractValuePart(
   val: string,
   config: FamilyConfig,
@@ -920,6 +938,9 @@ function extractValuePart(
 
   const kind = overrideKind || config.valueKind
   inner = coerceNumeric(inner, kind)
+  if ((inner === '0' || inner === '-0') && ZERO_LENGTH_UTILITIES.has(familyKey)) {
+    return { isNegative: false, text: '0', isKeyword: true }
+  }
 
   const keywordMap = KEYWORD_REGISTRY[familyKey]
   const keyword = keywordMap?.[inner]
