@@ -1,7 +1,7 @@
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { getVariableByIdCached } from './cache'
-import { canonicalizeName, canonicalizeNames, getTokenIndex, getVariableRawName } from './indexer'
+import { canonicalizeName, canonicalizeNames, getVariableRawName } from './indexer'
 
 export type ConsumerValue = ReturnType<Variable['resolveForConsumer']> | null
 
@@ -16,7 +16,6 @@ export function createTokenReadContext(
   const collections = new Map<string, VariableCollection | null>()
   const names = new Map<string, Promise<string>>()
   const consumerValues = new Map<string, Map<string, ConsumerValue>>()
-  let index: ReturnType<typeof getTokenIndex> | undefined
   const snapshot = { ...config }
 
   return {
@@ -80,14 +79,6 @@ export function createTokenReadContext(
         checkpoint?.()
         names.set(variable.id, Promise.resolve(values[index]!))
       })
-    },
-    getIndex() {
-      return (index ??= getTokenIndex(snapshot, pluginCode).then((result) => {
-        for (const [id, name] of result.canonicalNameById) {
-          names.set(id, Promise.resolve(name))
-        }
-        return result
-      }))
     }
   }
 }

@@ -10,7 +10,6 @@ import {
   buildGetDesignSystemToolResult,
   buildGetScreenshotToolResult,
   buildGetStructureToolResult,
-  buildGetTokenDefsToolResult,
   buildUploadAssetToolResult,
   measureCallToolResultBytes,
   utf8Bytes
@@ -86,7 +85,6 @@ describe('mcp/responses helpers', () => {
     const uploaded = { assetHash: ASSET_HASH, mimeType: 'image/png' as const, size: 10 }
     expect(buildUploadAssetToolResult(uploaded).structuredContent).toEqual(uploaded)
     expect(buildUploadAssetToolResult(uploaded).content?.[0]?.text).toContain('10 B')
-    expect(buildGetTokenDefsToolResult({}).content?.[0]?.text).toContain('No token definitions')
   })
 
   it('measures CallToolResult bytes beyond the bare text payload', () => {
@@ -166,14 +164,6 @@ describe('mcp/responses helpers', () => {
       }
     })
     expect(emptyPage.content?.[0]?.text).toContain('with 0 children')
-
-    const tokens = buildGetTokenDefsToolResult({
-      '--color-primary': {
-        kind: 'color',
-        value: '#fff'
-      }
-    })
-    expect(tokens.content?.[0]?.text).toContain('Resolved 1 token definition')
   })
 
   it('distinguishes failed structure roots from roots deferred by the safety cap', () => {

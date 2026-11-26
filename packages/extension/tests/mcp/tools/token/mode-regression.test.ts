@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { processTokens } from '@/mcp/tools/code/tokens/process'
 import { createStyleVarResolver } from '@/mcp/tools/code/tokens/resolve'
 import { createTokenReadContext } from '@/mcp/tools/token/context'
-import { resolveTokenDefsByIds, resolveTokenDefsByNames } from '@/mcp/tools/token/defs'
+import { resolveTokenDefsByIds } from '@/mcp/tools/token/defs'
 import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
 import { stringifyComponent } from '@/utils/component'
 
@@ -89,25 +89,6 @@ describe('token mode and request regressions', () => {
     }
   })
 
-  it('reads renamed, added, and deleted variables on the next request', async () => {
-    expect(await resolveTokenDefsByNames(new Set(['--semantic']), config)).toHaveProperty(
-      '--semantic'
-    )
-    variables = [
-      { ...semantic, name: 'renamed', valuesByMode: { only: 'UPDATED' } } as Variable,
-      { ...semantic, id: 'added', name: 'added', valuesByMode: { only: 'NEW' } } as Variable
-    ]
-    const result = await resolveTokenDefsByNames(
-      new Set(['--renamed', '--added', '--semantic', '--palette']),
-      config
-    )
-    expect(result).toHaveProperty('--renamed')
-    expect(result['--renamed']?.value).toBe('UPDATED')
-    expect(result['--added']?.value).toBe('NEW')
-    expect(result).not.toHaveProperty('--semantic')
-    expect(result).not.toHaveProperty('--palette')
-  })
-
   it('keeps alias definitions independent of the consumer literal', async () => {
     const resolve = createStyleVarResolver(
       new Map([['--semantic', semantic.id]]),
@@ -117,9 +98,10 @@ describe('token mode and request regressions', () => {
     expect(resolve({ color: 'var(--semantic)' }, consumer('dark-node', 'dark'))).toEqual({
       color: 'DARK'
     })
-    const tokens = await resolveTokenDefsByNames(new Set(['--semantic']), config, undefined, {
-      includeAllModes: true
-    })
+    const tokens = await resolveTokenDefsByIds(
+      new Map([['--semantic', semantic.id]]),
+      createTokenReadContext(config)
+    )
     expect(tokens).toEqual({
       '--semantic': { kind: 'string', value: '--palette' },
       '--palette': { kind: 'string', value: { 'Palette:Light': 'LIGHT', 'Palette:Dark': 'DARK' } }
@@ -161,7 +143,6 @@ describe('token mode and request regressions', () => {
     const tokens = await resolveTokenDefsByIds(
       new Map([['--semantic', semantic.id]]),
       createTokenReadContext(config),
-      true,
       report
     )
     expect(tokens['--semantic']?.value).toBe('--middle')
@@ -178,19 +159,15 @@ describe('token mode and request regressions', () => {
     const tokens = await resolveTokenDefsByIds(
       new Map([['--semantic', semantic.id]]),
       createTokenReadContext(config),
-      true,
       report
     )
     expect(tokens).toEqual({})
     expect(report).toHaveBeenCalledWith(expect.stringContaining('Alias target palette-var'))
   })
 
-  it('rejects ambiguous name lookups and preserves exact-ID reads', async () => {
+  it('preserves exact ID reads when names collide', async () => {
     const duplicate = { ...semantic, id: 'duplicate', valuesByMode: { only: 'OTHER' } } as Variable
     variables.push(duplicate)
-    await expect(resolveTokenDefsByNames(new Set(['--semantic']), config)).rejects.toThrow(
-      'multiple variables'
-    )
     expect(
       await resolveTokenDefsByIds(
         new Map([['--semantic', duplicate.id]]),
@@ -215,14 +192,13 @@ describe('token mode and request regressions', () => {
         ['--palette', 'duplicate']
       ]),
       createTokenReadContext(config),
-      true,
       report
     )
     expect(tokens).not.toHaveProperty('--palette')
     expect(report).toHaveBeenCalledWith(expect.stringContaining('matches multiple variables'))
   })
 
-  it('canonicalizes plugin names identically for used tokens, alias targets, and name lookups', async () => {
+  it('canonicalizes plugin names consistently for used tokens and alias targets', async () => {
     vi.mocked(runTransformVariableBatch).mockImplementation(async (refs) =>
       refs.map(({ name }) => `$brand ${name}`)
     )
@@ -238,11 +214,10 @@ describe('token mode and request regressions', () => {
       pluginCode: 'plugin'
     })
     expect(result.tokensByCanonical['--brand-semantic']?.value).toBe('--brand-palette')
-    expect(
-      await resolveTokenDefsByNames(new Set(['--brand-semantic']), config, 'plugin', {
-        includeAllModes: true
-      })
-    ).toEqual(result.tokensByCanonical)
+    expect(result.tokensByCanonical['--brand-palette']?.value).toEqual({
+      'Palette:Light': 'LIGHT',
+      'Palette:Dark': 'DARK'
+    })
   })
 
   it('keeps renamed and unchanged definitions in code order without including unused candidates', async () => {

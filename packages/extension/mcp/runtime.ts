@@ -4,9 +4,7 @@ import type {
   GetScreenshotParametersInput,
   GetScreenshotReadResult,
   GetStructureParametersInput,
-  GetStructureResult,
-  GetTokenDefsParametersInput,
-  GetTokenDefsResult
+  GetStructureResult
 } from '@tempad-dev/shared'
 
 import {
@@ -15,7 +13,6 @@ import {
   GetDesignSystemParametersSchema,
   GetScreenshotParametersSchema,
   GetStructureParametersSchema,
-  GetTokenDefsParametersSchema,
   TEMPAD_MCP_ERROR_CODES,
   buildGetCodeToolResult,
   buildGetScreenshotToolResult
@@ -32,7 +29,6 @@ import { createGetCodeCacheContext } from './tools/code/cache'
 import { handleGetDesignSystem } from './tools/design-system'
 import { handleGetScreenshot as runGetScreenshot } from './tools/screenshot'
 import { handleGetStructure as runGetStructure } from './tools/structure'
-import { handleGetTokenDefs as runGetTokenDefs } from './tools/token'
 
 export type WindowGetCodeParametersInput = GetCodeParametersInput & {
   _unbounded?: boolean
@@ -72,14 +68,6 @@ async function handleWindowGetCode(
   return handleGetCode(rest, {
     unbounded: _unbounded
   })
-}
-
-async function handleGetTokenDefs(args?: GetTokenDefsParametersInput): Promise<GetTokenDefsResult> {
-  const { names, includeAllModes } = args ?? {}
-  if (!names?.length) {
-    throw new Error('names is required and must include at least one canonical token name.')
-  }
-  return runGetTokenDefs(names, includeAllModes)
 }
 
 async function handleGetScreenshot(
@@ -133,7 +121,6 @@ export const MCP_TOOL_HANDLERS = {
   apply_canvas: handleApplyCanvas,
   get_code: handleGetCode,
   get_design_system: handleGetDesignSystem,
-  get_token_defs: handleGetTokenDefs,
   get_screenshot: handleGetScreenshot,
   get_structure: handleGetStructure
 }
@@ -142,7 +129,6 @@ const MCP_TOOL_SCHEMAS = {
   apply_canvas: ApplyCanvasParametersSchema,
   get_code: GetCodeParametersSchema,
   get_design_system: GetDesignSystemParametersSchema,
-  get_token_defs: GetTokenDefsParametersSchema,
   get_screenshot: GetScreenshotParametersSchema,
   get_structure: GetStructureParametersSchema
 }

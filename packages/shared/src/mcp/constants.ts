@@ -1,8 +1,7 @@
 export const MCP_PORT_CANDIDATES = [6220, 7431, 8127]
 export const MCP_CHECKOUT_PORT_CANDIDATES = [16220, 17431, 18127]
 
-// Select versioned registration before the first frame. Extension 0.20.0 sends no
-// subprotocol and strictly rejects version fields; it uses the legacy read-only wire.
+// Select the MCP bridge before exchanging registration frames.
 export const TEMPAD_MCP_BRIDGE_SUBPROTOCOL = 'tempad-mcp'
 
 // Bump whenever the wire contract between Hub and extension changes, including shared
@@ -14,7 +13,6 @@ export const TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION = 15
 // Extension protocol versions this Hub still serves, oldest first. The Hub upgrades itself on
 // every launch while the extension waits for store review, so the Hub carries the compatibility.
 export const TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [
-  13,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
 ]
 
@@ -53,6 +51,8 @@ export const MCP_ASSET_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 export const MCP_HASH_HEX_LENGTH = 64
 export const MCP_LEGACY_HASH_HEX_LENGTH = 8
+export const MCP_FULL_HASH_PATTERN = new RegExp(`^[a-f0-9]{${MCP_HASH_HEX_LENGTH}}$`)
+// Saved canvas asset references and downloads can still point to earlier uploads.
 export const MCP_HASH_PATTERN = new RegExp(
   `^(?:[a-f0-9]{${MCP_HASH_HEX_LENGTH}}|[a-f0-9]{${MCP_LEGACY_HASH_HEX_LENGTH}})$`
 )

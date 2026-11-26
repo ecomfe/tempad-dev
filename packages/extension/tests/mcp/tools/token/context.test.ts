@@ -62,7 +62,7 @@ describe('token read context', () => {
     expect(vi.mocked(runTransformVariableBatch).mock.calls[0]![0]).toHaveLength(40)
   })
 
-  it('reads variables, collections, canonical names, and a lazy index once per request', async () => {
+  it('reads variables, collections, and canonical names once per request', async () => {
     const variable = { id: 'v', name: 'size' } as Variable
     const getVariableById = vi.fn(() => variable)
     const getVariableCollectionById = vi.fn(() => null)
@@ -79,13 +79,11 @@ describe('token read context', () => {
     expect(await context.getName(variable)).toBe('--size')
     expect(getLocalVariablesAsync).not.toHaveBeenCalled()
     expect(runTransformVariableBatch).toHaveBeenCalledTimes(1)
-    expect(await context.getIndex()).toBe(await context.getIndex())
-    expect(getLocalVariablesAsync).toHaveBeenCalledTimes(1)
     expect(getVariableById).toHaveBeenCalledTimes(1)
     expect(getVariableCollectionById).toHaveBeenCalledTimes(1)
   })
 
-  it('does not carry rejected lookups or index promises into later requests', async () => {
+  it('does not carry rejected lookups into later requests', () => {
     const getVariableById = vi
       .fn()
       .mockImplementationOnce(() => {
@@ -98,20 +96,14 @@ describe('token read context', () => {
         throw Error('stale')
       })
       .mockReturnValue({ id: 'c' })
-    const getLocalVariablesAsync = vi
-      .fn()
-      .mockRejectedValueOnce(Error('stale'))
-      .mockResolvedValue([])
     vi.stubGlobal('figma', {
-      variables: { getVariableById, getVariableCollectionById, getLocalVariablesAsync }
+      variables: { getVariableById, getVariableCollectionById }
     })
     const first = createTokenReadContext(config)
     expect(first.getVariable('v')).toBeNull()
     expect(first.getCollection('c')).toBeNull()
-    await expect(first.getIndex()).rejects.toThrow('stale')
     const second = createTokenReadContext(config)
     expect(second.getVariable('v')?.id).toBe('v')
     expect(second.getCollection('c')?.id).toBe('c')
-    expect((await second.getIndex()).totalVariables).toBe(0)
   })
 })

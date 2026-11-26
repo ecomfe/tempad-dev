@@ -131,7 +131,6 @@ describe('tokens/process processTokens', () => {
     expect(resolveTokenDefsByIds).toHaveBeenCalledWith(
       new Map([['--renamed', 'var-1']]),
       expect.any(Object),
-      true,
       undefined,
       undefined
     )
@@ -189,12 +188,10 @@ describe('tokens/process processTokens', () => {
       rewriteMap: new Map(),
       finalBridge: new Map([['--token', 'var-1']])
     })
-    vi.mocked(resolveTokenDefsByIds).mockImplementation(
-      async (_seeds, _context, _allModes, warn) => {
-        warn?.('Variable var-1 is unavailable.')
-        return {}
-      }
-    )
+    vi.mocked(resolveTokenDefsByIds).mockImplementation(async (_seeds, _context, warn) => {
+      warn?.('Variable var-1 is unavailable.')
+      return {}
+    })
 
     const matcher = vi.fn(() => true)
     vi.mocked(createTokenMatcher).mockReturnValue(matcher)

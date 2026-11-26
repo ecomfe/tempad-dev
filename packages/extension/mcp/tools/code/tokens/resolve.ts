@@ -1,4 +1,4 @@
-import type { GetTokenDefsResult } from '@tempad-dev/shared'
+import type { TokenDefinitions } from '@tempad-dev/shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
@@ -142,7 +142,7 @@ export function createStyleVarResolver(
 }
 
 export function createTokenConsumerResolver(
-  tokens: GetTokenDefsResult,
+  tokens: TokenDefinitions,
   sourceIndex: ReadonlyMap<string, string>,
   rewriteMap: ReadonlyMap<string, string> | undefined,
   report?: ReportTokenDiagnostic

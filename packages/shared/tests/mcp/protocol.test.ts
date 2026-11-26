@@ -18,6 +18,7 @@ describe('mcp/protocol', () => {
     expect(parseMessageToExtension(JSON.stringify(ack))).toEqual(ack)
     const hello = {
       type: 'runtimeHello',
+      protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
       extensionVersion: '0.23.0',
       extensionRuntimeFingerprint: 'a'.repeat(64),
       terminalReceipts: true
@@ -27,13 +28,13 @@ describe('mcp/protocol', () => {
       parseMessageFromExtension(JSON.stringify({ ...hello, terminalReceipts: false }))
     ).toBeNull()
   })
-  it('accepts an explicit extension protocol and preserves omission from released peers', () => {
+  it('requires an explicit extension protocol declaration', () => {
     const hello = {
       type: 'runtimeHello',
       extensionVersion: '0.23.0',
       extensionRuntimeFingerprint: 'a'.repeat(64)
     }
-    expect(parseMessageFromExtension(JSON.stringify(hello))).toEqual(hello)
+    expect(parseMessageFromExtension(JSON.stringify(hello))).toBeNull()
     expect(parseMessageFromExtension(JSON.stringify({ ...hello, protocolVersion: 15 }))).toEqual({
       ...hello,
       protocolVersion: 15
@@ -111,13 +112,15 @@ describe('mcp/protocol', () => {
       parseMessageFromExtension(
         JSON.stringify({
           type: 'runtimeHello',
-          extensionVersion: '0.21.0',
+          protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+          extensionVersion: '1.0.0',
           extensionRuntimeFingerprint: 'a'.repeat(64)
         })
       )
     ).toEqual({
       type: 'runtimeHello',
-      extensionVersion: '0.21.0',
+      protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+      extensionVersion: '1.0.0',
       extensionRuntimeFingerprint: 'a'.repeat(64)
     })
   })
@@ -188,6 +191,7 @@ describe('mcp/protocol', () => {
       parseMessageFromExtension(
         JSON.stringify({
           type: 'runtimeHello',
+          protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
           extensionVersion: '0.21.0',
           extensionRuntimeFingerprint: 'short'
         })

@@ -11,7 +11,6 @@ import {
   GetDesignSystemResultSchema,
   GetScreenshotParametersSchema,
   GetStructureParametersSchema,
-  GetTokenDefsParametersSchema,
   MAX_CANVAS_NODES,
   UploadAssetParametersSchema,
   UploadAssetResultSchema
@@ -63,6 +62,14 @@ describe('mcp/tools AssetDescriptorSchema', () => {
         hash: 'deadbeef',
         url: 'https://example.com/a.png',
         mimeType: 'image/png',
+        size: 1
+      }).success
+    ).toBe(false)
+    expect(
+      AssetDescriptorSchema.safeParse({
+        hash: ASSET_HASH,
+        url: 'https://example.com/a.png',
+        mimeType: 'image/png',
         size: 1,
         figmaImageHashes: []
       }).success
@@ -82,6 +89,13 @@ describe('mcp/tools upload_asset schemas', () => {
         size: 5
       })
     ).toEqual({ assetHash: ASSET_HASH, mimeType: 'image/png', size: 5 })
+    expect(
+      UploadAssetResultSchema.safeParse({
+        assetHash: 'deadbeef',
+        mimeType: 'image/png',
+        size: 5
+      }).success
+    ).toBe(false)
   })
 
   it('rejects unsupported or malformed generated image inputs', () => {
@@ -120,40 +134,43 @@ describe('mcp/tools canvas authoring schemas', () => {
     }
   )
 
-  it('accepts compact SVG and content-addressed image declarations', () => {
-    expect(
-      acceptsCanvas({
-        mode: 'create',
-        markup:
-          '<div data-key="root" class="w-[320px] h-[200px]"><div data-key="icon" class="absolute left-[0px] top-[0px] w-[24px] h-[24px]"></div></div>',
-        assets: {
-          icon: {
-            type: 'SVG',
-            svg: '<svg viewBox="0 0 24 24"><path d="M0 0h24v24z"/></svg>'
+  it.each([ASSET_HASH, 'deadbeef'])(
+    'accepts SVG and image declarations with asset hash %s',
+    (assetHash) => {
+      expect(
+        acceptsCanvas({
+          mode: 'create',
+          markup:
+            '<div data-key="root" class="w-[320px] h-[200px]"><div data-key="icon" class="absolute left-[0px] top-[0px] w-[24px] h-[24px]"></div></div>',
+          assets: {
+            icon: {
+              type: 'SVG',
+              svg: '<svg viewBox="0 0 24 24"><path d="M0 0h24v24z"/></svg>'
+            },
+            hero: { type: 'IMAGE', assetHash }
           },
-          hero: { type: 'IMAGE', assetHash: ASSET_HASH }
-        },
-        bindings: {
-          root: {
-            figma: {
-              fills: [{ type: 'IMAGE', assetKey: 'hero', scaleMode: 'FILL' }]
+          bindings: {
+            root: {
+              figma: {
+                fills: [{ type: 'IMAGE', assetKey: 'hero', scaleMode: 'FILL' }]
+              }
+            },
+            icon: {
+              figma: { svg: { assetKey: 'icon', color: '#336699' } }
             }
-          },
-          icon: {
-            figma: { svg: { assetKey: 'icon', color: '#336699' } }
           }
-        }
-      })
-    ).toBe(true)
-    expect(
-      ApplyCanvasPublicParametersSchema.safeParse({
-        mode: 'create',
-        markup: '<div data-key="root" class="w-[24px] h-[24px]"></div>',
-        assets: { icon: { type: 'SVG', svg: '<svg />' } },
-        native: { root: { figma: { svg: { assetKey: 'icon' } } } }
-      }).success
-    ).toBe(true)
-  })
+        })
+      ).toBe(true)
+      expect(
+        ApplyCanvasPublicParametersSchema.safeParse({
+          mode: 'create',
+          markup: '<div data-key="root" class="w-[24px] h-[24px]"></div>',
+          assets: { icon: { type: 'SVG', svg: '<svg />' } },
+          native: { root: { figma: { svg: { assetKey: 'icon' } } } }
+        }).success
+      ).toBe(true)
+    }
+  )
 
   it.each([
     {
@@ -2500,29 +2517,6 @@ describe('mcp/tools parameter schemas', () => {
       }).success
     ).toBe(false)
     expect(GetCodeParametersSchema.safeParse({ sessionId: '' }).success).toBe(false)
-  })
-
-  it('enforces token name canonical format and non-empty names list', () => {
-    expect(
-      GetTokenDefsParametersSchema.safeParse({
-        sessionId: 'tab-a',
-        names: ['--color-primary', '--spacing-2'],
-        includeAllModes: false
-      }).success
-    ).toBe(true)
-
-    expect(
-      GetTokenDefsParametersSchema.safeParse({
-        names: [],
-        includeAllModes: true
-      }).success
-    ).toBe(false)
-
-    expect(
-      GetTokenDefsParametersSchema.safeParse({
-        names: ['color-primary']
-      }).success
-    ).toBe(false)
   })
 
   it('accepts empty screenshot params and optional structure depth', () => {

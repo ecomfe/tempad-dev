@@ -141,7 +141,6 @@ export const EXTENSION_COVERAGE_FILES = [
   'mcp/tools/token/candidates.ts',
   'mcp/tools/token/cache.ts',
   'mcp/tools/token/indexer.ts',
-  'mcp/tools/token/index.ts',
   'mcp/tools/token/value.ts'
 ] as const
 
@@ -171,7 +170,6 @@ export const MCP_COVERAGE_FILES = [
   'src/asset-http-server.ts',
   'src/extension-registry.ts',
   'src/extension-socket.ts',
-  'src/legacy-extension.ts',
   'src/security.ts',
   'src/websocket-server.ts',
   'src/shared.ts'

@@ -331,7 +331,7 @@ async function scenario(a, b, mode, incompatible) {
           extension.send(
             JSON.stringify({
               type: 'runtimeHello',
-              extensionVersion: '0.22.0',
+              extensionVersion: '1.1.1',
               extensionRuntimeFingerprint: 'b'.repeat(64),
               protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
               terminalReceipts: true,

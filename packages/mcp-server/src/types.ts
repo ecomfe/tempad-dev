@@ -6,11 +6,8 @@ export interface ExtensionConnection {
   ws: WebSocket
   origin: string
   connectedAt: string
-  // Only an explicitly negotiated legacy connection bypasses session/runtime routing.
-  legacy?: boolean
   sessions?: FigmaSessionsMessage
   runtime?: {
-    protocolVersion: number
     version: string
     fingerprint: string
     terminalReceipts?: true

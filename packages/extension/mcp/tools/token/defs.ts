@@ -1,83 +1,21 @@
-import type { GetTokenDefsResult, TokenEntry } from '@tempad-dev/shared'
+import type { TokenDefinitions, TokenEntry } from '@tempad-dev/shared'
 
-import {
-  MCP_TOOL_INLINE_BUDGET_BYTES,
-  buildGetTokenDefsToolResult,
-  measureCallToolResultBytes
-} from '@tempad-dev/shared'
-
-import type { CodegenConfig } from '@/utils/codegen'
-
-import { activePlugin } from '@/ui/state'
 import { logger } from '@/utils/log'
 
 import type { TokenReadContext } from './context'
 
-import { currentCodegenConfig } from '../config'
-import { createTokenReadContext } from './context'
-import {
-  isVariableAlias,
-  pickPreferredModeId,
-  readActiveModeId,
-  serializeVariableValue
-} from './value'
-
-export async function handleGetTokenDefs(
-  names: string[],
-  includeAllModes = false
-): Promise<GetTokenDefsResult> {
-  const requested = new Set(names.map((name) => (name.startsWith('--') ? name : `--${name}`)))
-  const tokens = await resolveTokenDefsByNames(
-    requested,
-    currentCodegenConfig(),
-    activePlugin.value?.code,
-    { includeAllModes }
-  )
-  if (
-    measureCallToolResultBytes(buildGetTokenDefsToolResult(tokens)) > MCP_TOOL_INLINE_BUDGET_BYTES
-  ) {
-    throw new Error(
-      'Token tool result exceeded the 64 KiB inline budget. Reduce requested names or split into smaller batches and retry.'
-    )
-  }
-  return tokens
-}
-
-export async function resolveTokenDefsByNames(
-  names: Set<string>,
-  config: CodegenConfig,
-  pluginCode?: string,
-  options: { includeAllModes?: boolean } = {}
-): Promise<GetTokenDefsResult> {
-  if (!names.size) return {}
-  const context = createTokenReadContext(config, pluginCode)
-  const index = await context.getIndex()
-  const seeds = new Map<string, string>()
-  for (const name of names) {
-    const ids = index.byCanonicalName.get(name)
-    if (!ids?.length) continue
-    if (ids.length > 1) {
-      throw new Error(
-        `Token name "${name}" matches multiple variables. Use unique variable or transformed names.`
-      )
-    }
-    const id = ids[0]!
-    seeds.set(index.canonicalNameById.get(id) ?? name, id)
-  }
-  return resolveTokenDefsByIds(seeds, context, !!options.includeAllModes)
-}
+import { isVariableAlias, serializeVariableValue } from './value'
 
 // Code reads already know exact variable IDs. Resolve only those definitions and alias
 // dependencies; a file-wide name index would both lose identity and do unnecessary work.
 export async function resolveTokenDefsByIds(
   seeds: Map<string, string>,
   context: TokenReadContext,
-  includeAllModes = true,
   report: (message: string) => void = (message) => logger.warn(message),
   checkpoint?: () => void
-): Promise<GetTokenDefsResult> {
+): Promise<TokenDefinitions> {
   checkpoint?.()
-  const tokens: GetTokenDefsResult = {}
+  const tokens: TokenDefinitions = {}
   const namesById = new Map(Array.from(seeds, ([name, id]) => [id, name]))
   const idsByName = new Map<string, string | null>()
   const collectionIdsByName = new Map<string, string>()
@@ -151,15 +89,7 @@ export async function resolveTokenDefsByIds(
       }
       collectionIdsByName.set(collection.name, collection.id)
     }
-    const preferred = pickPreferredModeId(variable, {
-      defaultModeId: collection?.defaultModeId,
-      activeModeId: includeAllModes ? undefined : readActiveModeId(collection?.id)
-    })
-    const modeIds = includeAllModes
-      ? Object.keys(variable.valuesByMode)
-      : preferred
-        ? [preferred]
-        : []
+    const modeIds = Object.keys(variable.valuesByMode)
     const values: Record<string, string> = {}
     for (const modeId of modeIds) {
       checkpoint?.()

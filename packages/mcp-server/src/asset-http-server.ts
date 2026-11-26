@@ -8,7 +8,6 @@ import {
   createReadStream,
   createWriteStream,
   existsSync,
-  readFileSync,
   renameSync,
   statSync,
   unlinkSync
@@ -42,7 +41,6 @@ const ASSET_MAX_CONCURRENT_DOWNLOADS = 128
 
 export interface AssetHttpServerOptions {
   accessToken?: string
-  legacyAccessToken?: string
   port?: number
   maxAssetSizeBytes?: number
   maxAssetStoreBytes?: number
@@ -56,7 +54,7 @@ export interface AssetHttpServer {
   importImage(dataUrl: string, signal: AbortSignal): Promise<UploadAssetResult>
   start(): Promise<void>
   stop(): void
-  getBaseUrl(legacy?: boolean): string
+  getBaseUrl(): string
   readonly pendingTransfers: number
 }
 
@@ -66,9 +64,6 @@ export function createAssetHttpServer(
 ): AssetHttpServer {
   const config = getMcpServerConfig()
   const accessToken = options.accessToken ?? createCapabilityToken()
-  // Only unversioned connections receive this separate capability. Both endpoints
-  // share origin checks, concurrency reservations, quotas, and the asset store.
-  const legacyAccessToken = options.legacyAccessToken ?? createCapabilityToken()
   const maxAssetSizeBytes = options.maxAssetSizeBytes ?? config.maxAssetSizeBytes
   const maxAssetStoreBytes = options.maxAssetStoreBytes ?? config.maxAssetStoreBytes
   const maxConcurrentUploads = options.maxConcurrentUploads ?? config.maxConcurrentAssetUploads
@@ -114,9 +109,9 @@ export function createAssetHttpServer(
     port = null
   }
 
-  function getBaseUrl(legacy = false): string {
+  function getBaseUrl(): string {
     if (port === null) throw new Error('Asset HTTP server is not running.')
-    return `http://${LOOPBACK_HOST}:${port}/${legacy ? legacyAccessToken : accessToken}`
+    return `http://${LOOPBACK_HOST}:${port}/${accessToken}`
   }
 
   function handleRequest(req: IncomingMessage, res: ServerResponse): void {
@@ -157,10 +152,9 @@ export function createAssetHttpServer(
       return
     }
     const segments = url.pathname.split('/').filter(Boolean)
-    const legacy = secretsEqual(segments[0] ?? '', legacyAccessToken)
     if (
       segments.length !== 3 ||
-      (!legacy && !secretsEqual(segments[0] ?? '', accessToken)) ||
+      !secretsEqual(segments[0] ?? '', accessToken) ||
       segments[1] !== 'assets'
     ) {
       sendError(res, 404, 'Not Found')
@@ -206,7 +200,7 @@ export function createAssetHttpServer(
     }
 
     if (req.method === 'POST') {
-      if (!legacy && hash.length !== MCP_HASH_HEX_LENGTH) {
+      if (hash.length !== MCP_HASH_HEX_LENGTH) {
         sendError(res, 400, 'Legacy Asset Hashes Are Read-Only')
         return
       }
@@ -360,9 +354,7 @@ export function createAssetHttpServer(
     }
 
     const existing = store.get(hash)
-    // A short hash is not sufficient evidence of identical contents. Always read
-    // and verify legacy uploads, including retries and concurrent collisions.
-    if (existing && hash.length === MCP_HASH_HEX_LENGTH) {
+    if (existing) {
       let existingPath = existing.filePath
       if (!existsSync(existingPath) && existsSync(filePath)) {
         existing.filePath = filePath
@@ -389,7 +381,6 @@ export function createAssetHttpServer(
       const available = maxAssetStoreBytes - reservedUploadBytes - incomingBytes
       let storedBytes = getStoredAssetBytes(store, hash)
       if (storedBytes > available && available >= 0 && config.assetTtlMs > 0) {
-        // Keep the original bytes for short-hash collision checks until this upload commits.
         const pressure = { preserveHash: hash, bytesNeeded: storedBytes - available }
         if (pruneExpiredAssets(store, config.assetTtlMs, pressure).removed)
           storedBytes = getStoredAssetBytes(store, hash)
@@ -467,8 +458,7 @@ export function createAssetHttpServer(
         reply(400, { error: 'Upload Incomplete' })
         return
       }
-      const computedHash = hasher?.digest('hex') ?? hash
-      if (computedHash.slice(0, hash.length) !== hash) {
+      if (hasher && hasher.digest('hex') !== hash) {
         cleanup()
         reply(400, { error: 'Hash Mismatch' })
         return
@@ -485,25 +475,8 @@ export function createAssetHttpServer(
         const previous = store.get(hash)
         if (previous && existsSync(previous.filePath)) {
           // Another upload may have committed this hash while this body streamed.
-          if (hash.length === MCP_HASH_HEX_LENGTH) {
-            cleanup()
-            reuseExisting(previous)
-            return
-          }
-          const previousHash = createHash('sha256')
-            .update(readFileSync(previous.filePath))
-            .digest('hex')
           cleanup()
-          if (previousHash !== computedHash) {
-            reply(409, { error: 'Legacy Asset Hash Collision; update the TemPad Dev extension' })
-            return
-          }
-          store.upsert({
-            ...previous,
-            metadata: { ...previous.metadata, ...assetMetadata },
-            lastAccess: Date.now()
-          })
-          reply(200, { message: 'Asset Already Exists' })
+          reuseExisting(previous)
           return
         }
         renameSync(tmpPath, filePath)
@@ -531,11 +504,7 @@ export function createAssetHttpServer(
     try {
       const url = new URL(requestUrl, `http://${LOOPBACK_HOST}`)
       const segments = url.pathname.split('/').filter(Boolean)
-      if (
-        segments.length >= 1 &&
-        (secretsEqual(segments[0] ?? '', accessToken) ||
-          secretsEqual(segments[0] ?? '', legacyAccessToken))
-      ) {
+      if (segments[0]) {
         segments[0] = '<capability>'
       }
       return `/${segments.join('/')}`

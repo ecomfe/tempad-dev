@@ -2,8 +2,6 @@ import type { DesignAction, TempadMcpErrorPayload, ToolCompletionMessage } from 
 
 import {
   MessageFromExtensionSchema,
-  LegacyMessageFromExtensionSchema,
-  TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS,
   sameRuntimeProfile,
@@ -15,7 +13,10 @@ import { WebSocket, type RawData } from 'ws'
 import type { ExtensionRegistry } from './extension-registry'
 import type { ExtensionConnection } from './types'
 
-const CHECKOUT_HANDSHAKE_TIMEOUT_MS = 5000
+import { getRecordProperty } from './shared'
+
+const HANDSHAKE_TIMEOUT_MS = 5000
+const BRIDGE_UPGRADE_MESSAGE = 'Update to TemPad Dev extension 1.0 or later and reload Figma.'
 
 type ExtensionProtocolWarning =
   | { extensionId: string; kind: 'binary' }
@@ -24,6 +25,7 @@ type ExtensionProtocolWarning =
 type AttachExtensionSocketOptions = {
   createId: () => string
   origin: string
+  assetServerUrl: string
   registry: ExtensionRegistry
   runtimeProfile?: RuntimeProfile
   terminalReceiptGeneration?: string
@@ -51,21 +53,14 @@ export function attachExtensionSocket(
     id: options.createId(),
     origin: options.origin.toLowerCase(),
     connectedAt: new Date().toISOString(),
-    legacy: ws.protocol !== TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
     ws
   }
   const checkout = options.runtimeProfile?.kind === 'checkout'
-  const handshakeTimer = checkout
-    ? setTimeout(
-        () => ws.close(1008, 'Checkout runtime handshake timed out.'),
-        CHECKOUT_HANDSHAKE_TIMEOUT_MS
-      )
-    : undefined
-  handshakeTimer?.unref()
-  if (!checkout) {
-    options.registry.add(extension)
-    options.onConnected?.(extension.id)
-  }
+  const handshakeTimer = setTimeout(
+    () => ws.close(1008, 'Runtime handshake timed out.'),
+    HANDSHAKE_TIMEOUT_MS
+  )
+  handshakeTimer.unref()
 
   const registered: RegisteredMessage = {
     id: extension.id,
@@ -80,10 +75,16 @@ export function attachExtensionSocket(
       : {}),
     type: 'registered'
   }
-  ws.send(JSON.stringify(extension.legacy ? { type: 'registered', id: extension.id } : registered))
+  ws.send(JSON.stringify(registered))
   if (!checkout) {
-    options.onStateChange()
-    scheduleAutoActivation(options)
+    // Release brokers wait for state before hello and require the URL to stay fixed.
+    ws.send(
+      JSON.stringify({
+        type: 'state',
+        activeId: null,
+        assetServerUrl: options.assetServerUrl
+      })
+    )
   }
 
   ws.on('message', (raw: RawData, isBinary: boolean) => {
@@ -102,19 +103,16 @@ export function attachExtensionSocket(
       return
     }
 
-    const parseResult = (
-      extension.legacy ? LegacyMessageFromExtensionSchema : MessageFromExtensionSchema
-    ).safeParse(parsedJson)
+    const parseResult = MessageFromExtensionSchema.safeParse(parsedJson)
     if (!parseResult.success) {
-      if (
-        parsedJson &&
-        typeof parsedJson === 'object' &&
-        'type' in parsedJson &&
-        parsedJson.type === 'toolResult' &&
-        'id' in parsedJson &&
-        typeof parsedJson.id === 'string'
-      )
-        options.onToolError(parsedJson.id, extension.id, {
+      const type = getRecordProperty(parsedJson, 'type')
+      if (type === 'runtimeHello') {
+        ws.close(1008, `Invalid runtime handshake. ${BRIDGE_UPGRADE_MESSAGE}`)
+        return
+      }
+      const requestId = getRecordProperty(parsedJson, 'id')
+      if (type === 'toolResult' && typeof requestId === 'string')
+        options.onToolError(requestId, extension.id, {
           code: 'EXTENSION_DISCONNECTED',
           message:
             'The extension returned an invalid result. A canvas write may have completed; inspect the canvas before retrying.'
@@ -128,17 +126,7 @@ export function attachExtensionSocket(
     }
 
     const message = parseResult.data
-    if (checkout && !extension.runtime && message.type !== 'runtimeHello') {
-      ws.close(1008, 'Checkout runtime handshake required.')
-      return
-    }
-    if (
-      !extension.legacy &&
-      !extension.runtime &&
-      (message.type === 'sessions' ||
-        message.type === 'designAction' ||
-        message.type === 'toolCompletion')
-    ) {
+    if (!extension.runtime && message.type !== 'runtimeHello') {
       ws.close(1008, 'Runtime handshake required.')
       return
     }
@@ -209,16 +197,14 @@ export function attachExtensionSocket(
             ws.close(1008, 'Terminal receipts are unavailable.')
             return
           }
-          const protocolVersion = message.protocolVersion ?? 13
-          if (!TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
-            ws.close(1008, 'Unsupported extension bridge protocol.')
+          if (!TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS.includes(message.protocolVersion)) {
+            ws.close(1008, `Unsupported protocol. ${BRIDGE_UPGRADE_MESSAGE}`)
             break
           }
           if (
             extension.runtime &&
             (extension.runtime.version !== message.extensionVersion ||
               extension.runtime.fingerprint !== message.extensionRuntimeFingerprint ||
-              extension.runtime.protocolVersion !== protocolVersion ||
               extension.runtime.terminalReceipts !== message.terminalReceipts ||
               extension.runtime.durableTerminalReceipts !== message.durableTerminalReceipts)
           ) {
@@ -233,7 +219,6 @@ export function attachExtensionSocket(
           const firstHello = !extension.runtime
           clearTimeout(handshakeTimer)
           extension.runtime = {
-            protocolVersion,
             version: message.extensionVersion,
             fingerprint: message.extensionRuntimeFingerprint,
             ...(message.terminalReceipts ? { terminalReceipts: true as const } : {}),
@@ -241,7 +226,7 @@ export function attachExtensionSocket(
               ? { durableTerminalReceipts: true as const }
               : {})
           }
-          if (checkout && firstHello) {
+          if (firstHello) {
             options.registry.add(extension)
             options.onConnected?.(extension.id)
             options.onStateChange()
@@ -277,7 +262,6 @@ export function attachExtensionSocket(
     scheduleAutoActivation(options)
   })
 
-  if (checkout && extension.legacy) ws.close(1008, 'Checkout runtime identity required.')
   return extension
 }
 

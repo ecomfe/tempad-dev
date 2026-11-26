@@ -4,44 +4,8 @@ import { formatHexAlpha, normalizeCssValue } from '@/utils/css'
 
 type VariableAlias = { id: string; type?: string }
 
-type VariableModeContext = {
-  activeModeId?: string
-  defaultModeId?: string
-}
-
 export function isVariableAlias(value: unknown): value is VariableAlias {
   return !!value && typeof value === 'object' && typeof (value as VariableAlias).id === 'string'
-}
-
-export function readActiveModeId(
-  collectionId?: string,
-  onError?: (error: unknown) => void
-): string | undefined {
-  if (!collectionId) return undefined
-  const getter = (
-    figma as unknown as { variables?: { getVariableModeId?: (id: string) => string } }
-  ).variables?.getVariableModeId
-  if (typeof getter !== 'function') return undefined
-  try {
-    return getter(collectionId)
-  } catch (error) {
-    onError?.(error)
-    return undefined
-  }
-}
-
-export function pickPreferredModeId(
-  variable: Variable,
-  collection?: VariableModeContext | null
-): string | undefined {
-  const valuesByMode = variable.valuesByMode ?? {}
-  if (collection?.activeModeId && collection.activeModeId in valuesByMode) {
-    return collection.activeModeId
-  }
-  if (collection?.defaultModeId && collection.defaultModeId in valuesByMode) {
-    return collection.defaultModeId
-  }
-  return Object.keys(valuesByMode)[0]
 }
 
 export function serializeVariableValue(

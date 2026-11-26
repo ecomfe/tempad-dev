@@ -72,7 +72,6 @@ import {
   LEGACY_HOOK_EXHAUSTED_RESULT
 } from './hook-receipts'
 import MCP_INSTRUCTIONS from './instructions.md?raw'
-import { extensionUpgradeRequired, legacyToolPayload } from './legacy-extension'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
 import {
   getExtensionRuntimeIssues,
@@ -119,7 +118,6 @@ import {
   createUploadAssetToolResponse,
   presentClientToolResult
 } from './tools'
-import { assertVersionedToolSupport, versionedReadNotice } from './versioned-extension'
 import { startExtensionWebSocketServer } from './websocket-server'
 
 function hasCanvasReadEvidence(tool: ToolName, payload: unknown): boolean {
@@ -192,6 +190,7 @@ export async function startHub(
   const endpointTokens = options.prototype
     ? {
         accessToken: endpoints?.accessToken ?? createCapabilityToken(),
+        // MCP 1.0.5 requires this field when reopening the endpoint record after rollback.
         legacyAccessToken: endpoints?.legacyAccessToken ?? createCapabilityToken()
       }
     : undefined
@@ -608,9 +607,6 @@ export async function startHub(
             const result = {
               sessions: extensionRegistry.list().flatMap((value) => value.sessions?.sessions ?? [])
             }
-            if (!result.sessions.length && extensionRegistry.list().some((value) => value.legacy)) {
-              throw extensionUpgradeRequired()
-            }
             return {
               content: [{ type: 'text' as const, text: JSON.stringify(result) }],
               structuredContent: result
@@ -1003,20 +999,6 @@ export async function startHub(
           timeoutMs += MCP_NODE_READ_BATCH_WORK_BUDGET_MS
         }
         activeCalls.set(activity, Date.now() + timeoutMs * (isCanvasWrite ? 2 : 1))
-        // Task-bound calls must always resolve their original target. Legacy reads are
-        // available only when that unversioned connection is explicitly the active route.
-        const legacy = !taskId && !explicitSessionId ? extensionRegistry.getActive() : undefined
-        if (legacy?.legacy) {
-          const payload = legacyToolPayload(tool.name, parsed)
-          const registration = register<Result>(legacy.id, timeoutMs, { signal: extra.signal })
-          requestId = registration.requestId
-          try {
-            legacy.ws.send(JSON.stringify({ type: 'toolCall', id: requestId, payload }))
-          } catch (error) {
-            reject(requestId, legacy.id, coerceToolError(error))
-          }
-          return present(createToolResponse(tool, await registration.promise))
-        }
         const { extension: activeExt, session } = resolveDesignRoute(
           ownerId,
           taskId,
@@ -1033,8 +1015,6 @@ export async function startHub(
         }
 
         const runtime = isCanvasWrite ? buildAuthoringRuntimeEvidence(activeExt) : undefined
-        const protocolVersion = activeExt.runtime!.protocolVersion
-        assertVersionedToolSupport(protocolVersion, tool.name, parsedArgs)
         if (runtime && utf8Bytes({ runtime }) > MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES) {
           throw createCodedError(
             TEMPAD_MCP_ERROR_CODES.RUNTIME_IDENTITY_MISMATCH,
@@ -1108,9 +1088,7 @@ export async function startHub(
         // operation remains fenced until its definitive result or document loss.
         const payload = await registration.promise.catch((error: unknown) => {
           const code = getRecordProperty(error, 'code')
-          // Only these outcomes prove that an older or newer peer did not write.
-          // Other codes (including legacy validation failures) can arrive after
-          // mutation; an absent/unknown code is not evidence of a safe failure.
+          // Other errors can arrive after mutation and cannot release the readback fence.
           const safeFailure =
             code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED ||
             code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DELIVERY_FAILED
@@ -1138,8 +1116,7 @@ export async function startHub(
           }
         }
         const readEvidence = hasCanvasReadEvidence(tool.name, payload)
-        const notice = versionedReadNotice(protocolVersion, tool.name)
-        const response = createToolResponse(tool, payload, { runtime, notice })
+        const response = createToolResponse(tool, payload, { runtime })
         if (!response.isError && readGeneration !== undefined)
           designTasks.acknowledgeFileRead(session.fileKey, readGeneration)
         if (!response.isError && readEvidence) {
@@ -1147,7 +1124,7 @@ export async function startHub(
           designTasks.acknowledgeFileRead(session.fileKey)
         }
         const final = withCanvasReadNotice(tool.name, response, readTarget)
-        return present(final, !!notice || final !== response)
+        return present(final, final !== response)
       } catch (error) {
         const normalized = coerceToolError(error)
         log.error(
@@ -1309,12 +1286,10 @@ export async function startHub(
     payload: ToolResultMap[T['name']],
     {
       runtime,
-      includeLocalAssetPaths = true,
-      notice
+      includeLocalAssetPaths = true
     }: {
       runtime?: AuthoringRuntimeEvidence
       includeLocalAssetPaths?: boolean
-      notice?: string
     } = {}
   ): ToolResponse {
     const toolName = tool.name
@@ -1350,18 +1325,11 @@ export async function startHub(
       }
     }
 
-    if (notice) {
-      rawResult = {
-        ...rawResult,
-        content: [{ type: 'text', text: notice }, ...rawResult.content]
-      }
-    }
     const resultBytes = measureCallToolResultBytes(rawResult)
     if (resultBytes > MCP_TOOL_INLINE_BUDGET_BYTES) {
       if (includeLocalAssetPaths && (toolName === 'get_code' || toolName === 'get_screenshot')) {
         return createToolResponse(tool, payload, {
           runtime,
-          notice,
           includeLocalAssetPaths: false
         })
       }
@@ -1431,7 +1399,7 @@ export async function startHub(
       const message: StateMessage = {
         type: 'state',
         activeId,
-        assetServerUrl: assetHttpServer.getBaseUrl(extension.legacy)
+        assetServerUrl: assetHttpServer.getBaseUrl()
       }
       extension.ws.send(JSON.stringify(message))
     }
@@ -1704,7 +1672,11 @@ export async function startHub(
     assetHttpServer = createAssetHttpServer(assetStore, {
       onActivity: noteActivity,
       ...(runtimeControl
-        ? { admit: () => runtimeControl.admitting(), ...endpointTokens, port: endpoints?.httpPort }
+        ? {
+            admit: () => runtimeControl.admitting(),
+            accessToken: endpointTokens?.accessToken,
+            port: endpoints?.httpPort
+          }
         : {}),
       authorizeExtensionOrigin: (origin) =>
         extensionRegistry.getActive()?.origin === origin.toLowerCase()
@@ -1795,6 +1767,7 @@ export async function startHub(
 
   activeWss.on('connection', (ws, request) => {
     attachExtensionSocket(ws, {
+      assetServerUrl: assetHttpServer.getBaseUrl(),
       runtimeProfile: RUNTIME_PROFILE,
       terminalReceiptGeneration: terminalReceipts.generation,
       onToolCompletion: (message, extension) => {

@@ -1,4 +1,4 @@
-import type { GetTokenDefsResult } from '@tempad-dev/shared'
+import type { TokenDefinitions } from '@tempad-dev/shared'
 
 import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
@@ -39,7 +39,7 @@ type ProcessTokensInput = {
 
 type ProcessTokensResult = {
   code: string
-  tokensByCanonical: GetTokenDefsResult
+  tokensByCanonical: TokenDefinitions
   sourceIndex: Map<string, string>
   tokenMatcher?: (value: string) => boolean
   resolveNodeIds?: Set<string>
@@ -141,7 +141,6 @@ export async function processTokens({
   const tokensByCanonical = await resolveTokenDefsByIds(
     finalBridge,
     tokenContext,
-    true,
     report ? (message) => report('token-definition', message) : undefined,
     checkpoint
   )

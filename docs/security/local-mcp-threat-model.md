@@ -71,9 +71,8 @@ authentication are outside the current protocol; Origin checks must not be descr
 
 - The listener binds to `127.0.0.1` and accepts only the root path without a query string.
 - The handshake requires a syntactically valid `chrome-extension://<32-character-id>` Origin.
-- The `tempad-mcp` WebSocket subprotocol selects versioned registration; an absent subprotocol
-  selects the released read-only wire. Legacy connections cannot publish runtime/session identity,
-  obtain a task lease, or receive task-bound calls. Unknown subprotocols are rejected.
+- The listener requires the `tempad-mcp` subprotocol. A connection must complete its
+  protocol 15 runtime hello before it can become active, publish sessions or receive calls.
 - `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS` can replace compatibility mode with an exact,
   comma-separated Origin allowlist.
 - Concurrent extension connections are capped (16 by default) before registration state is
@@ -90,21 +89,16 @@ authentication are outside the current protocol; Origin checks must not be descr
 
 ### Asset HTTP server
 
-- Every hub process generates separate 256-bit random capability paths for current and legacy
-  connections. The full capability-bearing URL is
-  delivered only in the extension handshake and is redacted from request logs.
+- The Hub advertises its 256-bit random asset capability in the extension handshake and
+  keeps that URL stable for the connection. Request logs redact the capability.
 - Web Origins are rejected. Extension-origin requests must come from the currently active extension,
   and that exact Origin is echoed instead of emitting wildcard CORS. Origin-less local MCP clients
   still authenticate with the capability path.
 - Uploads enforce per-asset size, reserve aggregate quota before concurrent bodies are accepted, and
   cap concurrent uploads. Server connections and concurrent downloads are capped; HTTP headers,
   header wait time, request/response time, and keep-alive time are bounded.
-- Current uploads use full lowercase SHA-256 identifiers. The legacy capability alone permits
-  8-character SHA-256-prefix uploads for extension 0.20.0. It hashes every upload, including retries,
-  and rejects a collision with an existing asset's full content without overwriting it. This does
-  not eliminate short-hash collisions; such clients must update to export the colliding asset.
-  Both capabilities share origin policy, upload reservations, concurrency limits, and store quota.
-  Short-hash downloads remain available so upgrades do not strand cached assets.
+- All uploads require full lowercase SHA-256 identifiers. Existing short-hash downloads
+  remain available through the current read capability until the stored asset expires.
 - Downloads use attachment disposition, `nosniff`, a restrictive CSP, no referrer, and private cache
   semantics.
 - Stdio tool results may expose an existing asset-store file as `asset.localPath`. The path creates

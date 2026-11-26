@@ -1,6 +1,9 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { TEMPAD_MCP_BRIDGE_SUBPROTOCOL } from '@tempad-dev/shared'
+import {
+  TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+  TEMPAD_MCP_BRIDGE_SUBPROTOCOL
+} from '@tempad-dev/shared'
 import assert from 'node:assert/strict'
 import console from 'node:console'
 import { randomUUID } from 'node:crypto'
@@ -183,7 +186,8 @@ try {
   await until(() => registered && assetUrl, 'extension registration')
   send({
     type: 'runtimeHello',
-    extensionVersion: '0.22.0',
+    protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+    extensionVersion: '1.0.0',
     extensionRuntimeFingerprint: 'b'.repeat(64)
   })
   send({

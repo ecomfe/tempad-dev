@@ -1,3 +1,4 @@
+import { TEMPAD_MCP_BRIDGE_SUBPROTOCOL } from '@tempad-dev/shared'
 import { once } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket, WebSocketServer } from 'ws'
@@ -25,7 +26,9 @@ describe('extension WebSocket server', () => {
     })
     servers.push(started.server)
     const connected = once(started.server, 'connection')
-    const socket = new WebSocket(`ws://127.0.0.1:${started.port}/`, { origin: STORE_ORIGIN })
+    const socket = new WebSocket(`ws://127.0.0.1:${started.port}/`, TEMPAD_MCP_BRIDGE_SUBPROTOCOL, {
+      origin: STORE_ORIGIN
+    })
     try {
       await waitForOpen(socket)
       const [peer] = (await connected) as [WebSocket]
@@ -44,27 +47,30 @@ describe('extension WebSocket server', () => {
     }
   })
 
-  it('rejects unknown subprotocols before registering a connection', async () => {
-    const started = await startExtensionWebSocketServer({
-      maxConnections: 2,
-      maxPayloadBytes: 1024,
-      originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
-      portCandidates: [0]
-    })
-    servers.push(started.server)
-    const connection = vi.fn()
-    started.server.on('connection', connection)
-    const socket = new WebSocket(`ws://127.0.0.1:${started.port}/`, 'unknown', {
-      origin: STORE_ORIGIN
-    })
-    await expect(
-      new Promise((resolve, reject) => {
-        socket.once('open', resolve)
-        socket.once('error', reject)
+  it.each(['', 'unknown'])(
+    'rejects unsupported protocol offers before registration (%j)',
+    async (protocol) => {
+      const started = await startExtensionWebSocketServer({
+        maxConnections: 2,
+        maxPayloadBytes: 1024,
+        originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
+        portCandidates: [0]
       })
-    ).rejects.toThrow('401')
-    expect(connection).not.toHaveBeenCalled()
-  })
+      servers.push(started.server)
+      const connection = vi.fn()
+      started.server.on('connection', connection)
+      const socket = new WebSocket(`ws://127.0.0.1:${started.port}/`, protocol ? [protocol] : [], {
+        origin: STORE_ORIGIN
+      })
+      await expect(
+        new Promise((resolve, reject) => {
+          socket.once('open', resolve)
+          socket.once('error', reject)
+        })
+      ).rejects.toThrow('401')
+      expect(connection).not.toHaveBeenCalled()
+    }
+  )
   it('accepts the configured extension Origin and rejects web Origins and query paths', async () => {
     const onRejectedHandshake = vi.fn()
     const started = await startExtensionWebSocketServer({
@@ -76,9 +82,13 @@ describe('extension WebSocket server', () => {
     })
     servers.push(started.server)
 
-    const accepted = new WebSocket(`ws://127.0.0.1:${started.port}/`, {
-      origin: STORE_ORIGIN
-    })
+    const accepted = new WebSocket(
+      `ws://127.0.0.1:${started.port}/`,
+      TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+      {
+        origin: STORE_ORIGIN
+      }
+    )
     await waitForOpen(accepted)
     accepted.close()
     await waitForClose(accepted)
@@ -126,7 +136,9 @@ describe('extension WebSocket server', () => {
     })
     servers.push(started.server)
 
-    const first = new WebSocket(`ws://127.0.0.1:${started.port}/`, { origin: STORE_ORIGIN })
+    const first = new WebSocket(`ws://127.0.0.1:${started.port}/`, TEMPAD_MCP_BRIDGE_SUBPROTOCOL, {
+      origin: STORE_ORIGIN
+    })
     await waitForOpen(first)
     await expect(rejectionStatus(`ws://127.0.0.1:${started.port}/`, STORE_ORIGIN)).resolves.toBe(
       401
@@ -135,9 +147,13 @@ describe('extension WebSocket server', () => {
 
     first.close()
     await waitForClose(first)
-    const replacement = new WebSocket(`ws://127.0.0.1:${started.port}/`, {
-      origin: STORE_ORIGIN
-    })
+    const replacement = new WebSocket(
+      `ws://127.0.0.1:${started.port}/`,
+      TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+      {
+        origin: STORE_ORIGIN
+      }
+    )
     await waitForOpen(replacement)
     replacement.close()
     await waitForClose(replacement)
@@ -182,7 +198,7 @@ function waitForClose(socket: WebSocket): Promise<void> {
 
 function rejectionStatus(url: string, origin: string): Promise<number | undefined> {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(url, { origin })
+    const socket = new WebSocket(url, TEMPAD_MCP_BRIDGE_SUBPROTOCOL, { origin })
     socket.once('open', () => {
       socket.close()
       reject(new Error('Expected WebSocket handshake rejection.'))

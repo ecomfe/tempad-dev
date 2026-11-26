@@ -23,7 +23,6 @@ function peer(id = 'original'): ExtensionConnection {
     origin: 'chrome-extension://owner',
     connectedAt: '',
     runtime: {
-      protocolVersion: 15,
       version: '1',
       fingerprint: 'a'.repeat(64),
       terminalReceipts: true

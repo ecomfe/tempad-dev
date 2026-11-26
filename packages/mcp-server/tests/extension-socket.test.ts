@@ -14,6 +14,13 @@ import { startExtensionWebSocketServer } from '../src/websocket-server'
 
 const STORE_ORIGIN = 'chrome-extension://lgoeakbaikpkihoiphamaeopmliaimpc'
 const servers: WebSocketServer[] = []
+const ASSET_SERVER_URL = 'http://127.0.0.1:1234/capability'
+const HELLO = {
+  type: 'runtimeHello',
+  protocolVersion: 15,
+  extensionVersion: '1.0.0',
+  extensionRuntimeFingerprint: 'a'.repeat(64)
+}
 const registries: ExtensionRegistry[] = []
 
 afterEach(async () => {
@@ -24,7 +31,7 @@ afterEach(async () => {
 
 describe('extension socket lifecycle', () => {
   it.each(['checkout', 'release'] as const)(
-    'bounds only checkout handshakes and releases connection capacity (%s)',
+    'bounds silent handshakes and releases connection capacity (%s)',
     async (kind) => {
       const profile = kind === 'checkout' ? { kind, id: 'a'.repeat(16) } : { kind }
       const registry = new ExtensionRegistry(10000)
@@ -38,6 +45,7 @@ describe('extension socket lifecycle', () => {
       servers.push(started.server)
       started.server.on('connection', (socket) =>
         attachExtensionSocket(socket, {
+          assetServerUrl: ASSET_SERVER_URL,
           createId: () => 'peer',
           origin: STORE_ORIGIN,
           registry,
@@ -63,12 +71,6 @@ describe('extension socket lifecycle', () => {
       }
       const first = await connect()
       expect(started.server.clients.size).toBe(1)
-      if (kind === 'release') {
-        await vi.advanceTimersByTimeAsync(5000)
-        expect(first.client.readyState).toBe(WebSocket.OPEN)
-        expect(registry.size).toBe(1)
-        return
-      }
       const clientClosed = once(first.client, 'close')
       const serverClosed = once(first.serverSocket, 'close')
       await vi.advanceTimersByTimeAsync(5000)
@@ -95,7 +97,7 @@ describe('extension socket lifecycle', () => {
     }
   )
 
-  it.each(['matching', 'foreign', 'missing', 'legacy', 'premature'] as const)(
+  it.each(['matching', 'foreign', 'missing', 'premature'] as const)(
     'gates checkout routes and assets until the %s peer is verified',
     async (kind) => {
       const profile = { kind: 'checkout' as const, id: 'a'.repeat(16) }
@@ -111,6 +113,7 @@ describe('extension socket lifecycle', () => {
       const onConnected = vi.fn()
       started.server.on('connection', (socket) =>
         attachExtensionSocket(socket, {
+          assetServerUrl: ASSET_SERVER_URL,
           createId: () => 'checkout',
           origin: STORE_ORIGIN,
           registry,
@@ -132,7 +135,7 @@ describe('extension socket lifecycle', () => {
       )
       const client = new WebSocket(
         `ws://127.0.0.1:${started.port}`,
-        kind === 'legacy' ? [] : TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+        TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
         { origin: STORE_ORIGIN }
       )
       const closed = waitForClose(client)
@@ -144,7 +147,7 @@ describe('extension socket lifecycle', () => {
       expect(registry.getActive()).toBeUndefined()
       expect(frames.some((frame) => frame.type === 'state')).toBe(false)
       if (kind === 'premature') client.send(JSON.stringify({ type: 'activate' }))
-      else if (kind !== 'legacy')
+      else
         client.send(
           JSON.stringify({
             type: 'runtimeHello',
@@ -183,6 +186,7 @@ describe('extension socket lifecycle', () => {
     servers.push(started.server)
     started.server.on('connection', (socket) =>
       attachExtensionSocket(socket, {
+        assetServerUrl: ASSET_SERVER_URL,
         createId: () => 'rejected',
         origin: STORE_ORIGIN,
         registry,
@@ -198,18 +202,13 @@ describe('extension socket lifecycle', () => {
     })
     await waitForOpen(client)
     const closed = waitForClose(client)
-    const hello = {
-      type: 'runtimeHello',
-      extensionVersion: '1.0.0',
-      extensionRuntimeFingerprint: 'a'.repeat(64)
-    }
     client.send(
       JSON.stringify({
-        ...hello,
+        ...HELLO,
         protocolVersion: Math.max(...TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS) + 1
       })
     )
-    client.send(JSON.stringify({ ...hello, protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION }))
+    client.send(JSON.stringify(HELLO))
     client.send(JSON.stringify({ type: 'activate' }))
 
     await closed
@@ -229,6 +228,7 @@ describe('extension socket lifecycle', () => {
     const onToolCompletion = vi.fn().mockReturnValue(true)
     const onSocketError = vi.fn()
     attachExtensionSocket(socket as unknown as WebSocket, {
+      assetServerUrl: ASSET_SERVER_URL,
       createId: () => 'extension',
       origin: STORE_ORIGIN,
       registry,
@@ -264,6 +264,7 @@ describe('extension socket lifecycle', () => {
       close: vi.fn()
     })
     attachExtensionSocket(negotiated as unknown as WebSocket, {
+      assetServerUrl: ASSET_SERVER_URL,
       createId: () => 'negotiated',
       origin: STORE_ORIGIN,
       registry,
@@ -302,6 +303,7 @@ describe('extension socket lifecycle', () => {
         close: vi.fn()
       })
       attachExtensionSocket(socket as unknown as WebSocket, {
+        assetServerUrl: ASSET_SERVER_URL,
         createId: () => id,
         origin: STORE_ORIGIN,
         registry,
@@ -323,20 +325,15 @@ describe('extension socket lifecycle', () => {
         { sessionId: 'session', fileKey: 'file', fileName: 'File', pageId: 'page', busy: false }
       ]
     }
-    const hello = {
-      type: 'runtimeHello',
-      extensionVersion: '1.0.0',
-      extensionRuntimeFingerprint: 'a'.repeat(64)
-    }
     const missing = peer('missing')
     missing.send(sessions)
     expect(missing.socket.close).toHaveBeenCalledWith(1008, 'Runtime handshake required.')
     expect(onSessions).not.toHaveBeenCalled()
     const owner = peer('owner')
-    owner.send(hello)
+    owner.send(HELLO)
     owner.send(sessions)
     const attacker = peer('attacker')
-    attacker.send(hello)
+    attacker.send(HELLO)
     attacker.send(sessions)
     expect(attacker.socket.close).toHaveBeenCalledWith(1008, 'Figma session is already registered.')
     expect(onSessions).toHaveBeenCalledOnce()
@@ -357,6 +354,7 @@ describe('extension socket lifecycle', () => {
       servers.push(started.server)
       started.server.on('connection', (socket) =>
         attachExtensionSocket(socket, {
+          assetServerUrl: ASSET_SERVER_URL,
           createId: () => 'versioned',
           origin: STORE_ORIGIN,
           registry,
@@ -375,95 +373,22 @@ describe('extension socket lifecycle', () => {
       const hello = {
         type: 'runtimeHello',
         protocolVersion,
-        extensionVersion: '0.22.0',
+        extensionVersion: '0.23.0',
         extensionRuntimeFingerprint: 'a'.repeat(64)
       }
       client.send(JSON.stringify(hello))
-      if (protocolVersion === 14 || protocolVersion === 16) {
+      if (protocolVersion !== TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION) {
         await waitUntil(() => client.readyState === WebSocket.CLOSED)
         expect(onRuntimeHello).not.toHaveBeenCalled()
         return
       }
       await waitUntil(() => onRuntimeHello.mock.calls.length === 1)
-      expect(registry.list()[0]?.runtime?.protocolVersion).toBe(protocolVersion ?? 13)
-      client.send(JSON.stringify({ ...hello, protocolVersion: protocolVersion === 15 ? 13 : 15 }))
+      expect(registry.list()[0]?.runtime?.version).toBe(hello.extensionVersion)
+      client.send(JSON.stringify({ ...hello, extensionRuntimeFingerprint: 'b'.repeat(64) }))
       await waitUntil(() => client.readyState === WebSocket.CLOSED)
       expect(onRuntimeHello).toHaveBeenCalledTimes(1)
     }
   )
-  it('keeps unversioned peers read-only and does not send version fields', async () => {
-    const registry = new ExtensionRegistry(10_000)
-    registries.push(registry)
-    const onSessions = vi.fn()
-    const onRuntimeHello = vi.fn()
-    const onDesignAction = vi.fn()
-    const onProtocolWarning = vi.fn()
-    const onToolResult = vi.fn()
-    const started = await startExtensionWebSocketServer({
-      maxConnections: 2,
-      maxPayloadBytes: 4096,
-      originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
-      portCandidates: [0]
-    })
-    servers.push(started.server)
-    started.server.on('connection', (socket) =>
-      attachExtensionSocket(socket, {
-        createId: () => 'legacy',
-        origin: STORE_ORIGIN,
-        registry,
-        onSessions,
-        onRuntimeHello,
-        onDesignAction,
-        onProtocolWarning,
-        onToolResult,
-        onStateChange: () => {},
-        onToolError: () => {}
-      })
-    )
-    const received: unknown[] = []
-    const client = new WebSocket(`ws://127.0.0.1:${started.port}/`, { origin: STORE_ORIGIN })
-    client.on('message', (data) => received.push(JSON.parse(data.toString())))
-    await waitForOpen(client)
-    await waitUntil(() => received.length === 1)
-    expect(received).toEqual([{ type: 'registered', id: 'legacy' }])
-    client.send(JSON.stringify({ type: 'activate' }))
-    client.send(
-      JSON.stringify({
-        type: 'runtimeHello',
-        extensionVersion: '0.21.0',
-        extensionRuntimeFingerprint: 'a'.repeat(64)
-      })
-    )
-    client.send(
-      JSON.stringify({
-        type: 'sessions',
-        browserId: 'browser',
-        activeSessionId: null,
-        sessions: []
-      })
-    )
-    client.send(
-      JSON.stringify({
-        type: 'designAction',
-        sessionId: 'tab',
-        action: {
-          requestId: '00000000-0000-4000-8000-000000000001',
-          taskId: 'task',
-          epoch: 0,
-          action: 'stop'
-        }
-      })
-    )
-    client.send(JSON.stringify({ type: 'toolResult', id: 'req', payload: { roots: [] } }))
-    await waitUntil(() => onToolResult.mock.calls.length === 1)
-    expect(registry.getActive()).toMatchObject({ id: 'legacy', legacy: true })
-    expect(onProtocolWarning).toHaveBeenCalledTimes(3)
-    expect(onRuntimeHello).not.toHaveBeenCalled()
-    expect(onSessions).not.toHaveBeenCalled()
-    expect(onDesignAction).not.toHaveBeenCalled()
-    expect(registry.getActive()?.runtime).toBeUndefined()
-    expect(registry.getActive()?.sessions).toBeUndefined()
-  })
   it('registers, activates, routes results, rejects invalid messages, and disconnects', async () => {
     const registry = new ExtensionRegistry(10_000)
     registries.push(registry)
@@ -488,12 +413,13 @@ describe('extension socket lifecycle', () => {
       const message = JSON.stringify({
         type: 'state',
         activeId: registry.getActiveId(),
-        assetServerUrl: 'http://127.0.0.1:1234/capability'
+        assetServerUrl: ASSET_SERVER_URL
       })
       registry.list().forEach(({ ws }) => ws.send(message))
     }
     started.server.on('connection', (socket, request) => {
       attachExtensionSocket(socket, {
+        assetServerUrl: ASSET_SERVER_URL,
         createId: () => 'ext-1',
         origin: request.headers.origin ?? '',
         registry,
@@ -518,7 +444,7 @@ describe('extension socket lifecycle', () => {
     await waitForOpen(client)
     await waitUntil(() => received.length >= 2)
 
-    expect(onConnected).toHaveBeenCalledWith('ext-1')
+    expect(onConnected).not.toHaveBeenCalled()
     expect(received).toEqual([
       {
         id: 'ext-1',
@@ -529,21 +455,18 @@ describe('extension socket lifecycle', () => {
       },
       {
         activeId: null,
-        assetServerUrl: 'http://127.0.0.1:1234/capability',
+        assetServerUrl: ASSET_SERVER_URL,
         type: 'state'
       }
     ])
 
-    client.send(
-      JSON.stringify({
-        type: 'runtimeHello',
-        extensionVersion: '0.21.0',
-        extensionRuntimeFingerprint: 'a'.repeat(64)
-      })
-    )
+    client.send(JSON.stringify(HELLO))
     await waitUntil(() => onRuntimeHello.mock.calls.length === 1)
+    expect(onConnected).toHaveBeenCalledWith('ext-1')
+    await waitUntil(() => received.length >= 3)
+    expect(received[2]).toMatchObject({ type: 'state', assetServerUrl: ASSET_SERVER_URL })
     expect(registry.list()[0]).toMatchObject({
-      runtime: { version: '0.21.0', fingerprint: 'a'.repeat(64) }
+      runtime: { version: '1.0.0', fingerprint: 'a'.repeat(64) }
     })
 
     const sessions = {
@@ -638,13 +561,14 @@ describe('extension socket lifecycle', () => {
     const onSocketError = vi.fn()
     const started = await startExtensionWebSocketServer({
       maxConnections: 1,
-      maxPayloadBytes: 32,
+      maxPayloadBytes: 256,
       originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
       portCandidates: [0]
     })
     servers.push(started.server)
     started.server.on('connection', (socket, request) => {
       attachExtensionSocket(socket, {
+        assetServerUrl: ASSET_SERVER_URL,
         createId: () => 'ext-oversized',
         origin: request.headers.origin ?? '',
         registry,
@@ -656,12 +580,14 @@ describe('extension socket lifecycle', () => {
       })
     })
 
-    const client = new WebSocket(`ws://127.0.0.1:${started.port}/`, {
+    const client = new WebSocket(`ws://127.0.0.1:${started.port}/`, TEMPAD_MCP_BRIDGE_SUBPROTOCOL, {
       origin: STORE_ORIGIN
     })
     await waitForOpen(client)
     const closed = waitForClose(client)
-    client.send('x'.repeat(64))
+    client.send(JSON.stringify(HELLO))
+    await waitUntil(() => registry.size === 1)
+    client.send('x'.repeat(257))
 
     await closed
     await waitUntil(
@@ -688,6 +614,7 @@ describe('extension socket lifecycle', () => {
     started.server.on('connection', (socket, request) => {
       connectionIndex += 1
       attachExtensionSocket(socket, {
+        assetServerUrl: ASSET_SERVER_URL,
         createId: () => `ext-${connectionIndex}`,
         origin: request.headers.origin ?? '',
         registry,
@@ -699,14 +626,23 @@ describe('extension socket lifecycle', () => {
     })
 
     const otherOrigin = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-    const first = new WebSocket(`ws://127.0.0.1:${started.port}/`, { origin: STORE_ORIGIN })
-    await waitForOpen(first)
-    const other = new WebSocket(`ws://127.0.0.1:${started.port}/`, { origin: otherOrigin })
-    await waitForOpen(other)
-    const reconnected = new WebSocket(`ws://127.0.0.1:${started.port}/`, {
+    const first = new WebSocket(`ws://127.0.0.1:${started.port}/`, TEMPAD_MCP_BRIDGE_SUBPROTOCOL, {
       origin: STORE_ORIGIN
     })
+    await waitForOpen(first)
+    const other = new WebSocket(`ws://127.0.0.1:${started.port}/`, TEMPAD_MCP_BRIDGE_SUBPROTOCOL, {
+      origin: otherOrigin
+    })
+    await waitForOpen(other)
+    const reconnected = new WebSocket(
+      `ws://127.0.0.1:${started.port}/`,
+      TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+      {
+        origin: STORE_ORIGIN
+      }
+    )
     await waitForOpen(reconnected)
+    for (const peer of [first, other, reconnected]) peer.send(JSON.stringify(HELLO))
     await waitUntil(() => registry.size === 3)
 
     first.send(JSON.stringify({ type: 'activate' }))

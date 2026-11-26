@@ -5,7 +5,6 @@ import type {
   GetScreenshotResult,
   GetScreenshotReadResult,
   GetStructureResult,
-  GetTokenDefsResult,
   UploadAssetResult,
   NodeReadBatchResult
 } from './tools'
@@ -167,19 +166,6 @@ export function buildGetStructureToolResult(payload: GetStructureResult): ToolRe
       ? { isError: true }
       : {})
   }
-}
-
-export function buildGetTokenDefsToolResult(payload: GetTokenDefsResult): ToolResponseLike {
-  const count = Object.keys(payload).length
-  const summary =
-    count === 0
-      ? 'No token definitions were resolved.'
-      : `Resolved ${formatCount(count, 'token definition')}.`
-
-  return buildTextToolResult(
-    `${summary}\nRead structuredContent for token values and aliases.`,
-    payload
-  )
 }
 
 export function buildGetScreenshotToolResult(payload: GetScreenshotReadResult): ToolResponseLike {

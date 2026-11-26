@@ -35,7 +35,6 @@ import {
   hookSignature,
   type HookReceipt
 } from './hook-receipts'
-import { extensionUpgradeRequired } from './legacy-extension'
 
 type TerminalStatus = Exclude<DesignTask['status'], 'active' | 'stopping'>
 type BrowserIdentity = { browserId: string; origin: string }
@@ -124,7 +123,6 @@ export function resolveDesignTarget(
           )
         )
       : undefined)
-  if (extension?.legacy) throw extensionUpgradeRequired()
   const sessionId =
     explicitSessionId ?? record?.task.target.sessionId ?? extension?.sessions?.activeSessionId
   const session = extension?.sessions?.sessions.find((value) => value.sessionId === sessionId)

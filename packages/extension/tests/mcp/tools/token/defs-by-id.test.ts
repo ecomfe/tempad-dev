@@ -48,7 +48,7 @@ describe('used token definitions', () => {
     } as VariableCollection)
     const report = vi.fn()
 
-    expect(await resolveTokenDefsByIds(new Map([['--seed', '0']]), context, true, report)).toEqual({
+    expect(await resolveTokenDefsByIds(new Map([['--seed', '0']]), context, report)).toEqual({
       '--seed': { kind: 'number', value: { 'Theme:Default': '1px', 'Theme:missing': '2px' } }
     })
     expect(report).toHaveBeenCalledWith(expect.stringContaining('missing'))
@@ -70,7 +70,7 @@ describe('used token definitions', () => {
     const context = createTokenReadContext(config)
     await expect(
       withCodeDeadline(20, (_signal, checkpoint) =>
-        resolveTokenDefsByIds(new Map([['--seed', '0']]), context, true, vi.fn(), checkpoint)
+        resolveTokenDefsByIds(new Map([['--seed', '0']]), context, vi.fn(), checkpoint)
       )
     ).rejects.toThrow('timed out')
     expect(reads).toBe(2)
@@ -98,7 +98,7 @@ describe('used token definitions', () => {
     let work!: Promise<unknown>
     const timedOut = expect(
       withCodeDeadline(20, (_signal, checkpoint) => {
-        work = resolveTokenDefsByIds(new Map([['--seed', '0']]), context, true, vi.fn(), checkpoint)
+        work = resolveTokenDefsByIds(new Map([['--seed', '0']]), context, vi.fn(), checkpoint)
         return work
       })
     ).rejects.toThrow('timed out')
@@ -110,7 +110,7 @@ describe('used token definitions', () => {
     await expect(work).rejects.toThrow('timed out')
     expect(runTransformVariableBatch).toHaveBeenCalledTimes(1)
     const result = await withCodeDeadline(1000, (_signal, checkpoint) =>
-      resolveTokenDefsByIds(new Map([['--seed', '0']]), context, true, vi.fn(), checkpoint)
+      resolveTokenDefsByIds(new Map([['--seed', '0']]), context, vi.fn(), checkpoint)
     )
     expect(Object.keys(result)).toHaveLength(1000)
     expect(result['--seed']?.value).toBe('--token-1')
@@ -146,7 +146,7 @@ describe('used token definitions', () => {
           { modeId: 'dark', name: 'Dark' }
         ]
       } as VariableCollection)
-      const definitions = await resolveTokenDefsByIds(new Map([[name, 'v']]), context, true)
+      const definitions = await resolveTokenDefsByIds(new Map([[name, 'v']]), context)
       expect(definitions[name]?.value).toMatchObject({ 'Theme:Dark': expected })
     }
   )
@@ -165,12 +165,10 @@ describe('used token definitions', () => {
       name: 'Size',
       modes: [{ modeId: 'm', name: 'Default' }]
     } as VariableCollection)
-    const index = vi.spyOn(context, 'getIndex')
     const name = vi.spyOn(context, 'getName')
     expect(await resolveTokenDefsByIds(new Map([['--transformed', 'v']]), context)).toEqual({
       '--transformed': { kind: 'number', value: '8px' }
     })
-    expect(index).not.toHaveBeenCalled()
     expect(name).not.toHaveBeenCalled()
   })
 
@@ -178,7 +176,7 @@ describe('used token definitions', () => {
     const context = createTokenReadContext(config, undefined, new Map([['missing', null]]))
     const report = vi.fn()
     expect(
-      await resolveTokenDefsByIds(new Map([['--missing', 'missing']]), context, true, report)
+      await resolveTokenDefsByIds(new Map([['--missing', 'missing']]), context, report)
     ).toEqual({})
     expect(report).toHaveBeenCalledWith(expect.stringContaining('missing'))
     expect(await resolveTokenDefsByIds(new Map(), context)).toEqual({})

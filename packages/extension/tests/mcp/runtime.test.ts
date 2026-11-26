@@ -9,8 +9,7 @@ const mocks = vi.hoisted(() => ({
   runGetCode: vi.fn(),
   runGetDesignSystem: vi.fn(),
   runGetScreenshot: vi.fn(),
-  runGetStructure: vi.fn(),
-  runGetTokenDefs: vi.fn()
+  runGetStructure: vi.fn()
 }))
 
 vi.mock('@/ui/state', () => ({
@@ -35,10 +34,6 @@ vi.mock('@/mcp/tools/screenshot', () => ({
 
 vi.mock('@/mcp/tools/structure', () => ({
   handleGetStructure: mocks.runGetStructure
-}))
-
-vi.mock('@/mcp/tools/token', () => ({
-  handleGetTokenDefs: mocks.runGetTokenDefs
 }))
 
 function createSceneNode(id: string, visible = true): SceneNode {
@@ -75,14 +70,7 @@ describe('mcp/runtime', () => {
     const runtime = await importRuntime()
 
     expect(new Set(Object.keys(runtime.MCP_TOOL_HANDLERS))).toEqual(
-      new Set([
-        'apply_canvas',
-        'get_code',
-        'get_design_system',
-        'get_token_defs',
-        'get_screenshot',
-        'get_structure'
-      ])
+      new Set(['apply_canvas', 'get_code', 'get_design_system', 'get_screenshot', 'get_structure'])
     )
     expect(typeof (globalThis as { window?: unknown }).window).toBe('undefined')
   }, 15000)
@@ -299,20 +287,11 @@ describe('mcp/runtime', () => {
     })
   })
 
-  it('validates get_token_defs input and forwards includeAllModes', async () => {
-    setFigmaGetNodeById(null)
-    mocks.runGetTokenDefs.mockResolvedValue({ defs: [] })
+  it('rejects the retired standalone token tool', async () => {
     const runtime = await importRuntime()
-
-    await expect(runtime.MCP_TOOL_HANDLERS.get_token_defs()).rejects.toThrow(
-      'names is required and must include at least one canonical token name.'
-    )
-
-    await runtime.MCP_TOOL_HANDLERS.get_token_defs({
-      names: ['color-primary'],
-      includeAllModes: true
-    })
-    expect(mocks.runGetTokenDefs).toHaveBeenCalledWith(['color-primary'], true)
+    await expect(
+      runtime.runMcpTool('get_token_defs', { names: ['--color-primary'] })
+    ).rejects.toThrow('No handler registered for tool "get_token_defs".')
   })
 
   it('routes screenshot and structure calls with node resolution and depth options', async () => {

@@ -2,7 +2,7 @@ import type { ZodObject, ZodRawShape, ZodType } from 'zod'
 
 import { z } from 'zod'
 
-import { MCP_HASH_PATTERN, MCP_MAX_ASSET_BYTES } from './constants'
+import { MCP_FULL_HASH_PATTERN, MCP_HASH_PATTERN, MCP_MAX_ASSET_BYTES } from './constants'
 import {
   DesignTaskSchema,
   DesignToolRouteSchema,
@@ -58,7 +58,7 @@ const AssetMetadataSchema = z
 const AssetUploadPayloadSchema = z
   .object({
     base64: z.string().min(1).max(MCP_MAX_ASSET_BASE64_LENGTH),
-    hash: z.string().regex(MCP_HASH_PATTERN),
+    hash: z.string().regex(MCP_FULL_HASH_PATTERN),
     metadata: AssetMetadataSchema.optional(),
     mimeType: z.string().min(1)
   })

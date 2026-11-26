@@ -44,8 +44,7 @@ export async function startExtensionWebSocketServer({
         const protocol = info.req.headers['sec-websocket-protocol']
         const allowed =
           isAllowedWebSocketRequest(info.origin, info.req.url, originPolicy) &&
-          (!protocol ||
-            protocol.split(',').some((value) => value.trim() === TEMPAD_MCP_BRIDGE_SUBPROTOCOL))
+          !!protocol?.split(',').some((value) => value.trim() === TEMPAD_MCP_BRIDGE_SUBPROTOCOL)
         if (!allowed) onRejectedHandshake?.(info.origin, info.req.url)
         return allowed
       }

@@ -3,7 +3,7 @@ import type {
   GetCodeParametersInput,
   GetCodeResult,
   GetCodeWarning,
-  GetTokenDefsResult,
+  TokenDefinitions,
   ToolResponseLike
 } from '@tempad-dev/shared'
 
@@ -137,7 +137,7 @@ type PipelineOutput = {
   code: string
   lang: CodeLanguage
   pluginApplied: boolean
-  tokens?: GetTokenDefsResult
+  tokens?: TokenDefinitions
   tokenWarnings?: GetCodeWarning[]
 }
 

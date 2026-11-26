@@ -322,7 +322,7 @@ rather than the `bg-[...]` image/color utilities.
   responses. Overlapping roots and timeout shells reuse them within the call; each root selects
   its language independently. Aborted or expired attempts cannot publish late responses into the cache.
 - `variables`: request-scoped `Variable | null` lookup map.
-- `tokens`: request-scoped collection/name lookups and raw native values keyed by consumer node ID and variable ID. Code reads traverse exact IDs and aliases without indexing all local variables. The names-only `get_token_defs` request creates its own fresh context and lazy full index.
+- `tokens`: request-scoped collection/name lookups and raw native values keyed by consumer node ID and variable ID. Code reads traverse exact IDs and aliases without indexing all local variables.
 - `styles`: request-scoped `BaseStyle | null` lookup map.
 - `paintStyles`: `PaintStyleSummary` values containing raw paints plus size-independent facts, such as visible paint count and single-solid-channel analysis.
 - Text range variable bindings: request-scoped results keyed by text node, character range, and

@@ -567,10 +567,10 @@ describe('tools response helpers', () => {
   })
 
   it('formats inline budget errors with recovery guidance', () => {
-    const result = createInlineBudgetExceededToolResponse('get_token_defs', 70000)
+    const result = createInlineBudgetExceededToolResponse('get_structure', 70000)
     expect(result.isError).toBe(true)
     expect(textContent(result.content[0])).toContain('64 KiB inline budget')
-    expect(textContent(result.content[0])).toContain('split them into smaller batches')
+    expect(textContent(result.content[0])).toContain('smaller depth')
 
     const writeError = textContent(
       createInlineBudgetExceededToolResponse('apply_canvas', 70000).content[0]
@@ -600,7 +600,7 @@ describe('tools response helpers', () => {
     expect(textContent(connectivityError.content[0])).toContain('Exact sessionId reads')
     expect(textContent(connectivityError.content[0])).toContain('reports a protocol mismatch')
     expect(textContent(connectivityError.content[0])).toContain(
-      'update TemPad Dev and its agent plugin'
+      'update to TemPad Dev extension 1.0 or later and update its agent plugin'
     )
     expect(textContent(connectivityError.content[0])).toContain('confirm the intended session')
 

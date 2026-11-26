@@ -133,8 +133,7 @@ export const RuntimeHelloMessageSchema = z
   .object({
     type: z.literal('runtimeHello'),
     runtimeProfile: RuntimeProfileSchema.optional(),
-    // Released protocol 13 peers omit this field. The Hub treats omission conservatively as 13.
-    protocolVersion: z.number().int().positive().optional(),
+    protocolVersion: z.number().int().positive(),
     terminalReceipts: z.literal(true).optional(),
     durableTerminalReceipts: z.literal(true).optional(),
     extensionVersion: z.string().min(1),
@@ -163,13 +162,6 @@ export const MessageFromExtensionSchema = z.union([
   ToolResultMessageSchema,
   RuntimeHelloMessageSchema,
   FigmaSessionsMessageSchema,
-  PingMessageSchema
-])
-
-// Unversioned clients cannot publish sessions, runtime identity, or design actions.
-export const LegacyMessageFromExtensionSchema = z.union([
-  ActivateMessageSchema,
-  ToolResultMessageSchema,
   PingMessageSchema
 ])
 

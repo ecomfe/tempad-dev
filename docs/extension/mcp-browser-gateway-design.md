@@ -65,25 +65,15 @@ versions, request/result adaptations, capability-specific upgrade errors, and mi
 Freeze receiving schemas from the released revision rather than importing current shared schemas
 in compatibility fixtures. A version bump alone does not complete a migration.
 
-### Protocol 13 transition
+### Supported extensions
 
-The Hub serves both released protocol 13 (extension 0.22.0) and protocol 15 (extension 0.23.0).
-Current extensions include `protocolVersion` in `runtimeHello`; a missing field conservatively
-selects protocol 13. Package versions and runtime fingerprints do not select capabilities.
-An unsupported version or a changed runtime identity/protocol on an open connection closes it.
-No tool call is dispatched without a runtime identity. Protocol 13 retains the versioned session,
-task, canvas-write, and full-hash asset paths; it does not enter the unversioned read-only adapter.
+MCP 2.0 supports extensions from 1.0.0. The WebSocket upgrade requires the `tempad-mcp`
+subprotocol. Before routing tools, the Hub requires a runtime hello declaring protocol 15.
+The package version and build fingerprint identify the peer. Optional terminal receipt flags
+are negotiated per connection. Extension 1.0.0 can complete writes without them.
 
-The session, task, route, and action-result payloads are unchanged from protocol 13. The Hub
-rejects `nodeIds`, structure `depth: 0`, and `get_code.resolveTokens: true` with
-`EXTENSION_UPGRADE_REQUIRED` before dispatch to that peer. Other released arguments are preserved.
-Read responses explicitly identify older selection and token semantics; the Hub neither invents
-alias dependencies nor claims consumer-aware token resolution. Exact `nodeId` reads remain the
-continuation path. Compatibility notices count toward the same inline response budget.
-
-`pnpm mcp:check-bridge` exercises the built Hub against frozen extension 0.22.0 schemas alongside
-current and unversioned peers, covering reads, tasks, writes, assets, reconnects, and routing fences.
-Keep protocol 13 for at least one store cycle; removal requires a separate migration decision.
+`pnpm mcp:check-bridge` tests the minimum supported wire contract independently of the current
+schemas, including read/write routing, assets and reconnects.
 
 Runtime identities record the observed builds; changed source fingerprints, versions,
 executable hashes, or build timestamps do not determine compatibility. The modifying
@@ -94,30 +84,7 @@ protocol validation, connection ownership, and stale-request checks remain enfor
 Checkout identity must match during the handshake. Exact source/build matching belongs to
 preflight and the frozen run record.
 
-### Released unversioned extensions
-
-Extension 0.20.0 sends no WebSocket subprotocol and strictly rejects extra registration fields.
-For these connections the Hub sends only `{type: "registered", id}` and the old state/tool-call
-envelopes. It accepts only activation, ping, and tool-result frames. Session inventories, runtime
-identity, design actions, and design-task messages are unavailable on this path. Unknown
-subprotocols are rejected during the HTTP upgrade.
-
-The active legacy connection can serve taskless `get_code`, `get_screenshot`, and node-based
-`get_structure` with their released arguments and result shapes. The internal token tool contract
-is retained without changing its public exposure. New arguments such as page identity or native
-read-back, and canvas authoring operations, return `EXTENSION_UPGRADE_REQUIRED` before dispatch.
-The Hub never fabricates a session or task lease for an old tab. Calls carrying a task id always
-resolve their original bound session, even when a legacy connection becomes active or replaces
-a disconnected current connection. Current peers still require their runtime identity handshake.
-
-Legacy connections receive a separate random asset capability from the same HTTP server.
-That capability permits their 8-character SHA-256-prefix uploads; the current capability continues
-to require full SHA-256 uploads. Both use the same Origin checks, quota, concurrent-upload limit,
-and store. Legacy retries are fully hashed, and an existing short hash with different full content
-returns a collision error without changing its bytes. Existing short-hash downloads remain valid.
-
-Keep this adapter for at least one store cycle. Its removal requires an explicit breaking migration;
-see [release coordination](../releasing.md#bridge-protocol-and-release-order).
+### Session selection
 
 The hub chooses the active browser connection. Inside that connection, the broker chooses the
 active Figma session. A sole session is selected automatically. More than one session requires an

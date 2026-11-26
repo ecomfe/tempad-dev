@@ -1,34 +1,23 @@
-import { MCP_TOOL_INLINE_BUDGET_BYTES } from '@tempad-dev/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
 const mocks = vi.hoisted(() => ({
-  getTokenIndex: vi.fn(),
   canonicalizeName: vi.fn(),
   canonicalizeNames: vi.fn(),
   getVariableRawName: vi.fn(),
-  currentCodegenConfig: vi.fn(),
   formatHexAlpha: vi.fn(),
   normalizeCssValue: vi.fn(),
   logger: {
     warn: vi.fn(),
     error: vi.fn()
-  },
-  activePlugin: {
-    value: null as { code?: string } | null
   }
 }))
 
 vi.mock('@/mcp/tools/token/indexer', () => ({
-  getTokenIndex: mocks.getTokenIndex,
   canonicalizeName: mocks.canonicalizeName,
   canonicalizeNames: mocks.canonicalizeNames,
   getVariableRawName: mocks.getVariableRawName
-}))
-
-vi.mock('@/mcp/tools/config', () => ({
-  currentCodegenConfig: mocks.currentCodegenConfig
 }))
 
 vi.mock('@/utils/css', () => ({
@@ -38,10 +27,6 @@ vi.mock('@/utils/css', () => ({
 
 vi.mock('@/utils/log', () => ({
   logger: mocks.logger
-}))
-
-vi.mock('@/ui/state', () => ({
-  activePlugin: mocks.activePlugin
 }))
 
 function createVariable(
@@ -65,13 +50,6 @@ function createVariable(
   }
 }
 
-function createIndex() {
-  return {
-    byCanonicalName: new Map<string, string[]>(),
-    canonicalNameById: new Map<string, string>()
-  }
-}
-
 const TEST_CONFIG: CodegenConfig = {
   cssUnit: 'rem',
   rootFontSize: 16,
@@ -83,8 +61,6 @@ describe('mcp/tools/token/defs', () => {
     vi.resetModules()
     vi.clearAllMocks()
 
-    mocks.currentCodegenConfig.mockReturnValue(TEST_CONFIG)
-    mocks.activePlugin.value = null
     mocks.normalizeCssValue.mockImplementation((value: string) => `norm(${value})`)
     mocks.formatHexAlpha.mockReturnValue('#112233')
     mocks.getVariableRawName.mockImplementation((variable: { name: string }) => variable.name)
@@ -94,59 +70,12 @@ describe('mcp/tools/token/defs', () => {
     )
   })
 
-  it('normalizes token names and enforces payload size guard', async () => {
-    const mod = await import('@/mcp/tools/token/defs')
-    const normal = createVariable('id-normal', 'a', {
-      resolvedType: 'STRING',
-      valuesByMode: { modeA: 'ok' }
-    })
-    const huge = createVariable('id-huge', 'big', {
-      resolvedType: 'STRING',
-      valuesByMode: { modeA: 'x'.repeat(MCP_TOOL_INLINE_BUDGET_BYTES) }
-    })
-
-    const index = createIndex()
-    index.byCanonicalName.set('--a', ['id-normal'])
-    index.byCanonicalName.set('--b', ['id-normal'])
-    index.byCanonicalName.set('--big', ['id-huge'])
-    index.canonicalNameById.set('id-normal', '--a')
-    index.canonicalNameById.set('id-huge', '--big')
-    mocks.getTokenIndex.mockResolvedValue(index)
-    ;(globalThis as unknown as { figma: PluginAPI }).figma = {
-      variables: {
-        getVariableById: vi.fn((id: string) => {
-          if (id === 'id-normal') return normal
-          if (id === 'id-huge') return huge
-          return null
-        }),
-        getVariableCollectionById: vi.fn(() => ({
-          id: 'collection-1',
-          name: 'Theme',
-          defaultModeId: 'modeA',
-          modes: [{ modeId: 'modeA', name: 'Light' }]
-        })),
-        getVariableModeId: vi.fn(() => 'modeA')
-      }
-    } as unknown as PluginAPI
-
-    await expect(mod.handleGetTokenDefs(['a', '--b'], false)).resolves.toEqual({
-      '--a': { kind: 'string', value: 'ok' }
-    })
-
-    await expect(mod.handleGetTokenDefs(['big'])).rejects.toThrow(
-      'Token tool result exceeded the 64 KiB inline budget. Reduce requested names or split into smaller batches and retry.'
-    )
-  })
-
   it('resolves exact candidate IDs without building a full index', async () => {
     const mod = await import('@/mcp/tools/token/defs')
     const { createTokenReadContext } = await import('@/mcp/tools/token/context')
     const variable = createVariable('id-1', 'Spacing/Small', {
       valuesByMode: { modeA: 12 }
     })
-    const index = createIndex()
-    index.canonicalNameById.set('id-1', '--spacing-small')
-    mocks.getTokenIndex.mockResolvedValue(index)
     const getVariableById = vi.fn((id: string) => (id === 'id-1' ? variable : null))
 
     ;(globalThis as unknown as { figma: PluginAPI }).figma = {
@@ -170,24 +99,19 @@ describe('mcp/tools/token/defs', () => {
     expect(result).toEqual({
       '--spacing-small': { kind: 'number', value: 'norm(12px)' }
     })
-    expect(mocks.getTokenIndex).not.toHaveBeenCalled()
   })
 
   it('preserves alias definitions and includes alias dependencies', async () => {
     const mod = await import('@/mcp/tools/token/defs')
+    const { createTokenReadContext } = await import('@/mcp/tools/token/context')
 
     const aliasVar = createVariable('id-a', 'Alias/A', {
       valuesByMode: { modeA: { id: 'id-b' } }
     })
-    const targetVar = createVariable('id-b', 'Size/Base', {
+    const targetVar = createVariable('id-b', 'B', {
       valuesByMode: { modeA: 16 }
     })
 
-    const index = createIndex()
-    index.byCanonicalName.set('--a', ['id-a'])
-    index.canonicalNameById.set('id-a', '--a')
-    index.canonicalNameById.set('id-b', '--b')
-    mocks.getTokenIndex.mockResolvedValue(index)
     ;(globalThis as unknown as { figma: PluginAPI }).figma = {
       variables: {
         getVariableById: vi.fn((id: string) => {
@@ -205,7 +129,10 @@ describe('mcp/tools/token/defs', () => {
       }
     } as unknown as PluginAPI
 
-    const result = await mod.resolveTokenDefsByNames(new Set(['--a']), TEST_CONFIG)
+    const result = await mod.resolveTokenDefsByIds(
+      new Map([['--a', 'id-a']]),
+      createTokenReadContext(TEST_CONFIG)
+    )
 
     expect(result).toEqual({
       '--a': { kind: 'number', value: '--b' },
@@ -213,16 +140,13 @@ describe('mcp/tools/token/defs', () => {
     })
   })
 
-  it('returns per-mode token values when includeAllModes is enabled', async () => {
+  it('returns values for all modes', async () => {
     const mod = await import('@/mcp/tools/token/defs')
+    const { createTokenReadContext } = await import('@/mcp/tools/token/context')
 
     const variable = createVariable('id-space', 'Space/Base', {
       valuesByMode: { modeA: 16, modeB: 24 }
     })
-    const index = createIndex()
-    index.byCanonicalName.set('--space-base', ['id-space'])
-    index.canonicalNameById.set('id-space', '--space-base')
-    mocks.getTokenIndex.mockResolvedValue(index)
     ;(globalThis as unknown as { figma: PluginAPI }).figma = {
       variables: {
         getVariableById: vi.fn((id: string) => (id === 'id-space' ? variable : null)),
@@ -239,11 +163,9 @@ describe('mcp/tools/token/defs', () => {
       }
     } as unknown as PluginAPI
 
-    const result = await mod.resolveTokenDefsByNames(
-      new Set(['--space-base']),
-      TEST_CONFIG,
-      undefined,
-      { includeAllModes: true }
+    const result = await mod.resolveTokenDefsByIds(
+      new Map([['--space-base', 'id-space']]),
+      createTokenReadContext(TEST_CONFIG)
     )
 
     expect(result).toEqual({

@@ -22,12 +22,35 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath, URL } from 'node:url'
 import { WebSocket } from 'ws'
 
-import { checkProtocol13 } from './check-protocol-13.mjs'
 import {
-  MessageToExtensionSchema as OldMessages,
-  codeResult,
-  structure
-} from './fixtures/extension-0.20.0.mjs'
+  GetCodeParametersSchema,
+  GetDesignSystemParametersSchema,
+  GetScreenshotParametersSchema,
+  GetStructureParametersSchema,
+  MessageToExtensionSchema as ReleasedMessages,
+  releasedHello,
+  releasedHelloAfterRegistration
+} from './fixtures/extension-1.0.0.mjs'
+
+const structure = {
+  roots: [{ id: '1:2', name: 'Released frame', type: 'FRAME', x: 0, y: 0, width: 320, height: 240 }]
+}
+const releasedReadSchemas = new Map([
+  ['get_code', GetCodeParametersSchema],
+  ['get_design_system', GetDesignSystemParametersSchema],
+  ['get_screenshot', GetScreenshotParametersSchema],
+  ['get_structure', GetStructureParametersSchema]
+])
+const releasedReceiver = {
+  parse(value) {
+    const message = ReleasedMessages.parse(value)
+    if (message.type === 'toolCall') {
+      const schema = releasedReadSchemas.get(message.payload.name)
+      if (schema) assert.deepEqual(schema.parse(message.payload.args), message.payload.args)
+    }
+    return message
+  }
+}
 
 if (process.platform === 'win32') {
   throw new Error(
@@ -90,12 +113,10 @@ async function until(read, description) {
   throw new Error(`Timed out: ${description}; ${stderr}`)
 }
 
-async function peer(port, legacy, receivingSchema = MessageToExtensionSchema) {
-  const socket = new WebSocket(
-    `ws://127.0.0.1:${port}/`,
-    legacy ? [] : [TEMPAD_MCP_BRIDGE_SUBPROTOCOL],
-    { origin }
-  )
+async function peer(port, receivingSchema = MessageToExtensionSchema) {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/`, [TEMPAD_MCP_BRIDGE_SUBPROTOCOL], {
+    origin
+  })
   const state = {
     socket,
     frames: [],
@@ -109,11 +130,13 @@ async function peer(port, legacy, receivingSchema = MessageToExtensionSchema) {
   socket.on('error', (error) => failures.push(error))
   socket.on('message', (raw) => {
     try {
-      const message = (legacy ? OldMessages : receivingSchema).parse(JSON.parse(raw.toString()))
+      const message = receivingSchema.parse(JSON.parse(raw.toString()))
       state.frames.push(message)
       if (message.type === 'registered') state.id = message.id
-      if (message.type === 'state')
+      if (message.type === 'state') {
+        if (state.assetServerUrl) assert.equal(message.assetServerUrl, state.assetServerUrl)
         Object.assign(state, { activeId: message.activeId, assetServerUrl: message.assetServerUrl })
+      }
       if (message.type === 'toolCall') {
         state.calls.push(message)
         const payload = state.respond?.(message)
@@ -124,6 +147,7 @@ async function peer(port, legacy, receivingSchema = MessageToExtensionSchema) {
     }
   })
   await until(() => state.id && state.assetServerUrl, 'extension handshake')
+  assert.equal(state.activeId, null)
   return state
 }
 
@@ -148,12 +172,6 @@ function recordBridgeMetric(label, peer, payload, result) {
     mcpResultBytes: measureCallToolResultBytes(result)
   })
 }
-function upgrade(result) {
-  assert.equal(result.isError, true)
-  assert.match(JSON.stringify(result), /EXTENSION_UPGRADE_REQUIRED/)
-  assert.match(JSON.stringify(result), /reload the Figma tab/)
-}
-
 try {
   const port = await until(async () => {
     const files = (await readdir(directory)).filter((name) => name.endsWith('.log'))
@@ -164,177 +182,131 @@ try {
   }, 'isolated Hub startup')
   await client.connect(transport, { timeout: 5000 })
 
-  await checkProtocol13({ port, peer, send, activate, until, call, origin })
+  const unversioned = new WebSocket(`ws://127.0.0.1:${port}/`, { origin })
+  await assert.rejects(once(unversioned, 'open'), /Unexpected server response: 401/)
 
-  const old = await peer(port, true)
-  await activate(old)
-  // Match 0.20.0's actual SHA-256-prefix upload protocol, including its bare URL.
+  for (const protocolVersion of [undefined, 13]) {
+    const unsupported = await peer(port)
+    const closed = once(unsupported.socket, 'close')
+    send(unsupported, { ...releasedHello, protocolVersion, extensionVersion: '0.22.0' })
+    const [code, reason] = await closed
+    assert.equal(code, 1008)
+    assert.match(reason.toString(), /extension 1\.0 or later.*reload Figma/)
+    assert.equal(unsupported.calls.length, 0)
+  }
+
+  const session = {
+    sessionId: 'tab-a',
+    fileKey: 'file-a',
+    fileName: 'Released',
+    pageId: 'page-a',
+    tabId: 13,
+    documentId: 'document-a',
+    busy: false
+  }
+  function publishReleasedSession(extension, target = session, active = true, reviews) {
+    send(extension, {
+      type: 'sessions',
+      browserId: 'browser-a',
+      activeSessionId: active ? target.sessionId : null,
+      sessions: [target],
+      ...(reviews ? { reviews } : {})
+    })
+  }
+  const missingHello = await peer(port)
+  const rejectMissingHello = once(missingHello.socket, 'close')
+  publishReleasedSession(missingHello)
+  assert.equal((await rejectMissingHello)[0], 1008)
+
+  async function connectReleased(target = session, reviews) {
+    const extension = await peer(port, releasedReceiver)
+    const [registration] = extension.frames
+    assert.equal(registration.protocolVersion, 15)
+    assert.deepEqual(registration.supportedProtocolVersions ?? [registration.protocolVersion], [15])
+    send(extension, releasedHelloAfterRegistration(registration))
+    publishReleasedSession(extension, target, true, reviews)
+    await activate(extension)
+    return extension
+  }
+
+  const released = await connectReleased()
   const bytes = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z9WQAAAAASUVORK5CYII=',
     'base64'
   )
-  const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 8)
+  const hash = createHash('sha256').update(bytes).digest('hex')
   const asset = {
     hash,
-    url: `${old.assetServerUrl}/assets/${hash}`,
+    url: `${released.assetServerUrl}/assets/${hash}`,
     mimeType: 'image/png',
     size: bytes.length,
     width: 1,
     height: 1
   }
-  const uploaded = await globalThis.fetch(asset.url, {
-    method: 'POST',
-    headers: { Origin: origin, 'Content-Type': asset.mimeType },
-    body: bytes
-  })
-  assert.equal(uploaded.status, 201)
-  old.respond = (message) => {
-    assert.equal('route' in message, false)
-    if (message.payload.name === 'get_code') return codeResult(asset)
-    if (message.payload.name === 'get_screenshot')
-      return { format: 'png', width: 1, height: 1, scale: 1, bytes: bytes.length, asset }
-    assert.equal(message.payload.name, 'get_structure')
-    return structure
-  }
+  const upload = (url) =>
+    globalThis.fetch(url, {
+      method: 'POST',
+      headers: { Origin: origin, 'Content-Type': asset.mimeType },
+      body: bytes
+    })
+  assert.equal((await upload(asset.url)).status, 201)
+  assert.equal((await upload(`${released.assetServerUrl}/assets/${hash.slice(0, 8)}`)).ok, false)
+  assert.deepEqual(Buffer.from(await (await globalThis.fetch(asset.url)).arrayBuffer()), bytes)
+
   const codeArgs = {
     nodeId: '1:2',
     preferredLang: 'jsx',
     vectorMode: 'smart',
     resolveTokens: false
   }
-  const code = await call('get_code', codeArgs)
-  assert.equal(code.isError, undefined)
-  assert.equal(code.structuredContent.code, codeResult(asset).code)
-  assert.deepEqual(code.structuredContent.tokens, codeResult(asset).tokens)
-  assert.deepEqual(old.calls.at(-1).payload.args, codeArgs)
-  assert.deepEqual(await readFile(code.structuredContent.assets[0].localPath), bytes)
-  assert.deepEqual(Buffer.from(await (await globalThis.fetch(asset.url)).arrayBuffer()), bytes)
-  recordBridgeMetric('legacy_get_code', old, codeResult(asset), code)
-  const nearBudgetCode = codeResult(asset)
-  let low = 0
-  let high = MCP_TOOL_INLINE_BUDGET_BYTES
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2)
-    const size = measureCallToolResultBytes(
-      buildGetCodeToolResult({ ...nearBudgetCode, code: 'x'.repeat(middle) })
-    )
-    if (size <= MCP_TOOL_INLINE_BUDGET_BYTES) low = middle
-    else high = middle - 1
+  const codePayload = {
+    code: '<div class="text-[var(--semantic)]" />',
+    lang: 'jsx',
+    assets: [asset],
+    tokens: {
+      '--semantic': { kind: 'color', value: '--palette' },
+      '--palette': { kind: 'color', value: { 'Palette:Light': '#FFF', 'Palette:Dark': '#000' } }
+    },
+    codegen: { plugin: 'default', config: { cssUnit: 'px', rootFontSize: 16, scale: 1 } },
+    warnings: [
+      { type: 'token-resolution', message: 'An unresolved consumer reference was preserved.' }
+    ]
   }
-  nearBudgetCode.code = 'x'.repeat(low)
-  assert.ok(
-    measureCallToolResultBytes(
-      buildGetCodeToolResult({
-        ...nearBudgetCode,
-        assets: [{ ...asset, localPath: code.structuredContent.assets[0].localPath }]
-      })
-    ) > MCP_TOOL_INLINE_BUDGET_BYTES
-  )
-  old.respond = (message) => (message.payload.name === 'get_code' ? nearBudgetCode : structure)
-  const nearBudgetResult = await call('get_code', codeArgs)
-  assert.equal(nearBudgetResult.isError, undefined)
-  assert.equal(nearBudgetResult.structuredContent.code, nearBudgetCode.code)
-  assert.equal(nearBudgetResult.structuredContent.assets[0].localPath, undefined)
-  recordBridgeMetric('legacy_get_code_budget_fallback', old, nearBudgetCode, nearBudgetResult)
-  old.respond = (message) => {
-    if (message.payload.name === 'get_code') return codeResult(asset)
-    if (message.payload.name === 'get_screenshot')
-      return { format: 'png', width: 1, height: 1, scale: 1, bytes: bytes.length, asset }
-    return structure
-  }
-  const legacyStructure = await call('get_structure', { options: { depth: 2 } })
-  assert.deepEqual(legacyStructure.structuredContent, structure)
-  recordBridgeMetric('legacy_get_structure', old, structure, legacyStructure)
-  const legacyScreenshot = await call('get_screenshot')
-  assert.equal(legacyScreenshot.structuredContent.asset.hash, hash)
-  recordBridgeMetric(
-    'legacy_get_screenshot',
-    old,
-    { format: 'png', width: 1, height: 1, scale: 1, bytes: bytes.length, asset },
-    legacyScreenshot
-  )
-  const count = old.calls.length
-  for (const [name, args] of [
-    ['get_structure', { pageId: 'page-a' }],
-    ['get_structure', { options: { native: true } }],
-    ['get_structure', { options: { depth: 0 } }],
-    ['get_structure', { nodeIds: ['1:2', '1:3'] }],
-    ['get_code', { nodeIds: ['1:2', '1:3'] }],
-    ['get_code', { resolveTokens: true }],
-    ['get_screenshot', { nodeIds: ['1:2'] }],
-    ['get_design_system', {}],
-    ['manage_design_task', { action: 'begin', title: 'Unavailable', requestId: randomUUID() }],
-    ['list_design_sessions', {}],
-    ['apply_canvas', { mode: 'create', markup: '<frame key="root" />' }]
-  ])
-    upgrade(await call(name, args))
-  assert.equal(old.calls.length, count, 'unsupported calls must not reach the old peer')
-
-  // A versioned peer with no runtime identity must not enter the legacy bypass.
-  let modern = await peer(port, false)
-  assert.equal(modern.frames[0].protocolVersion, TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION)
-  assert.notEqual(modern.assetServerUrl, old.assetServerUrl)
-  const session = {
-    sessionId: 'tab-a',
-    fileKey: 'file-a',
-    fileName: 'Current',
-    pageId: 'page-a',
-    busy: false
-  }
-  send(modern, {
-    type: 'sessions',
-    browserId: 'browser-a',
-    activeSessionId: session.sessionId,
-    sessions: [session]
-  })
-  await until(
-    () => modern.socket.readyState === WebSocket.CLOSED,
-    'reject missing runtime handshake'
-  )
-  modern = await peer(port, false)
-  send(modern, {
-    type: 'runtimeHello',
-    protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
-    extensionVersion: '0.21.0',
-    extensionRuntimeFingerprint: 'a'.repeat(64)
-  })
-  send(modern, {
-    type: 'sessions',
-    browserId: 'browser-a',
-    activeSessionId: session.sessionId,
-    sessions: [session]
-  })
-  await activate(modern)
-  // Wait on an echoed state so all preceding frames have been processed.
-  modern.activeId = null
-  await activate(modern)
-  const modernCodePayload = codeResult({
-    ...asset,
-    url: `${modern.assetServerUrl}/assets/${hash}`
-  })
-  modernCodePayload.tokens = {
-    '--semantic': { kind: 'color', value: '--palette' },
-    '--palette': { kind: 'color', value: { 'Palette:Light': '#FFF', 'Palette:Dark': '#000' } }
-  }
-  modernCodePayload.warnings = [
-    { type: 'token-resolution', message: 'An unresolved consumer reference was preserved.' }
-  ]
-  modern.respond = (message) => {
-    assert.equal(message.route.gatewayId, modern.id)
+  released.respond = (message) => {
+    assert.equal(message.route.gatewayId, released.id)
     assert.equal(message.route.sessionId, session.sessionId)
     assert.equal(message.route.fileKey, session.fileKey)
     if (message.payload.name === '__begin_design') return message.payload.args
-    return message.payload.name === 'get_code' ? modernCodePayload : structure
+    if (message.payload.name === 'apply_canvas') {
+      assert.deepEqual(message.payload.args, {
+        mode: 'update',
+        targetNodeId: '1:2',
+        markup: '<frame key="root" />'
+      })
+      return {
+        rootNodeId: '1:2',
+        nodeIdsByKey: { root: '1:2' },
+        createdNodeIds: [],
+        updatedNodeIds: ['1:2'],
+        removedNodeIds: [],
+        mutationCount: 1,
+        verification: { status: 'passed', nodesChecked: 1, referencesChecked: 0, warnings: [] }
+      }
+    }
+    return message.payload.name === 'get_code' ? codePayload : structure
   }
-  const currentStructure = await call('get_structure')
-  assert.deepEqual(currentStructure.structuredContent, structure)
-  recordBridgeMetric('current_get_structure', modern, structure, currentStructure)
-  const immediateResponse = modern.respond
+  const rootOnly = await call('get_structure', {
+    nodeIds: ['1:2'],
+    options: { depth: 0, native: true }
+  })
+  assert.deepEqual(rootOnly.structuredContent, structure)
+  recordBridgeMetric('released_get_structure', released, structure, rootOnly)
+  const immediateResponse = released.respond
   let delayedStructureResponse = Promise.resolve()
-  modern.respond = (message) => {
+  released.respond = (message) => {
     if (message.payload.name !== 'get_structure') return immediateResponse(message)
     delayedStructureResponse = delay(1500).then(() => {
-      send(modern, { type: 'toolResult', id: message.id, payload: structure })
+      send(released, { type: 'toolResult', id: message.id, payload: structure })
     })
     return undefined
   }
@@ -347,30 +319,30 @@ try {
   assert.match(JSON.stringify(slowSelectionStructure), /EXTENSION_TIMEOUT/)
   await delayedStructureResponse
   // The late result releases the operation fence before another call can use the file.
-  modern.activeId = null
-  await activate(modern)
-  modern.respond = immediateResponse
-  const currentCode = await call('get_code', { ...codeArgs, resolveTokens: true })
-  assert.equal(currentCode.isError, undefined, JSON.stringify(currentCode))
-  assert.equal(currentCode.structuredContent.code, modernCodePayload.code)
-  assert.deepEqual(currentCode.structuredContent.tokens, modernCodePayload.tokens)
-  assert.deepEqual(currentCode.structuredContent.warnings, modernCodePayload.warnings)
-  recordBridgeMetric('current_get_code', modern, modernCodePayload, currentCode)
-  const codeWithoutAssets = { ...modernCodePayload }
+  released.activeId = null
+  await activate(released)
+  released.respond = immediateResponse
+  const releasedCode = await call('get_code', { ...codeArgs, resolveTokens: true })
+  assert.equal(releasedCode.isError, undefined, JSON.stringify(releasedCode))
+  assert.equal(releasedCode.structuredContent.code, codePayload.code)
+  assert.deepEqual(releasedCode.structuredContent.tokens, codePayload.tokens)
+  assert.deepEqual(releasedCode.structuredContent.warnings, codePayload.warnings)
+  recordBridgeMetric('released_get_code', released, codePayload, releasedCode)
+  const codeWithoutAssets = { ...codePayload }
   delete codeWithoutAssets.assets
   const batchCode = {
     results: [
-      { nodeId: '1:2', result: modernCodePayload },
+      { nodeId: '1:2', result: codePayload },
       { nodeId: '1:3', error: { code: 'NODE_NOT_VISIBLE', message: 'Hidden node' } },
       { nodeId: '1:4', result: codeWithoutAssets }
     ],
     remainingNodeIds: ['1:5']
   }
-  modern.respond = () => batchCode
+  released.respond = () => batchCode
   const batchArgs = { nodeIds: ['1:2', '1:3', '1:4', '1:5'], preferredLang: 'jsx' }
   const batchResponse = await call('get_code', batchArgs)
   assert.equal(batchResponse.isError, undefined)
-  assert.deepEqual(modern.calls.at(-1).payload.args, batchArgs)
+  assert.deepEqual(released.calls.at(-1).payload.args, batchArgs)
   assert.deepEqual(batchResponse.structuredContent.remainingNodeIds, ['1:5'])
   assert.deepEqual(batchResponse.structuredContent.results.slice(1), batchCode.results.slice(1))
   assert.deepEqual(
@@ -387,13 +359,13 @@ try {
           height: 1,
           scale: 1,
           bytes: bytes.length,
-          asset: modernCodePayload.assets[0]
+          asset: codePayload.assets[0]
         }
       },
       { nodeId: '1:3', error: { code: 'NODE_NOT_VISIBLE', message: 'Hidden node' } }
     ]
   }
-  modern.respond = () => batchScreenshot
+  released.respond = () => batchScreenshot
   const screenshots = await call('get_screenshot', { nodeIds: ['1:2', '1:3'] })
   assert.equal(screenshots.content.filter(({ type }) => type === 'resource_link').length, 1)
   assert.deepEqual(screenshots.structuredContent.results[1], batchScreenshot.results[1])
@@ -401,9 +373,9 @@ try {
     await readFile(screenshots.structuredContent.results[0].result.asset.localPath),
     bytes
   )
-  const nearBudgetBatch = { results: [{ nodeId: '1:2', result: { ...modernCodePayload } }] }
-  low = 0
-  high = MCP_TOOL_INLINE_BUDGET_BYTES
+  const nearBudgetBatch = { results: [{ nodeId: '1:2', result: { ...codePayload } }] }
+  let low = 0
+  let high = MCP_TOOL_INLINE_BUDGET_BYTES
   while (low < high) {
     const middle = Math.ceil((low + high) / 2)
     nearBudgetBatch.results[0].result.code = 'x'.repeat(middle)
@@ -415,32 +387,53 @@ try {
     else high = middle - 1
   }
   nearBudgetBatch.results[0].result.code = 'x'.repeat(low)
-  modern.respond = () => nearBudgetBatch
+  released.respond = () => nearBudgetBatch
   const boundedBatch = await call('get_code', { nodeIds: ['1:2'] })
   assert.equal(boundedBatch.isError, undefined)
   assert.equal(boundedBatch.structuredContent.results[0].result.assets[0].localPath, undefined)
   assert.ok(measureCallToolResultBytes(boundedBatch) <= MCP_TOOL_INLINE_BUDGET_BYTES)
-  modern.respond = immediateResponse
-  send(modern, {
-    type: 'sessions',
-    browserId: 'browser-a',
-    activeSessionId: null,
-    sessions: [session]
-  })
+  released.respond = immediateResponse
+  publishReleasedSession(released, session, false)
   await until(async () => {
     const inactive = await call('get_code')
     return inactive.isError && JSON.stringify(inactive).includes('NO_ACTIVE_EXTENSION')
   }, 'inactive default Figma session')
-  await activate(old)
+  const currentSession = {
+    ...session,
+    sessionId: 'tab-b',
+    fileKey: 'file-b',
+    tabId: 14,
+    documentId: 'document-b'
+  }
+  const current = await peer(port)
+  send(current, {
+    ...releasedHello,
+    protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+    extensionVersion: '1.1.1',
+    extensionRuntimeFingerprint: 'c'.repeat(64)
+  })
+  send(current, {
+    type: 'sessions',
+    browserId: 'browser-b',
+    activeSessionId: currentSession.sessionId,
+    sessions: [currentSession]
+  })
+  current.respond = (message) => {
+    assert.equal(message.route.sessionId, currentSession.sessionId)
+    return structure
+  }
+  await activate(current)
+  assert.deepEqual((await call('get_structure')).structuredContent, structure)
+  const activeCalls = current.calls.length
   const exactCode = await call('get_code', { ...codeArgs, sessionId: session.sessionId })
-  assert.equal(exactCode.structuredContent.code, modernCodePayload.code)
-  assert.deepEqual(modern.calls.at(-1).payload.args, codeArgs)
-  recordBridgeMetric('exact_session_get_code', modern, modernCodePayload, exactCode)
-  assert.equal(old.calls.length, count, 'exact session reads must bypass the active legacy peer')
+  assert.equal(exactCode.structuredContent.code, codePayload.code)
+  assert.deepEqual(released.calls.at(-1).payload.args, codeArgs)
+  recordBridgeMetric('exact_session_get_code', released, codePayload, exactCode)
+  assert.equal(current.calls.length, activeCalls, 'exact reads must bypass the active peer')
   const exactStructure = await call('get_structure', { sessionId: session.sessionId })
   assert.deepEqual(exactStructure.structuredContent, structure)
-  assert.deepEqual(modern.calls.at(-1).payload.args, {})
-  recordBridgeMetric('exact_session_get_structure', modern, structure, exactStructure)
+  assert.deepEqual(released.calls.at(-1).payload.args, {})
+  recordBridgeMetric('exact_session_get_structure', released, structure, exactStructure)
   const designSystem = {
     catalogId: 'ds_slow-discovery',
     components: [],
@@ -448,12 +441,12 @@ try {
     collections: [],
     styles: []
   }
-  const regularResponse = modern.respond
+  const regularResponse = released.respond
   const pageIndex = {
     scope: 'pages',
     pages: [{ id: '4:216', name: 'Local components', index: 0, active: false }]
   }
-  modern.respond = (message) => {
+  released.respond = (message) => {
     if (message.payload.name !== 'get_design_system') return regularResponse(message)
     return message.payload.args.scope === 'pages' ? pageIndex : designSystem
   }
@@ -462,25 +455,25 @@ try {
     sessionId: session.sessionId
   })
   assert.deepEqual(pages.structuredContent, pageIndex)
-  assert.deepEqual(modern.calls.at(-1).payload.args, { scope: 'pages' })
-  recordBridgeMetric('exact_session_page_index', modern, pageIndex, pages)
+  assert.deepEqual(released.calls.at(-1).payload.args, { scope: 'pages' })
+  recordBridgeMetric('exact_session_page_index', released, pageIndex, pages)
   const scopedResources = await call('get_design_system', {
     pageId: '4:216',
     sessionId: session.sessionId
   })
   assert.deepEqual(scopedResources.structuredContent, designSystem)
-  assert.deepEqual(modern.calls.at(-1).payload.args, { pageId: '4:216' })
-  recordBridgeMetric('exact_session_scoped_resources', modern, designSystem, scopedResources)
-  modern.respond = (message) => {
+  assert.deepEqual(released.calls.at(-1).payload.args, { pageId: '4:216' })
+  recordBridgeMetric('exact_session_scoped_resources', released, designSystem, scopedResources)
+  released.respond = (message) => {
     if (message.payload.name !== 'get_design_system') return regularResponse(message)
     setTimeout(() => {
-      send(modern, { type: 'toolResult', id: message.id, payload: designSystem })
+      send(released, { type: 'toolResult', id: message.id, payload: designSystem })
     }, 1500)
     return undefined
   }
   const slowDesignSystem = await call('get_design_system', { sessionId: session.sessionId })
   assert.deepEqual(slowDesignSystem.structuredContent, designSystem)
-  modern.respond = regularResponse
+  released.respond = regularResponse
   assert.match(
     JSON.stringify(await call('get_code', { sessionId: 'missing-session' })),
     /NO_ACTIVE_EXTENSION/
@@ -490,7 +483,7 @@ try {
   assert.equal(advertisedTools.length, 10)
   assert.ok(
     !advertisedTools.some(({ name }) =>
-      ['begin_design', 'resume_design', 'end_design'].includes(name)
+      ['begin_design', 'resume_design', 'end_design', 'get_token_defs'].includes(name)
     )
   )
   const lifecycleSchema = advertisedTools.find(
@@ -517,20 +510,47 @@ try {
   assert.equal((await lifecycle(beginArgs)).structuredContent.taskId, task.taskId)
   const taskStructure = await call('get_structure', { taskId: task.taskId })
   assert.deepEqual(taskStructure.structuredContent, structure)
-  recordBridgeMetric('task_get_structure', modern, structure, taskStructure)
+  recordBridgeMetric('task_get_structure', released, structure, taskStructure)
   const taskCode = await call('get_code', { ...codeArgs, taskId: task.taskId })
-  assert.equal(taskCode.structuredContent.code, modernCodePayload.code)
-  recordBridgeMetric('task_get_code', modern, modernCodePayload, taskCode)
-  assert.equal(modern.calls.at(-1).route.taskId, task.taskId)
-  const routedCount = modern.calls.length
+  assert.equal(taskCode.structuredContent.code, codePayload.code)
+  recordBridgeMetric('task_get_code', released, codePayload, taskCode)
+  assert.equal(released.calls.at(-1).route.taskId, task.taskId)
+  const routedCount = released.calls.length
   assert.match(
     JSON.stringify(
       await call('get_code', { ...codeArgs, taskId: task.taskId, sessionId: 'missing-session' })
     ),
     /DESIGN_TARGET_CHANGED/
   )
-  assert.equal(modern.calls.length, routedCount, 'conflicting task/session must not dispatch')
-  assert.equal(old.calls.length, count, 'task-bound reads must not follow legacy activation')
+  assert.equal(released.calls.length, routedCount, 'conflicting task/session must not dispatch')
+  assert.equal(current.calls.length, activeCalls, 'task reads must stay bound to the released peer')
+  const write = await call('apply_canvas', {
+    taskId: task.taskId,
+    taskEpoch: task.epoch,
+    mode: 'update',
+    targetNodeId: '1:2',
+    markup: '<frame key="root" />'
+  })
+  assert.equal(write.isError, undefined, JSON.stringify(write))
+  assert.equal(write.structuredContent.mutationCount, 1)
+  assert.equal(write.structuredContent.runtime.extension.version, releasedHello.extensionVersion)
+  const releasedWrite = released.calls.at(-1)
+  assert.equal(releasedWrite.route.taskId, task.taskId)
+  assert.ok(releasedWrite.terminalReceipt)
+  send(released, { type: 'toolCompletion', id: releasedWrite.id, ...releasedWrite.terminalReceipt })
+  await until(
+    () =>
+      released.frames.some(
+        (frame) =>
+          frame.type === 'toolCompletionAck' && frame.id === releasedWrite.id && frame.accepted
+      ),
+    'released write completion acknowledgment'
+  )
+  assert.equal(
+    current.calls.length,
+    activeCalls,
+    'task writes must stay bound to the released peer'
+  )
 
   const completed = await lifecycle({
     action: 'complete',
@@ -579,30 +599,69 @@ try {
   )
   task = (await lifecycle({ ...beginArgs, requestId: randomUUID() })).structuredContent
   assert.ok(task.taskId)
+  const requestId = randomUUID()
+  send(released, {
+    type: 'designAction',
+    sessionId: session.sessionId,
+    action: { requestId, taskId: task.taskId, epoch: task.epoch, action: 'stop' }
+  })
+  await until(
+    () =>
+      released.frames.some(
+        (frame) => frame.type === 'designActionResult' && frame.result.requestId === requestId
+      ),
+    'released Stop acknowledgment'
+  )
+  const stopped = await until(async () => {
+    const { structuredContent } = await call('get_design_task', { taskId: task.taskId })
+    return structuredContent?.status === 'cancelled' && structuredContent
+  }, 'released Stop fence')
 
-  // A disconnect fails in-flight old reads, and a replacement gets a new identity.
-  old.respond = null
-  const interrupted = call('get_structure')
-  await until(() => old.calls.length > count, 'pending legacy read')
-  old.socket.close()
+  // A disconnected request keeps its executor fenced until the old document is gone.
+  released.respond = null
+  const pendingCount = released.calls.length
+  const interrupted = call('get_structure', { sessionId: session.sessionId })
+  await until(() => released.calls.length > pendingCount, 'pending released read')
+  const disconnected = once(released.socket, 'close')
+  released.socket.close()
   assert.match(JSON.stringify(await interrupted), /EXTENSION_DISCONNECTED/)
-  const replacement = await peer(port, true)
+  await disconnected
+  const replacement = await connectReleased(session, [
+    { sessionId: session.sessionId, task: stopped }
+  ])
   replacement.respond = () => structure
-  await activate(replacement)
-  assert.notEqual(replacement.id, old.id)
+  assert.notEqual(replacement.id, released.id)
+  assert.match(
+    JSON.stringify(await call('get_structure', { sessionId: session.sessionId })),
+    /DESIGN_TASK_BUSY/
+  )
+  assert.equal(replacement.calls.length, 0)
+  assert.equal(
+    (await lifecycle({ action: 'resume', taskId: task.taskId, epoch: task.epoch })).isError,
+    true
+  )
+  const reloadedSession = { ...session, sessionId: 'reloaded-a', documentId: 'reloaded-document-a' }
+  publishReleasedSession(replacement, reloadedSession)
+  await until(
+    async () =>
+      (await call('list_design_sessions')).structuredContent.sessions.some(
+        ({ sessionId }) => sessionId === reloadedSession.sessionId
+      ),
+    'reloaded released document'
+  )
   assert.deepEqual((await call('get_structure')).structuredContent, structure)
-  modern.socket.close()
-  await once(modern.socket, 'close')
-  const replacementCount = replacement.calls.length
+  const replacementCalls = replacement.calls.length
   const unavailable = await call('get_structure', { taskId: task.taskId })
   assert.equal(unavailable.isError, true)
+  assert.equal(replacement.calls.length, replacementCalls, 'Stop survives reconnect and reload')
   assert.equal(
-    replacement.calls.length,
-    replacementCount,
-    'disconnected tasks cannot fall back to legacy'
+    current.calls.length,
+    activeCalls,
+    'disconnected tasks cannot follow the active peer'
   )
-  // Opt in independently of the wire version; previously released peers above
-  // keep their frozen receiving schemas and never receive completion envelopes.
+  assert.deepEqual(Buffer.from(await (await globalThis.fetch(asset.url)).arrayBuffer()), bytes)
+
+  // A current client can negotiate completion receipts independently of protocol 15.
   const receiptSession = {
     sessionId: 'receipt-session',
     fileKey: 'receipt-file',
@@ -613,12 +672,12 @@ try {
     busy: false
   }
   const receiptPeer = async () => {
-    const extension = await peer(port, false)
+    const extension = await peer(port)
     assert.equal(typeof extension.frames[0].terminalReceiptGeneration, 'string')
     send(extension, {
       type: 'runtimeHello',
       protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
-      extensionVersion: '0.23.4',
+      extensionVersion: '1.1.1',
       extensionRuntimeFingerprint: 'c'.repeat(64),
       terminalReceipts: true
     })
@@ -672,7 +731,7 @@ try {
     process.stdout.write(`Bridge byte samples: ${JSON.stringify(metricSamples)}\n`)
   }
   process.stdout.write(
-    'Bridge compatibility passed: protocol 13 reads/writes/tasks/assets/reconnect, legacy reads/assets/reconnect, upgrade errors, current routing/task fences and negotiated terminal receipts.\n'
+    'Bridge compatibility passed for extension 1.0.0 and current peers: reads, writes, assets, mixed routing, Stop, reconnect, and negotiated terminal receipts.\n'
   )
 } catch (error) {
   throw new Error(`Bridge compatibility failed. Child diagnostics:\n${stderr.slice(-16_384)}`, {

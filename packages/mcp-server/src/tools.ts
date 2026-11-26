@@ -55,8 +55,6 @@ export type {
   GetScreenshotResult,
   GetStructureParametersInput,
   GetStructureResult,
-  GetTokenDefsParametersInput,
-  GetTokenDefsResult,
   TokenEntry,
   ToolName,
   ToolResultMap,
@@ -125,7 +123,7 @@ const CONNECTIVITY_TROUBLESHOOTING_LINES = [
   'Troubleshooting:',
   '- In Figma, open TemPad Dev panel and enable the MCP server in Preferences → Agent integration. Enabled permits connection; it does not prove that an extension is active.',
   "- Badge-default reads require the intended tab's active MCP badge. Exact sessionId reads require that session in list_design_sessions; browser focus does not select a default.",
-  '- If the connection is missing or reports a protocol mismatch, update TemPad Dev and its agent plugin, reload the same Figma tab, and reconnect. Use list_design_sessions to confirm the intended session before retrying.'
+  '- If the connection is missing or reports a protocol mismatch, update to TemPad Dev extension 1.0 or later and update its agent plugin, reload the same Figma tab, and reconnect. Use list_design_sessions to confirm the intended session before retrying.'
 ]
 
 const MULTI_SELECTION_TROUBLESHOOTING_LINE =
@@ -509,7 +507,7 @@ export function presentClientToolResult(
       return { ...result, content: [] }
   }
 
-  // Keep separate compatibility/readback notices and the payload consumed by host plugins.
+  // Keep separate readback notices and the payload consumed by host plugins.
   const text = { type: 'text' as const, text: JSON.stringify(payload) }
   const mirrored = { ...result, content: [...result.content, text] }
   if (measureCallToolResultBytes(mirrored) <= MCP_TOOL_INLINE_BUDGET_BYTES) return mirrored
@@ -543,8 +541,6 @@ function getBudgetRetryGuidance(toolName: ToolName): string {
       return 'Continue from another catalog cursor or avoid the oversized exact definition.'
     case 'get_structure':
       return 'Reduce selection size or pass a smaller depth and retry.'
-    case 'get_token_defs':
-      return 'Reduce requested names or split them into smaller batches and retry.'
     case 'get_screenshot':
       return 'Pass a smaller nodeId and retry.'
     case 'upload_asset':

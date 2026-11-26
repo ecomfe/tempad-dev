@@ -146,6 +146,26 @@ describe('mcp/browser-gateway', () => {
     ).toMatchObject({ requestId: 'download-1', type: 'mcp.assetDownloadResult' })
   })
 
+  it('requires a full upload hash and preserves saved short download hashes', () => {
+    const hash = 'deadbeef'
+    expect(
+      parsePageToBridgeMessage({
+        ...base,
+        payload: { base64: 'AQID', hash, mimeType: 'image/png' },
+        requestId: 'upload-1',
+        type: 'mcp.uploadAsset'
+      })
+    ).toBeNull()
+    expect(
+      parsePageToBridgeMessage({
+        ...base,
+        payload: { hash },
+        requestId: 'download-1',
+        type: 'mcp.downloadAsset'
+      })
+    ).toMatchObject({ payload: { hash } })
+  })
+
   it('rejects malformed or cross-protocol messages', () => {
     const invalidResults = [
       {},

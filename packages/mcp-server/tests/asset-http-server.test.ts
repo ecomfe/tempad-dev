@@ -48,13 +48,12 @@ afterEach(() => {
 })
 
 describe('asset-http-server', () => {
-  it('reuses the exact port and both capabilities, and refuses a conflicting listener', async () => {
+  it('reuses the exact port and capability, and refuses a conflicting listener', async () => {
     const store = createStoreMock()
-    const options = { accessToken: 'a'.repeat(64), legacyAccessToken: 'b'.repeat(64) }
+    const options = { accessToken: 'a'.repeat(64) }
     const first = createAssetHttpServer(store, options)
     await first.start()
     const base = first.getBaseUrl()
-    const legacy = first.getBaseUrl(true)
     const port = Number(new URL(base).port)
     const conflict = createAssetHttpServer(store, { ...options, port })
     await expect(conflict.start()).rejects.toMatchObject({ code: 'EADDRINUSE' })
@@ -63,7 +62,6 @@ describe('asset-http-server', () => {
     await second.start()
     try {
       expect(second.getBaseUrl()).toBe(base)
-      expect(second.getBaseUrl(true)).toBe(legacy)
       expect((await fetch(assetUrl(base))).status).toBe(404)
       expect(
         (await fetch(assetUrl(base), { headers: { Origin: 'https://other.invalid' } })).status
@@ -150,38 +148,6 @@ describe('asset-http-server', () => {
     }
   })
 
-  it('accepts short hashes only on the legacy capability and refuses full-content collisions', async () => {
-    const store = createStoreMock()
-    const records = new Map<string, ReturnType<AssetStore['get']>>()
-    store.get.mockImplementation((hash) => records.get(hash))
-    store.upsert.mockImplementation((record) => records.set(record.hash, record))
-    const server = createAssetHttpServer(store)
-    await server.start()
-    const hash = '55acb7b6'
-    const body = 'legacy-collision-59924'
-    const collidingBody = 'legacy-collision-69327'
-    const url = `${server.getBaseUrl(true)}/assets/${hash}`
-    createdPaths.push(join(ASSET_DIR, `${hash}.png`))
-    const upload = (text: string, target = url) =>
-      fetch(target, {
-        method: 'POST',
-        headers: { 'Content-Type': 'image/png' },
-        body: text
-      })
-    try {
-      expect(server.getBaseUrl(true)).not.toBe(server.getBaseUrl())
-      expect((await upload(body, `${server.getBaseUrl()}/assets/${hash}`)).status).toBe(400)
-      expect((await upload('wrong digest')).status).toBe(400)
-      expect((await upload(body)).status).toBe(201)
-      expect((await upload(body)).status).toBe(200)
-      expect((await upload(collidingBody)).status).toBe(409)
-      expect((await upload('wrong digest')).status).toBe(400)
-      expect(await (await fetch(url)).text()).toBe(body)
-      expect(readFileSync(join(ASSET_DIR, `${hash}.png`), 'utf8')).toBe(body)
-    } finally {
-      server.stop()
-    }
-  })
   it('starts/stops and handles routing errors', async () => {
     const store = createStoreMock()
     const server = createAssetHttpServer(store)

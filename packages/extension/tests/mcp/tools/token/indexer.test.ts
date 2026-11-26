@@ -1,27 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  canonicalizeName,
-  canonicalizeNames,
-  getTokenIndex,
-  getVariableRawName
-} from '@/mcp/tools/token/indexer'
+import { canonicalizeName, canonicalizeNames, getVariableRawName } from '@/mcp/tools/token/indexer'
 import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
 import { normalizeFigmaVarName } from '@/utils/css'
 
 vi.mock('@/mcp/transform-variables/requester', () => ({
   runTransformVariableBatch: vi.fn()
 }))
-
-function setLocalVariables(variables: Variable[]) {
-  const getLocalVariablesAsync = vi.fn(async () => variables)
-  ;(globalThis as { figma?: PluginAPI }).figma = {
-    variables: {
-      getLocalVariablesAsync
-    }
-  } as unknown as PluginAPI
-  return getLocalVariablesAsync
-}
 
 const config = {
   cssUnit: 'rem',
@@ -152,56 +137,5 @@ describe('token/indexer', () => {
     const result = await canonicalizeName('Fallback Token Name', config, 'plugin-fallback')
 
     expect(result).toBe(normalizeFigmaVarName('Fallback Token Name'))
-  })
-
-  it('builds token index with collision buckets and per-variable fallback canonical names', async () => {
-    const getLocalVariablesAsync = setLocalVariables([
-      { id: 'v-1', name: 'Color Brand' } as unknown as Variable,
-      { id: 'v-2', name: 'Color Accent' } as unknown as Variable,
-      { id: 'v-3', name: 'Third Token' } as unknown as Variable
-    ])
-    vi.mocked(runTransformVariableBatch).mockResolvedValueOnce([
-      'var(--shared-token)',
-      'var(--shared-token)'
-    ])
-
-    const result = await getTokenIndex({ ...config, scale: 11 }, 'plugin-index')
-
-    expect(getLocalVariablesAsync).toHaveBeenCalledTimes(1)
-    expect(result.totalVariables).toBe(3)
-    expect(result.canonicalNameById.get('v-1')).toBe('--shared-token')
-    expect(result.canonicalNameById.get('v-2')).toBe('--shared-token')
-    expect(result.canonicalNameById.get('v-3')).toBe(normalizeFigmaVarName('Third Token'))
-    expect(result.byCanonicalName.get('--shared-token')).toEqual(['v-1', 'v-2'])
-    expect(result.byCanonicalName.get(normalizeFigmaVarName('Third Token'))).toEqual(['v-3'])
-  })
-
-  it('rebuilds the index between calls even when config and plugin are unchanged', async () => {
-    const getLocalVariablesAsync = setLocalVariables([
-      { id: 'cached-1', name: 'Cached Token' } as unknown as Variable
-    ])
-    vi.mocked(runTransformVariableBatch).mockResolvedValue(['var(--cached-token)'])
-
-    const first = getTokenIndex({ ...config, scale: 21 }, 'plugin-cache')
-    const second = getTokenIndex({ ...config, scale: 21 }, 'plugin-cache')
-
-    expect(await first).toEqual(await second)
-    expect(getLocalVariablesAsync).toHaveBeenCalledTimes(2)
-    expect(runTransformVariableBatch).toHaveBeenCalledTimes(2)
-  })
-
-  it('rebuilds token index when cache key changes', async () => {
-    const getLocalVariablesAsync = setLocalVariables([
-      { id: 'cache-key-1', name: 'Cache Key Token' } as unknown as Variable
-    ])
-    vi.mocked(runTransformVariableBatch).mockResolvedValue(['var(--cache-key-token)'])
-
-    await getTokenIndex({ ...config, scale: 31 }, undefined)
-    await getTokenIndex({ ...config, scale: 31 }, undefined)
-    await getTokenIndex({ ...config, scale: 32 }, undefined)
-    await getTokenIndex({ ...config, scale: 32 }, 'plugin-key')
-
-    expect(getLocalVariablesAsync).toHaveBeenCalledTimes(4)
-    expect(runTransformVariableBatch).toHaveBeenCalledTimes(4)
   })
 })

@@ -17,7 +17,7 @@ export * from './canvas'
 
 import type { TempadMcpErrorPayload } from './errors'
 
-import { MCP_HASH_PATTERN, MCP_MAX_ASSET_BYTES } from './constants'
+import { MCP_FULL_HASH_PATTERN, MCP_MAX_ASSET_BYTES } from './constants'
 import {
   DesignTaskParameterSchema,
   DesignTaskEpochSchema,
@@ -65,7 +65,7 @@ const ExactReadSessionParameterSchema = z
   .optional()
 
 export const AssetDescriptorSchema = z.object({
-  hash: z.string().regex(MCP_HASH_PATTERN),
+  hash: z.string().regex(MCP_FULL_HASH_PATTERN),
   url: z.string().url(),
   localPath: z.string().min(1).optional(),
   mimeType: z.string().min(1),
@@ -136,7 +136,7 @@ export type GetCodeResult = {
   lang: 'vue' | 'jsx'
   assets?: AssetDescriptor[]
   // Definitions, including every mode and alias dependency; independent of resolveTokens.
-  tokens?: GetTokenDefsResult
+  tokens?: TokenDefinitions
   literalClusters?: GetCodeLiteralCluster[]
   codegen: {
     plugin: string
@@ -150,32 +150,12 @@ export type GetCodeResult = {
 }
 export type GetCodeReadResult = GetCodeResult | NodeReadBatchResult<GetCodeResult>
 
-// get_token_defs
-export const GetTokenDefsParametersSchema = z.object({
-  taskId: DesignTaskParameterSchema,
-  taskEpoch: DesignTaskEpochSchema,
-  sessionId: ExactReadSessionParameterSchema,
-  names: z
-    .array(z.string().regex(/^--[a-zA-Z0-9-_]+$/))
-    .min(1)
-    .describe(
-      'Canonical token names (CSS variable form) from a get_code node result’s tokens or your own list, e.g., --color-primary. Returns definitions with aliases, not consumer-specific resolved values.'
-    ),
-  includeAllModes: z
-    .boolean()
-    .describe(
-      'Return all defined modes. Default false uses the collection’s active mode when available, otherwise its default; this lookup has no consuming node context. Aliases are preserved.'
-    )
-    .optional()
-})
-
-export type GetTokenDefsParametersInput = z.input<typeof GetTokenDefsParametersSchema>
 export type TokenEntry = {
   kind: 'color' | 'number' | 'string' | 'boolean'
   value: string | Record<string, string> // single mode -> string; multi-mode -> map (mode name -> literal or alias)
 }
 
-export type GetTokenDefsResult = {
+export type TokenDefinitions = {
   [canonicalName: string]: TokenEntry
 }
 
@@ -527,7 +507,7 @@ export const UploadAssetParametersSchema = z
 
 export const UploadAssetResultSchema = z
   .object({
-    assetHash: z.string().regex(MCP_HASH_PATTERN),
+    assetHash: z.string().regex(MCP_FULL_HASH_PATTERN),
     mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif']),
     size: z.number().int().positive()
   })
@@ -544,7 +524,6 @@ export type ToolResultMap = {
   get_code: GetCodeReadResult
   get_design_system: GetDesignSystemResult
   apply_canvas: ApplyCanvasResult
-  get_token_defs: GetTokenDefsResult
   get_screenshot: GetScreenshotReadResult
   get_structure: GetStructureResult
   upload_asset: UploadAssetResult
@@ -558,5 +537,4 @@ export type ToolSchema<Name extends ToolName> = {
   parameters: ZodType
   target: 'extension' | 'hub'
   outputSchema?: ZodType
-  exposed?: boolean
 }
