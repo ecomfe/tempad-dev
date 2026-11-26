@@ -36,6 +36,29 @@ function storage() {
 }
 
 describe('saved design reviews', () => {
+  it('applies a replayed Stop to a matching Hub save already writing to storage', async () => {
+    const data = storage()
+    const reviews = new DesignReviews(data)
+    let finish!: () => void
+    const write = vi.spyOn(data, 'set').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        })
+    )
+    const saving = reviews.save({ ...task, status: 'active' })
+    await vi.waitFor(() => expect(write).toHaveBeenCalledOnce())
+    const restoring = reviews.restore({ ...task, status: 'cancelled', reviewClosed: true })
+    expect(reviews.get('file-a')).toMatchObject({ status: 'cancelled' })
+    expect(reviews.get('file-a')?.reviewClosed).toBeUndefined()
+    finish()
+    expect(await saving).toMatchObject({ status: 'cancelled' })
+    await restoring
+    const restarted = new DesignReviews(data)
+    await restarted.ready()
+    expect(restarted.get('file-a')).toMatchObject({ status: 'cancelled' })
+  })
+
   it.each(['save', 'restore'] as const)(
     'keeps an offline Stop in memory after failed %s storage and does not acknowledge unpersisted Done',
     async (operation) => {
@@ -207,6 +230,17 @@ describe('saved design reviews', () => {
     await reviews.save({ ...task, taskId: 'new-task' })
     await reviews.restore({ ...task, status: 'cancelled' })
     expect(reviews.get('file-a')?.taskId).toBe('new-task')
+  })
+
+  it('fences the latest task when two tabs report different saved Stops together', async () => {
+    const reviews = new DesignReviews(storage())
+    await reviews.save(task)
+    const stale = reviews.restore({ ...task, taskId: 'older-task', status: 'cancelled' })
+    const latest = reviews.restore({ ...task, status: 'cancelled' })
+    expect(reviews.get('file-a')).toMatchObject({ taskId: task.taskId, status: 'cancelled' })
+    expect(reviews.get('file-a', 'older-task')?.status).toBe('cancelled')
+    await Promise.all([stale, latest])
+    expect(reviews.get('file-a')).toMatchObject({ taskId: task.taskId, status: 'cancelled' })
   })
   it('keeps queued Done behind a failing save and continues after the failure', async () => {
     const data = storage()

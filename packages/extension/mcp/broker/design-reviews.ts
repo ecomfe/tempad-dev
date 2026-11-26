@@ -28,19 +28,34 @@ export class DesignReviews {
   private loaded = false
   private pendingStop = false
   private readonly tasks = new Map<string, DesignTask>()
+  private readonly restoringStops = new Set<DesignTask>()
   private stored: StoredReview[] = []
 
-  constructor(private readonly storage: Storage) {}
+  constructor(
+    private readonly storage: Storage,
+    private readonly liveTask?: (fileKey: string) => DesignTask | undefined
+  ) {}
 
-  get(fileKey: string): DesignTask | undefined {
-    return this.tasks.get(fileKey)
+  get(fileKey: string, taskId = this.liveTask?.(fileKey)?.taskId): DesignTask | undefined {
+    const latest = this.tasks.get(fileKey)
+    const id = taskId ?? latest?.taskId
+    const task = latest?.taskId === id ? latest : undefined
+    for (const stop of this.restoringStops) {
+      if (stop.target.fileKey === fileKey && (!id || stop.taskId === id))
+        return {
+          ...(task ?? stop),
+          status: 'cancelled',
+          operation: null,
+          reviewClosed: task?.reviewClosed
+        }
+    }
+    return task
   }
 
   preserveFences(task: DesignTask): DesignTask {
-    const previous = this.tasks.get(task.target.fileKey)
-    if (previous?.taskId !== task.taskId) return task
-    if (previous.reviewClosed) task = { ...task, reviewClosed: true }
-    if (previous.status === 'cancelled') task = { ...task, status: 'cancelled', operation: null }
+    const previous = this.get(task.target.fileKey, task.taskId)
+    if (previous?.reviewClosed) task = { ...task, reviewClosed: true }
+    if (previous?.status === 'cancelled') task = { ...task, status: 'cancelled', operation: null }
     return task
   }
 
@@ -49,9 +64,18 @@ export class DesignReviews {
   }
 
   restore(saved: DesignTask): Promise<void> {
+    const fileKey = saved.target.fileKey
+    // The enable message is also the surviving page's Stop receipt. Apply its fence before
+    // the first session inventory, including while earlier storage operations are in flight.
+    if (saved.status === 'cancelled') this.restoringStops.add(saved)
     return this.serial(async () => {
+      const current = this.liveTask?.(fileKey)
+      if (current && current.taskId !== saved.taskId) return
       await this.load(saved)
-      const previous = this.tasks.get(saved.target.fileKey)
+      const stored = this.tasks.get(fileKey)
+      // A newer Hub task may be live even though its storage write failed.
+      const live = this.liveTask?.(fileKey)
+      const previous = live && live.taskId !== stored?.taskId ? live : stored
       // A stale page cannot override the durable latest review or its Done fence.
       if (!previous) {
         await this.commit(saved)
@@ -62,7 +86,7 @@ export class DesignReviews {
           operation: null
         })
       }
-    })
+    }).finally(() => this.restoringStops.delete(saved))
   }
 
   save(task: DesignTask): Promise<DesignTask> {
@@ -116,7 +140,7 @@ export class DesignReviews {
     this.stored = stored
     this.tasks.set(task.target.fileKey, task)
     this.pendingStop = false
-    return task
+    return this.get(task.target.fileKey, task.taskId)!
   }
 
   private rememberStop(task: DesignTask): void {

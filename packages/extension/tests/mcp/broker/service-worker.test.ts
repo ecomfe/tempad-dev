@@ -161,6 +161,101 @@ function designBroker() {
 }
 
 describe('design task broker routing', () => {
+  it('publishes a replayed Stop in the first inventory and fences all tabs during and after a failed restore', async () => {
+    const f = designBroker()
+    let rejectRead!: (error: Error) => void
+    const read = vi
+      .spyOn(browser.storage.local, 'get')
+      .mockRejectedValue(new Error('Storage unavailable'))
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectRead = reject
+          })
+      )
+    const target = { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' }
+    const document = {
+      fileKey: target.fileKey,
+      fileName: target.fileName,
+      pageId: target.pageId,
+      busy: false
+    }
+    const saved = {
+      taskId: 'old',
+      status: 'cancelled' as const,
+      operation: null,
+      target,
+      title: 'Design',
+      expiresAt: 1000,
+      revision: 1
+    }
+    f.b.message({ ...pageMessage('mcp.enable', 'tab-b'), document })
+    vi.mocked(f.client.sendSessions).mockClear()
+    f.a.message({ ...pageMessage('mcp.enable', 'tab-a'), document, reviewTask: saved })
+    const first = vi.mocked(f.client.sendSessions).mock.calls[0]?.[0]
+    expect(first?.reviews).toMatchObject([
+      { sessionId: 'tab-a', task: saved },
+      { sessionId: 'tab-b', task: saved }
+    ])
+    const write = (id: string, taskId?: string) =>
+      f.internals.routeToolCall({
+        id,
+        type: 'toolCall',
+        route: { gatewayId: 'gateway-a', sessionId: 'tab-b', fileKey: target.fileKey, taskId },
+        payload: { name: 'apply_canvas', args: {} }
+      })
+    const expectBlocked = (id: string, taskId?: string) => {
+      write(id, taskId)
+      expect(f.b.postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'mcp.toolCall', callId: id })
+      )
+      expect(f.client.sendToolResult).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id,
+          error: expect.objectContaining({ code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED })
+        })
+      )
+    }
+    expectBlocked('pending-old', 'old')
+    expectBlocked('pending-taskless')
+    f.a.disconnect()
+    await vi.waitFor(() => expect(read).toHaveBeenCalled())
+    rejectRead(new Error('Storage unavailable'))
+    const next = {
+      ...saved,
+      taskId: 'new',
+      status: 'active' as const,
+      revision: 2,
+      target: { ...target, sessionId: 'tab-b' }
+    }
+    await f.internals.routeDesignTask({
+      type: 'designTaskState',
+      task: { ...saved, status: 'active' }
+    })
+    expectBlocked('failed-old', 'old')
+    expectBlocked('failed-taskless')
+    await f.internals.routeDesignTask({ type: 'designTaskState', task: next })
+    read.mockRestore()
+    f.b.message({ ...pageMessage('mcp.enable', 'tab-b'), document, reviewTask: saved })
+    write('explicit-new', 'new')
+    expect(f.b.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'mcp.toolCall', callId: 'explicit-new' })
+    )
+    expect(f.client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        reviews: []
+      })
+    )
+    const nextStop = { ...next, status: 'cancelled' as const }
+    f.b.message({ ...pageMessage('mcp.enable', 'tab-b'), document, reviewTask: nextStop })
+    expect(f.client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ reviews: [{ sessionId: 'tab-b', task: nextStop }] })
+    )
+    expectBlocked('pending-new-stop', 'new')
+    await f.internals.routeDesignTask({ type: 'designTaskState', task: next })
+    expectBlocked('restored-new-stop', 'new')
+  })
+
   it('retains the live Stop fence through failed stale-state saves and allows Done to retry cleanup', async () => {
     const f = designBroker()
     const task = {

@@ -214,7 +214,9 @@ export class McpServiceWorkerBroker {
   }
 
   private reviews(): DesignReviews {
-    return (this.reviewStore ??= new DesignReviews(browser.storage.local))
+    return (this.reviewStore ??= new DesignReviews(browser.storage.local, (fileKey) =>
+      this.designTasks.get(fileKey)
+    ))
   }
 
   private drafts(): FeedbackDraftStore {
@@ -465,8 +467,8 @@ export class McpServiceWorkerBroker {
       this.portSessions.delete(existingSession.port)
     }
 
-    if (message.reviewTask && message.reviewTask.target.fileKey === message.document?.fileKey) {
-      const saved = message.reviewTask
+    const saved = message.reviewTask
+    if (saved && saved.target.fileKey === message.document?.fileKey) {
       void this.reviews()
         .restore(saved)
         .finally(() => {
@@ -688,6 +690,17 @@ export class McpServiceWorkerBroker {
         'No active TemPad Dev Figma session available.'
       )
       return
+    }
+
+    if (message.payload.name === 'apply_canvas' && activeSession.document) {
+      const review = this.reviews().get(activeSession.document.fileKey, message.route?.taskId)
+      if (review?.status === 'cancelled') {
+        rejectBeforeDelivery(
+          TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_INACTIVE,
+          'This task was stopped. Begin a new task before writing.'
+        )
+        return
+      }
     }
 
     const bridgeMessage: BridgeToPageMessage = {
