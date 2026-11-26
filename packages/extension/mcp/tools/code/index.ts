@@ -136,6 +136,7 @@ type PipelineInput = {
 type PipelineOutput = {
   code: string
   lang: CodeLanguage
+  pluginApplied: boolean
   tokens?: GetTokenDefsResult
   tokenWarnings?: GetCodeWarning[]
 }
@@ -152,6 +153,7 @@ type RenderedMarkup = {
   component: DevComponent
   serialize: (component: DevComponent) => string
   lang: CodeLanguage
+  pluginApplied: boolean
   fontStyleVariableIds: Set<string>
   textStyleInputs: Array<{ style: Record<string, string>; node?: SceneNode }>
 }
@@ -649,6 +651,7 @@ async function finalizeRenderedOutput(
   return {
     lang: rendered.lang,
     code: outputCode,
+    pluginApplied: rendered.pluginApplied || !!rewriteMap?.size,
     tokenWarnings: diagnostics.warnings(),
     ...(tokensPayload ? { tokens: tokensPayload } : {})
   }
@@ -780,32 +783,45 @@ async function collectPluginOutput(
   pluginSkipped: Set<string>
 }> {
   const pluginComponents = new Map<string, PluginComponent | null>()
-  const instances: Array<{ id: string; node: InstanceNode }> = []
-  for (const id of rootOnly ? tree.rootIds : tree.order) {
-    const snapshot = tree.nodes.get(id)
-    if (snapshot?.node.type === 'INSTANCE') {
-      instances.push({ id: snapshot.id, node: snapshot.node })
-    }
-  }
-
-  const components = await resolvePluginComponents(
-    instances.map(({ node }) => node),
-    config,
-    pluginCode,
-    preferredLang,
-    cache
-  )
-  instances.forEach(({ id }, resultIndex) => {
-    pluginComponents.set(id, components[resultIndex] ?? null)
-  })
   const pluginSkipped = new Set<string>()
+  let pending = tree.rootIds
 
-  if (pluginComponents.size) {
-    for (const [id, component] of pluginComponents.entries()) {
-      if (!component) continue
-      const snapshot = tree.nodes.get(id)
+  // Batch the outermost available instances first. Descend only if the plugin
+  // falls back, since a replacement never renders its native children.
+  while (pending.length) {
+    const instances: InstanceNode[] = []
+    const stack = pending.toReversed()
+    while (stack.length) {
+      cache.checkpoint?.()
+      const snapshot = tree.nodes.get(stack.pop()!)
       if (!snapshot) continue
-      snapshot.children.forEach((childId) => addSubtreeIds(childId, tree, pluginSkipped))
+      if (snapshot.node.type === 'INSTANCE') {
+        instances.push(snapshot.node)
+      } else if (!rootOnly) {
+        for (let index = snapshot.children.length - 1; index >= 0; index -= 1) {
+          stack.push(snapshot.children[index]!)
+        }
+      }
+    }
+
+    pending = []
+    if (!instances.length) break
+    const components = await resolvePluginComponents(
+      instances,
+      config,
+      pluginCode,
+      preferredLang,
+      cache
+    )
+    for (const [index, node] of instances.entries()) {
+      const component = components[index] ?? null
+      pluginComponents.set(node.id, component)
+      const children = tree.nodes.get(node.id)!.children
+      if (component) {
+        for (const id of children) addSubtreeIds(id, tree, pluginSkipped)
+      } else if (!rootOnly) {
+        for (const id of children) pending.push(id)
+      }
     }
   }
 
@@ -841,10 +857,14 @@ async function renderMarkup({
   let t = clock ? clock() : 0
   checkpoint?.()
   const fontStyleVariableIds = new Set<string>()
+  let pluginApplied = false
   const textStyleInputs: RenderedMarkup['textStyleInputs'] = []
   const renderContext: RenderContext = {
     ...ctx,
     fontStyleVariableIds,
+    onPluginReplacement: () => {
+      pluginApplied = true
+    },
     // Capture the actual run styles while rendering, including inheritance pruning
     // and normal-weight resets. Token checks can reuse them without native reads.
     resolveStyleVars:
@@ -879,6 +899,7 @@ async function renderMarkup({
     component: transformed,
     serialize,
     lang: resolvedLang,
+    pluginApplied,
     fontStyleVariableIds,
     textStyleInputs
   }
@@ -941,7 +962,7 @@ function buildCodeResult(
     ...(assets.length ? { assets } : {}),
     ...(output.tokens ? { tokens: output.tokens } : {}),
     ...(literalClusters?.length ? { literalClusters } : {}),
-    codegen,
+    codegen: { ...codegen, plugin: output.pluginApplied ? codegen.plugin : 'none' },
     ...(warnings?.length ? { warnings } : {})
   }
 }

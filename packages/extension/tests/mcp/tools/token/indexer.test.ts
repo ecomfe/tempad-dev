@@ -104,6 +104,24 @@ describe('token/indexer', () => {
     expect(result).toEqual(['--fallback-only'])
   })
 
+  it('converts plugin aliases into CSS names while discarding expressions', async () => {
+    vi.mocked(runTransformVariableBatch).mockResolvedValueOnce([
+      '$accent',
+      'theme.colors.primary',
+      'theme.colors.500',
+      '.5',
+      'theme..colors'
+    ])
+
+    await expect(canonicalizeNames(['a', 'b', 'c', 'd', 'e'], config, 'plugin')).resolves.toEqual([
+      '--accent',
+      '--theme-colors-primary',
+      '--theme-colors-500',
+      '--d',
+      '--e'
+    ])
+  })
+
   it('uses figma-style normalized variable names throughout the canonicalization pipeline', async () => {
     const rawName = 'Text colors/Primary/color-text-primary'
     const normalized = normalizeFigmaVarName(rawName)

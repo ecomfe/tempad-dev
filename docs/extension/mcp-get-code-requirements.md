@@ -198,6 +198,7 @@ nearest non-GROUP/BOOLEAN ancestor. Rebase offsets by the boxed group's native o
 
 - If a plugin returns component/code for an instance, the instance subtree is not collected or exported as vector assets.
 - Plugin output is preferred over fallback rendering for that instance.
+- `codegen.plugin` names the plugin when it contributes a component replacement or rewrites a token name. UI-only code blocks leave it as `none`.
 
 ## Token handling
 

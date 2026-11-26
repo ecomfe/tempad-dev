@@ -236,10 +236,12 @@ async function renderNode(
     const pluginProps = Object.keys(props).length ? props : undefined
 
     if (pluginComponent.component) {
+      ctx.onPluginReplacement?.()
       return mergeDevComponentProps(pluginComponent.component, pluginProps)
     }
 
     if (pluginComponent.code) {
+      ctx.onPluginReplacement?.()
       return raw(pluginComponent.code, pluginProps ? toMarkupAttributes(pluginProps) : undefined)
     }
     return null

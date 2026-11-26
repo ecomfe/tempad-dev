@@ -83,7 +83,8 @@ vi.mock('@/mcp/tools/code/render/plugin', () => ({
   resolvePluginComponents: mocks.resolvePluginComponents
 }))
 
-vi.mock('@/mcp/tools/code/tree', () => ({
+vi.mock('@/mcp/tools/code/tree', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/mcp/tools/code/tree')>()),
   buildVisibleTree: mocks.buildVisibleTree
 }))
 
@@ -278,7 +279,11 @@ describe('mcp/code handleGetCode', () => {
       const root = createSnapshot({ id: 'root', children: ['a', 'b'] })
       const tree = createTree([
         root,
-        createSnapshot({ id: 'a', parentId: 'root' }),
+        createSnapshot({
+          id: 'a',
+          parentId: 'root',
+          type: phase === 'plugin' ? 'INSTANCE' : 'FRAME'
+        }),
         createSnapshot({ id: 'b', parentId: 'root' })
       ])
       mockAssetCollection(tree, [], new Set())
@@ -413,7 +418,8 @@ describe('mcp/code handleGetCode', () => {
 
   it('checks vector-container eligibility when a plugin times out before asset planning', async () => {
     const root = createSnapshot({ id: 'root', children: ['mask', 'artwork'] })
-    mockAssetCollection(createTree([root]), [], new Set())
+    const artwork = createSnapshot({ id: 'artwork', type: 'INSTANCE', parentId: 'root' })
+    mockAssetCollection(createTree([root, artwork]), [], new Set())
     mocks.activePlugin.value = { name: 'test', code: 'plugin' }
     mocks.resolvePluginComponents.mockRejectedValueOnce(
       new PluginSandboxError('timeout', 'Plugin timed out')
@@ -437,7 +443,8 @@ describe('mcp/code handleGetCode', () => {
 
   it('falls back immediately when a plugin reports a timeout', async () => {
     const root = createSnapshot({ id: 'root', children: ['child'] })
-    mockAssetCollection(createTree([root]), [], new Set())
+    const child = createSnapshot({ id: 'child', type: 'INSTANCE', parentId: 'root' })
+    mockAssetCollection(createTree([root, child]), [], new Set())
     mocks.activePlugin.value = { name: 'test', code: 'plugin' }
     mocks.resolvePluginComponents.mockRejectedValueOnce(
       new PluginSandboxError('timeout', 'Plugin timed out')
@@ -1136,14 +1143,57 @@ describe('mcp/code handleGetCode', () => {
     fail = false
     const second = await handleGetCode([root.node], 'jsx', false, 'smart', { cache })
     expect(second.codegen).toEqual(first.codegen)
-    expect(second.codegen.plugin).toBe('first')
+    expect(second.codegen.plugin).toBe('none')
+    expect(mocks.processTokens.mock.calls.map(([input]) => input.pluginCode)).toEqual([
+      'first-code',
+      'first-code'
+    ])
     expect(first.warnings?.[0]?.type).toBe('token-definition')
     expect(second.warnings).toBeUndefined()
     const next = await handleGetCode([root.node], 'jsx', false)
     expect(next.codegen).toMatchObject({
-      plugin: 'changed',
+      plugin: 'none',
       config: { scale: 2, rootFontSize: 20 }
     })
+  })
+
+  it('prunes replaced plugin subtrees while batching fallbacks and reports the emitted plugin', async () => {
+    const root = createSnapshot({ id: 'root', children: ['replaced', 'fallback'] })
+    const replaced = createSnapshot({
+      id: 'replaced',
+      type: 'INSTANCE',
+      parentId: 'root',
+      children: ['skipped']
+    })
+    const fallback = createSnapshot({
+      id: 'fallback',
+      type: 'INSTANCE',
+      parentId: 'root',
+      children: ['visible']
+    })
+    const skipped = createSnapshot({ id: 'skipped', type: 'INSTANCE', parentId: 'replaced' })
+    const visible = createSnapshot({ id: 'visible', type: 'INSTANCE', parentId: 'fallback' })
+    const tree = createTree([root, replaced, skipped, fallback, visible])
+    mockAssetCollection(tree, [], new Set())
+    mocks.activePlugin.value = { name: 'component-plugin', code: 'plugin' }
+    mocks.resolvePluginComponents
+      .mockResolvedValueOnce([{ code: '<Parent />' }, null])
+      .mockResolvedValueOnce([{ code: '<Visible />' }])
+    mocks.renderTree.mockImplementation(async (_id, _tree, context) => {
+      expect(context.pluginComponents?.has('skipped')).toBe(false)
+      expect(context.pluginComponents?.get('visible')).toEqual({ code: '<Visible />' })
+      context.onPluginReplacement?.()
+      return raw('<div><Parent /><Visible /></div>')
+    })
+
+    const result = await handleGetCode([root.node])
+
+    expect(
+      mocks.resolvePluginComponents.mock.calls.map(([nodes]) =>
+        nodes.map((node: InstanceNode) => node.id)
+      )
+    ).toEqual([['replaced', 'fallback'], ['visible']])
+    expect(result.codegen.plugin).toBe('component-plugin')
   })
 
   it('resolves all plugin instances through one batched collection call', async () => {

@@ -110,6 +110,23 @@ describe('mcp/code render plugin', () => {
     })
   })
 
+  it('selects the component language independently of UI-only blocks', async () => {
+    mocked.generateCodeBlocksForNode.mockResolvedValue({
+      codeBlocks: [
+        createCodeBlock({ name: 'styles', lang: 'vue', code: '<style></style>' }),
+        createCodeBlock({ lang: 'tsx', code: '<Card />' })
+      ]
+    })
+
+    await expect(
+      resolvePluginComponent({} as InstanceNode, createConfig(), 'plugin')
+    ).resolves.toEqual({
+      component: undefined,
+      code: '<Card />',
+      lang: 'jsx'
+    })
+  })
+
   it('maps batched codegen responses to plugin components in source order', async () => {
     const nodes = [{ id: 'one' }, { id: 'two' }] as InstanceNode[]
     mocked.generateCodeBlocksForNodes.mockResolvedValue([

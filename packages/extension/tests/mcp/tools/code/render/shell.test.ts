@@ -99,6 +99,7 @@ describe('mcp/code render shell', () => {
 
   it('preserves plugin-owned inline styles when injecting layout classes', async () => {
     const root = createSnapshot({ id: 'root', type: 'INSTANCE' })
+    const onPluginReplacement = vi.fn()
     const style = { background: 'linear-gradient(red, blue)', backgroundColor: 'green' }
     const rendered = await renderTree(root.id, createTree([root]), {
       styles: new Map([
@@ -109,6 +110,7 @@ describe('mcp/code render shell', () => {
       svgs: new Map(),
       textSegments: new Map(),
       config: { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+      onPluginReplacement,
       pluginComponents: new Map([
         [
           root.id,
@@ -118,6 +120,7 @@ describe('mcp/code render shell', () => {
     })
 
     expect(rendered).toMatchObject({ props: { style, className: 'card flex' } })
+    expect(onPluginReplacement).toHaveBeenCalledOnce()
     expect(mocked.styleToClassNames).toHaveBeenCalledWith(
       { display: 'flex' },
       { cssUnit: 'px', rootFontSize: 16, scale: 1 }

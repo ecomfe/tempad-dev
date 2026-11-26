@@ -2,8 +2,10 @@ import { canonicalizeVarName, normalizeFigmaVarName } from '@/utils/css'
 import { logger } from '@/utils/log'
 
 function looksLikeName(value: string): boolean {
-  const trimmed = value.trim()
-  return /^[A-Za-z0-9 _-]+$/.test(trimmed) || /^[$@][A-Za-z0-9 _-]+$/.test(trimmed)
+  return (
+    /^[$@]?[A-Za-z0-9 _-]+$/.test(value) ||
+    /^[$@]?[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)+$/.test(value)
+  )
 }
 
 export function normalizeTransformedName(output: string | undefined, fallback: string): string {

@@ -56,35 +56,22 @@ function resolvePluginComponentResponse(
   { codeBlocks, devComponent }: ResponsePayload,
   preferredLang?: CodeLanguage
 ): PluginComponent | null {
-  const detectedLang = detectLang(codeBlocks, preferredLang)
-  const componentBlock = findComponentBlock(codeBlocks, detectedLang)
+  const components = codeBlocks.filter(({ name }) => name === 'component')
+  const findComponent = (lang: CodeLanguage): CodeBlock | undefined =>
+    components.find((block) => normalizeBlockLang(block.lang) === lang)
+  const componentBlock = preferredLang
+    ? findComponent(preferredLang)
+    : (findComponent('vue') ?? findComponent('jsx'))
   const code = componentBlock?.code.trim()
   if (!code && !devComponent) return null
-  return { component: devComponent ?? undefined, code: code ?? undefined, lang: detectedLang }
-}
-
-function detectLang(blocks: CodeBlock[], preferredLang?: CodeLanguage): CodeLanguage | undefined {
-  if (preferredLang) return preferredLang
-  const normalized = blocks.map((b) => normalizeBlockLang(b.lang))
-  if (normalized.includes('vue')) return 'vue'
-  if (normalized.includes('jsx')) return 'jsx'
-  return undefined
+  return {
+    component: devComponent ?? undefined,
+    code,
+    lang: preferredLang ?? normalizeBlockLang(componentBlock?.lang)
+  }
 }
 
 function normalizeBlockLang(lang?: string): CodeLanguage | undefined {
-  if (!lang || lang === 'jsx' || lang === 'vue') return lang as CodeLanguage
-  if (lang === 'tsx') return 'jsx'
-  return 'jsx'
-}
-
-function findComponentBlock(
-  blocks: CodeBlock[],
-  preferredLang?: CodeLanguage
-): CodeBlock | undefined {
-  const comps = blocks.filter((b) => b.name === 'component')
-  if (preferredLang) return comps.find((b) => normalizeBlockLang(b.lang) === preferredLang)
-  return (
-    comps.find((b) => normalizeBlockLang(b.lang) === 'vue') ??
-    comps.find((b) => normalizeBlockLang(b.lang) === 'jsx')
-  )
+  if (!lang) return undefined
+  return lang === 'vue' ? 'vue' : 'jsx'
 }
