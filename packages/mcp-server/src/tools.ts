@@ -495,13 +495,21 @@ export function presentClientReadResult(
     return result
 
   const version = VersionSchema.safeParse(client.version)
-  if (!preserveNotices && version.success && compareVersions(version.data, '1.17.12') >= 0)
+  if (
+    !preserveNotices &&
+    version.success &&
+    version.data.startsWith('1.') &&
+    compareVersions(version.data, '1.17.12') >= 0
+  )
     return { ...result, content: [] }
 
   // Keep separate compatibility/readback notices and the payload consumed by host plugins.
   const text = { type: 'text' as const, text: JSON.stringify(result.structuredContent) }
   const mirrored = { ...result, content: [...result.content, text] }
-  return measureCallToolResultBytes(mirrored) <= MCP_TOOL_INLINE_BUDGET_BYTES ? mirrored : result
+  if (measureCallToolResultBytes(mirrored) <= MCP_TOOL_INLINE_BUDGET_BYTES) return mirrored
+  const guidance = { type: 'text' as const, text: getBudgetRetryGuidance(name) }
+  const retry = { ...result, content: [...result.content, guidance] }
+  return measureCallToolResultBytes(retry) <= MCP_TOOL_INLINE_BUDGET_BYTES ? retry : result
 }
 
 function toCallToolResult(result: ToolResponseLike): CallToolResult {

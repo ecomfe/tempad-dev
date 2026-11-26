@@ -61,7 +61,11 @@ describe('tools response helpers', () => {
       notice
     )
     const large = createCodeToolResponse({ ...codePayload, code: '设'.repeat(16_000) })
-    expect(presentClientReadResult('get_code', { ...client, version: 'dev' }, large)).toBe(large)
+    for (const version of ['dev', '2.0.0']) {
+      const limited = presentClientReadResult('get_code', { ...client, version }, large)
+      expect(limited.structuredContent).toEqual(large.structuredContent)
+      expect(textContent(limited.content.at(-1))).toContain('smaller nodeId')
+    }
     expect(presentClientReadResult('get_code', client, large).structuredContent).toEqual(
       large.structuredContent
     )
