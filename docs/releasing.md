@@ -138,19 +138,22 @@ remain fixed to the original extension connection and session.
 3. Publish the backward-compatible MCP to `latest` first, then release the new extension and
    expose the new Agent Plugin on `main`. Existing extension installations must continue working
    throughout the store rollout. Keep the independent native-host acceptance requirement.
-4. Retain the legacy path for at least one store cycle. Removing it is a separate breaking
-   release decision with a documented recovery path, not an automatic consequence of store
-   publication or elapsed time.
+4. Retain the unversioned adapter through the 1.x rollout. Extension 0.20.0 discards WebSocket
+   close reasons and reports an unreachable Hub even when the Hub sends explicit upgrade instructions.
+   Before a breaking release requires protocol 13 (extension 0.22.0) or newer, verify that an
+   ordinary read from an unversioned peer gives the agent an actionable upgrade error, and that a
+   disconnected extension still gives the usual connection error. Test mixed old and new peers,
+   installing the store update and reloading Figma, and restoring the last compatible Hub.
+   A managed switch that removes an adapter must leave the previous Hub available.
 
-Publishing to the store alone does not retire old installations. Keep the adapter and its fixture
-checks throughout the rollout; never treat store availability as evidence that every user updated.
+Older extensions install both standalone skills with a single name filter. The installer
+accepts a partial match, so retain the `figma-canvas-authoring` migration notice in the
+standalone target. It gives users the exact command for installing `design-in-figma`.
 
-Keep the generated standalone `figma-canvas-authoring` skill alias and the legacy `figma.js`,
-`figma.json`, and `figma.comply.json` assets on `gh-pages` for at least one extension store release
-cycle after their replacements ship. Do not let a site deployment remove these assets. New
-extensions use packaged rewrite resources; old installations need the existing remote URLs until
-they update and reload Figma. Remove these compatibility entries only as an explicit migration
-change after verifying the supported old-extension setup and runtime paths.
+Preserve `figma.js`, `figma.json`, and `figma.comply.json` at their existing `gh-pages` URLs.
+Published extensions used these URLs before rewrite resources were bundled. Some also persist
+the remote script redirect across Chrome restarts. Users recover by updating the extension
+and reloading Figma. Keep the upgrade fixture for direct updates that skip intermediate versions.
 
 ## Publish the coordinated release
 

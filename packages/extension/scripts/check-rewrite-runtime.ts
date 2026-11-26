@@ -33,9 +33,8 @@ async function verifyRules(context: BrowserContext) {
     for (let attempt = 0; attempt < 100; attempt++) {
       const rules = await chrome.declarativeNetRequest.getDynamicRules()
       const enabled = await chrome.declarativeNetRequest.getEnabledRulesets()
-      const stored = await chrome.storage.local.get('rewrite-rules')
-      if (rules.length === 0 && enabled.includes('figma') && stored['rewrite-rules'] === undefined)
-        return
+      const alarm = await chrome.alarms.get('sync-rules')
+      if (rules.length === 0 && enabled.includes('figma') && !alarm) return
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
     throw new Error(
@@ -47,13 +46,6 @@ async function verifyRules(context: BrowserContext) {
       })}`
     )
   })
-  assert.equal(
-    await worker.evaluate(
-      async () => await Reflect.get(globalThis, 'chrome').alarms.get('sync-rules')
-    ),
-    undefined,
-    'The persisted rewrite update alarm must be removed.'
-  )
   assert.deepEqual(await worker.evaluate(() => Reflect.get(globalThis, 'workerFetches')), [])
   await verifyRuleScope(context, { csp: true, scripts: true })
 }
@@ -283,11 +275,6 @@ async function verifyLegacyRules(
   const fetches: string[] = await worker.evaluate(() => Reflect.get(globalThis, 'workerFetches'))
   assert.ok(fetches.length > 0)
   assert.ok(fetches.every((url) => url === 'https://ecomfe.github.io/tempad-dev/figma.json'))
-  assert.deepEqual(
-    await worker.evaluate(async () => await Reflect.get(globalThis, 'chrome').storage.local.get()),
-    {},
-    'The 0.23.1 rewrite code persists DNR rules and an alarm, not a local-storage rules key.'
-  )
 }
 
 async function verifyLoopbackScript(context: BrowserContext) {
@@ -490,16 +477,14 @@ export async function runCheck() {
       path.join(root, 'tests/fixtures/rewrite-0.23.1-background.js'),
       'utf8'
     )
-    await writeFile(
-      manifestPath,
-      JSON.stringify({
-        ...manifest,
-        version: '0.23.1',
-        permissions: ['declarativeNetRequest', ...manifest.permissions],
-        content_scripts: [],
-        background: { service_worker: 'old-background.js' }
-      })
-    )
+    const oldManifest = JSON.stringify({
+      ...manifest,
+      version: '0.23.1',
+      permissions: ['declarativeNetRequest', ...manifest.permissions],
+      content_scripts: [],
+      background: { service_worker: 'old-background.js' }
+    })
+    await writeFile(manifestPath, oldManifest)
     // A reviewable remote migration changes only the CSP condition. Old clients still
     // need the remote figma.js URL and the same rule-2 matcher; never copy extensionPath here.
     const cspRule = bundledRules.find(({ id }) => id === 1)
@@ -521,6 +506,13 @@ export async function runCheck() {
     await verifyLegacyRules(context, legacyRules)
     await verifyRuleScope(context, { csp: false, scripts: false })
     const oldWorker = await getWorker(context)
+    assert.deepEqual(
+      await oldWorker.evaluate(
+        async () => await Reflect.get(globalThis, 'chrome').storage.local.get()
+      ),
+      {},
+      'The 0.23.1 rewrite code persists DNR rules and an alarm, not a local-storage rules key.'
+    )
     // The download changes, not the installed extension. Exercise the same refresh
     // function used by its ten-minute alarm without delaying the test ten minutes.
     await oldWorker.evaluate(async (rules) => {
@@ -543,7 +535,10 @@ export async function runCheck() {
     const extensionId = new URL(oldWorker.url()).host
     await context.close()
     context = undefined
-    await rm(path.join(extension, 'old-background.js'))
+    // Restoring a previous unpacked build also restores its profile and granted permissions.
+    await cp(path.join(temporary, 'upgrade-profile'), path.join(temporary, 'rollback-profile'), {
+      recursive: true
+    })
     await writeFile(manifestPath, JSON.stringify(manifest))
     context = await launch('upgrade-profile')
     await verifyRules(context)
@@ -552,13 +547,20 @@ export async function runCheck() {
     assert.equal(new URL(upgradedWorker.url()).host, extensionId)
     assert.deepEqual(
       await upgradedWorker.evaluate(
-        async () =>
-          await Reflect.get(globalThis, 'chrome').storage.local.get(['rewrite-rules', 'unrelated'])
+        async () => await Reflect.get(globalThis, 'chrome').storage.local.get('unrelated')
       ),
       { unrelated: 'preserve' }
     )
+    await context.close()
+    await writeFile(manifestPath, oldManifest)
+    context = await launch('rollback-profile')
+    await verifyLegacyRules(context, legacyRules)
+    await context.close()
+    await writeFile(manifestPath, JSON.stringify(manifest))
+    context = await launch('rollback-profile')
+    await verifyRules(context)
     console.log(
-      'Local rewrite: packaged rules, offline startup, reconstructed 0.23.1 migration, CSP scope, static scripts, Rspack chunks and fallback passed.'
+      'Local rewrite: packaged rules, offline startup, reconstructed 0.23.1 upgrade and rollback, CSP scope, static scripts, Rspack chunks and fallback passed.'
     )
   } finally {
     try {

@@ -4,8 +4,7 @@ export function startBundledRewriteRules(): void {
   let ready: Promise<void> | undefined
 
   async function activateRules(): Promise<void> {
-    // Previous versions disabled this ruleset and persisted remote rules across updates.
-    await browser.declarativeNetRequest.updateEnabledRulesets({ enableRulesetIds: ['figma'] })
+    // Chrome restores manifest-enabled static rules on update. Dynamic rules survive it.
     const previous = await browser.declarativeNetRequest.getDynamicRules()
     if (previous.length) {
       await browser.declarativeNetRequest.updateDynamicRules({
@@ -14,7 +13,6 @@ export function startBundledRewriteRules(): void {
     }
     // Chrome persists alarms across updates; keep access only to remove the old scheduler.
     await browser.alarms.clear('sync-rules')
-    await browser.storage.local.remove('rewrite-rules')
   }
 
   function restoreRules(): Promise<void> {
@@ -24,11 +22,7 @@ export function startBundledRewriteRules(): void {
     }))
   }
 
-  browser.runtime.onInstalled.addListener(() => {
-    void restoreRules()
-  })
-  browser.runtime.onStartup.addListener(() => {
-    void restoreRules()
-  })
+  browser.runtime.onInstalled.addListener(() => void restoreRules())
+  browser.runtime.onStartup.addListener(() => void restoreRules())
   void restoreRules()
 }
