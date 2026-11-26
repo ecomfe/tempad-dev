@@ -17,6 +17,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./browser-gateway": {
+      "source": "./src/mcp/browser-gateway.ts",
+      "types": "./dist/browser-gateway.d.ts",
+      "import": "./dist/browser-gateway.js"
+    },
     "./install": {
       "source": "./src/mcp/install.ts",
       "types": "./dist/install.d.ts",

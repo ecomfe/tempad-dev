@@ -1,4 +1,4 @@
-import type { DesignTask, PageToBridgeMessage } from '@tempad-dev/shared'
+import type { DesignTask } from '@tempad-dev/shared'
 
 import {
   TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
@@ -6,8 +6,9 @@ import {
   TEMPAD_MCP_FIGMA_ORIGIN,
   TEMPAD_MCP_SESSION_PORT_NAME,
   parseBridgeToPageMessage,
-  parsePageToBridgeMessage
-} from '@tempad-dev/shared'
+  parsePageToBridgeMessage,
+  type PageToBridgeMessage
+} from '@tempad-dev/shared/browser-gateway'
 
 import {
   MCP_LOCAL_HOST_PERMISSION_ERROR,

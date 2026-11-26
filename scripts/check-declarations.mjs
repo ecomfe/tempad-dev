@@ -47,6 +47,7 @@ try {
   writeFileSync(
     join(directory, 'consumer.ts'),
     `import { GetCodeParametersSchema, type GetCodeParametersInput, type TempadMcpErrorCode } from '@tempad-dev/shared'
+import { parsePageToBridgeMessage, type PageToBridgeMessage } from '@tempad-dev/shared/browser-gateway'
 import { definePlugin, h, type DevComponent, type Plugin } from '@tempad-dev/plugins'
 
 const input: GetCodeParametersInput = { nodeIds: ['1:2'], resolveTokens: true }
@@ -57,6 +58,7 @@ const error: TempadMcpErrorCode = 'REQUEST_ID_CONFLICT'
 const invalidInput: GetCodeParametersInput = { resolveTokens: 'true' }
 // @ts-expect-error Error codes remain a closed union.
 const invalidError: TempadMcpErrorCode = 'UNKNOWN_CODE'
+const pageMessage: PageToBridgeMessage | null = parsePageToBridgeMessage(undefined)
 
 const component: DevComponent<{ label: string }> = h('Button', { label: 'Save' })
 const label: string = component.props.label
