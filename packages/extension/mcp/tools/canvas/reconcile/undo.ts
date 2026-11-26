@@ -266,9 +266,10 @@ function matchesProtectedNode(node: BaseNode, expected: ProtectedNodeSnapshot): 
 }
 
 export function protectNode(state: ApplyState, node: BaseNode): void {
-  if (state.createdNodeIds.has(node.id) || state.createdPageIds.has(node.id)) return
-  if (state.protectedNodes.has(node.id)) return
-  state.protectedNodes.set(node.id, {
+  const id = node.id
+  if (state.createdNodeIds.has(id) || state.createdPageIds.has(id) || state.protectedNodes.has(id))
+    return
+  state.protectedNodes.set(id, {
     node,
     ...(state.undoStarted ? { snapshot: snapshotProtectedNode(node) } : {})
   })
@@ -281,9 +282,9 @@ function topLevelPageChild(node: BaseNode, page: PageNode): BaseNode | null {
 }
 
 export function protectUnrelatedPageRoots(state: ApplyState, page: PageNode): void {
-  const mutableRoot = state.scope ? topLevelPageChild(state.scope, page) : null
+  const mutableRootId = state.scope ? topLevelPageChild(state.scope, page)?.id : undefined
   for (const child of page.children) {
-    if (child.id !== mutableRoot?.id) protectNode(state, child)
+    if (child.id !== mutableRootId) protectNode(state, child)
   }
 }
 
@@ -398,11 +399,8 @@ export async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyS
     }
     // Preflight can yield for media/fonts while the user edits referenced nodes.
     // Freeze their baseline only when this attempt is about to start writing.
-    for (const protectedNode of state.protectedNodes.values()) {
-      protectedNode.snapshot = snapshotProtectedNode(
-        protectedNode.node,
-        mutableNodeIds.has(protectedNode.node.id)
-      )
+    for (const [id, protectedNode] of state.protectedNodes) {
+      protectedNode.snapshot = snapshotProtectedNode(protectedNode.node, mutableNodeIds.has(id))
     }
     resourceSnapshots = snapshotDeclaredResources(state)
     state.undoStarted = true
