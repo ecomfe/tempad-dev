@@ -53,7 +53,7 @@ import { HostContextNotificationSchema } from './agent-clients/host-context'
 import { ClientEventSchema } from './agent-clients/identity'
 import { AgentClients } from './agent-clients/registry'
 import { createAssetHttpServer } from './asset-http-server'
-import { createAssetStore } from './asset-store'
+import { createAssetStore, pruneExpiredAssets } from './asset-store'
 import { ClientBindingSubscribeSchema, ClientBindingUpdateSchema } from './client-binding'
 import { getMcpServerConfig } from './config'
 import { ConsumerTransport } from './consumer-transport'
@@ -671,29 +671,15 @@ export async function startHub(
       log.info('Asset TTL cleanup disabled (TEMPAD_MCP_ASSET_TTL_MS=0).')
       return
     }
-    pruneExpiredAssets(assetTtlMs)
+    const sweep = () => {
+      const result = pruneExpiredAssets(assetStore, assetTtlMs)
+      log.info({ ...result, ttlMs: assetTtlMs }, 'Asset TTL sweep completed.')
+    }
+    sweep()
     const intervalMs = Math.min(assetTtlMs, 24 * 60 * 60 * 1000)
-    assetCleanupTimer = setInterval(() => {
-      pruneExpiredAssets(assetTtlMs)
-    }, intervalMs)
+    assetCleanupTimer = setInterval(sweep, intervalMs)
     unrefTimer(assetCleanupTimer)
     log.info({ ttlMs: assetTtlMs, intervalMs }, 'Asset TTL cleanup enabled.')
-  }
-
-  function pruneExpiredAssets(ttlMs: number): void {
-    const now = Date.now()
-    let removed = 0
-    let checked = 0
-    for (const record of assetStore.list()) {
-      checked += 1
-      const lastAccess = Number.isFinite(record.lastAccess) ? record.lastAccess : record.uploadedAt
-      if (!lastAccess) continue
-      if (now - lastAccess > ttlMs) {
-        assetStore.remove(record.hash)
-        removed += 1
-      }
-    }
-    log.info({ checked, removed, ttlMs }, 'Asset TTL sweep completed.')
   }
 
   function publishDesignTask({ task, extensionId }: DesignTaskRecord): void {

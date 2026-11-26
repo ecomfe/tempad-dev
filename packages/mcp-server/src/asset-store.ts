@@ -44,6 +44,30 @@ export interface AssetStore {
   flush(): void
 }
 
+export function pruneExpiredAssets(
+  store: AssetStore,
+  ttlMs: number,
+  pressure?: { preserveHash: string; bytesNeeded: number }
+) {
+  const now = Date.now()
+  let checked = 0
+  let removed = 0
+  let reclaimed = 0
+  for (const record of store.list()) {
+    checked++
+    const lastAccess = Number.isFinite(record.lastAccess) ? record.lastAccess : record.uploadedAt
+    if (record.hash !== pressure?.preserveHash && lastAccess && now - lastAccess > ttlMs) {
+      store.remove(record.hash)
+      if (!store.has(record.hash)) {
+        removed++
+        if (Number.isFinite(record.size) && record.size > 0) reclaimed += record.size
+        if (pressure && reclaimed >= pressure.bytesNeeded) break
+      }
+    }
+  }
+  return { checked, removed }
+}
+
 function readIndex(indexPath: string): AssetRecord[] {
   if (!existsSync(indexPath)) return []
   try {

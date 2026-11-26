@@ -508,7 +508,7 @@ describe('asset-http-server', () => {
         mimeType: 'image/png',
         size: 5,
         uploadedAt: 1,
-        lastAccess: 1
+        lastAccess: Date.now()
       }
     ])
     const server = createAssetHttpServer(store, { maxAssetStoreBytes: 8 })
@@ -535,6 +535,44 @@ describe('asset-http-server', () => {
       server.importImage('data:image/png;base64,Zm91cg==', new AbortController().signal)
     ).rejects.toThrow('Quota Exceeded')
     server.stop()
+  })
+
+  it('reclaims only expired assets under quota pressure when TTL cleanup is enabled', async () => {
+    const store = createStoreMock()
+    const old = {
+      hash: '1'.repeat(64),
+      size: 5,
+      lastAccess: 1,
+      uploadedAt: 1,
+      filePath: join(ASSET_DIR, 'expired.png'),
+      mimeType: 'image/png'
+    }
+    const current = { ...old, hash: '2'.repeat(64), lastAccess: Date.now() }
+    const other = { ...old, hash: '3'.repeat(64) }
+    const records = new Map([current, old, other].map((record) => [record.hash, record]))
+    store.list.mockImplementation(() => [...records.values()])
+    store.has.mockImplementation((hash) => records.has(hash))
+    store.remove.mockImplementation((hash) => records.delete(hash))
+    const bytes = Buffer.from('quota')
+    const hash = createHash('sha256').update(bytes).digest('hex')
+    createdPaths.push(join(ASSET_DIR, `${hash}.png`))
+    const dataUrl = `data:image/png;base64,${bytes.toString('base64')}`
+    const importImage = () =>
+      createAssetHttpServer(store, { maxAssetStoreBytes: 15 }).importImage(
+        dataUrl,
+        new AbortController().signal
+      )
+    try {
+      vi.stubEnv('TEMPAD_MCP_ASSET_TTL_MS', '0')
+      await expect(importImage()).rejects.toThrow('Quota Exceeded')
+      expect(store.remove).not.toHaveBeenCalled()
+      vi.stubEnv('TEMPAD_MCP_ASSET_TTL_MS', '60000')
+      await expect(importImage()).resolves.toMatchObject({ assetHash: hash })
+      expect(store.remove).toHaveBeenCalledExactlyOnceWith(old.hash)
+      expect([...records.keys()]).toEqual([current.hash, other.hash])
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('shares import admission, atomic storage and cancellation with HTTP uploads', async () => {

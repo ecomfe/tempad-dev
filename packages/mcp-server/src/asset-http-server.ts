@@ -18,10 +18,10 @@ import { join } from 'node:path'
 import { pipeline, Readable, Transform } from 'node:stream'
 import { URL } from 'node:url'
 
-import type { AssetStore } from './asset-store'
 import type { AssetRecord } from './types'
 
 import { decodeImageDataUrl } from './asset-data-url'
+import { pruneExpiredAssets, type AssetStore } from './asset-store'
 import { buildAssetFilename, getHashFromAssetFilename, normalizeMimeType } from './asset-utils'
 import { getMcpServerConfig } from './config'
 import {
@@ -386,8 +386,15 @@ export function createAssetHttpServer(
 
     const reservationBytes = declaredSize ?? maxAssetSizeBytes
     const quota = (incomingBytes: number) => {
-      const storedBytes = getStoredAssetBytes(store, hash)
-      return storedBytes + reservedUploadBytes + incomingBytes > maxAssetStoreBytes
+      const available = maxAssetStoreBytes - reservedUploadBytes - incomingBytes
+      let storedBytes = getStoredAssetBytes(store, hash)
+      if (storedBytes > available && available >= 0 && config.assetTtlMs > 0) {
+        // Keep the original bytes for short-hash collision checks until this upload commits.
+        const pressure = { preserveHash: hash, bytesNeeded: storedBytes - available }
+        if (pruneExpiredAssets(store, config.assetTtlMs, pressure).removed)
+          storedBytes = getStoredAssetBytes(store, hash)
+      }
+      return storedBytes > available
         ? {
             error: 'Asset Store Quota Exceeded',
             storedBytes,
