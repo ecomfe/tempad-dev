@@ -110,7 +110,7 @@ describe('shared/mcp/install', () => {
     expect(mcp.MCP_CLIENTS_BY_ID.codex.copyText).toContain('codex mcp add "tempad-dev"')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyKind).toBe('config')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyText).toBe(
-      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest", "--runtime-updates=stable"]\ntool_timeout_sec = 300'
+      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest", "--runtime-updates=stable"]\ntool_timeout_sec = 300\nstartup_timeout_sec = 120'
     )
     expect(mcp.MCP_CLIENTS_BY_ID.gemini.copyText).toBe(
       'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest --runtime-updates=stable'

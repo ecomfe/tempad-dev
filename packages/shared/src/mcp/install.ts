@@ -167,7 +167,8 @@ function buildCodexConfigSnippet(): string {
     `[mcp_servers.${SERVER_NAME}]`,
     `command = ${JSON.stringify(SERVER_COMMAND)}`,
     `args = [${SERVER_ARGS.map((arg) => JSON.stringify(arg)).join(', ')}]`,
-    'tool_timeout_sec = 300'
+    'tool_timeout_sec = 300',
+    'startup_timeout_sec = 120'
   ].join('\n')
 }
 
