@@ -99,13 +99,12 @@ it.skipIf(process.platform === 'win32')(
       profile: { kind: 'release' },
       issuedAt: Date.now()
     }
-    const request = async () => {
+    const request = async (params = input) => {
       const socket = connect(join(root, 'run/mcp.sock'))
       await once(socket, 'connect')
       const reply = once(socket, 'data')
       socket.write(
-        JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tempad/client-hook', params: input }) +
-          '\n'
+        JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tempad/client-hook', params }) + '\n'
       )
       const result = JSON.parse(String((await reply)[0])).result
       socket.destroy()
@@ -122,6 +121,12 @@ it.skipIf(process.platform === 'win32')(
       receipt: { version: 2, invocationId: input.invocationId, state: 'applied' }
     })
     expect(deliver).toHaveBeenCalledOnce()
+    const next = { ...input, invocationId: randomUUID() }
+    expect(await request(next)).toEqual({
+      notice: 'Stop',
+      receipt: { version: 2, invocationId: next.invocationId, state: 'applied' }
+    })
+    expect(deliver).toHaveBeenCalledTimes(2)
   }
 )
 

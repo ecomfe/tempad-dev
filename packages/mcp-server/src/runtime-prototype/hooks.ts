@@ -4,6 +4,7 @@ import {
 } from '@modelcontextprotocol/sdk/shared/stdio.js'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
 
 import { ClientHookRequestSchema, type ClientHook } from '../agent-clients/hooks'
@@ -282,7 +283,11 @@ export async function startHookGateway(
             if (legacyExhausted()) onFault(new LegacyHookCapacityError())
           }
           if (input.version === 2) {
-            void flush().catch(() => {})
+            const applied = flush().catch(() => {})
+            // The installed hook otherwise reconnects after 30 ms to collect this same result.
+            // Slow or failed delivery can acknowledge only the already durable inbox entry.
+            if (!existing?.result)
+              await Promise.race([applied, delay(30, undefined, { ref: false })])
           } else await flush()
           const result = entries.find(
             (entry) => entry.input.invocationId === input.invocationId

@@ -123,7 +123,7 @@ it.skipIf(process.platform === 'win32')(
     const fault = vi.fn()
     const recovered = await startHookGateway(root, after.deliver, fault)
     const fresh = { ...hook('UserPromptSubmit'), sessionId: 'fresh-session' }
-    expect((await request(root, fresh)).result.receipt.state).toBe('accepted')
+    expect((await request(root, fresh)).result.receipt.state).toBe('applied')
     await recovered.flush()
     expect(after.apply.mock.calls.map(([event]) => event.invocationId)).toEqual([
       fresh.invocationId

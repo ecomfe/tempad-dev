@@ -895,7 +895,7 @@ it('recovers a supervisor with an expired admitted hook without replay or loss o
     issuedAt: now,
     event: 'UserPromptSubmit' as const
   }
-  expect((await request(fresh)).result.receipt.state).toBe('accepted')
+  expect(['accepted', 'applied']).toContain((await request(fresh)).result.receipt.state)
   await vi.waitFor(() => expect(applied).toHaveBeenCalledExactlyOnceWith(fresh, true))
   expect(tasks.find(task.task.taskId)).toMatchObject({
     task: { status: 'cancelled' },
