@@ -5,7 +5,7 @@ import { IntegritySchema, safePath } from './manifest'
 
 export const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
 export const MAX_EXTRACTED_BYTES = 256 * 1024 * 1024
-const MAX_FILE_BYTES = 16 * 1024 * 1024
+export const MAX_FILE_BYTES = 16 * 1024 * 1024
 const MAX_FILES = 20_000
 
 export function verifyIntegrity(bytes: Uint8Array, integrity: string) {

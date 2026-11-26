@@ -10,7 +10,6 @@ import { writeDurableJson } from '../durable-json'
 import { startPrototypeEdge } from '../runtime-prototype/edge'
 import {
   connectSocket,
-  fingerprintBundle,
   hubSocketPath,
   supervisorConnection,
   unavailableSocket
@@ -159,7 +158,6 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
         )
           throw new Error('The prior Hub still owns its writer lease; wait before enrolling.')
         const artifact = await retainBundledPackage(packageDir, join(root, 'cache'))
-        artifact.bundle = fingerprintBundle(artifact.entry)
         saved = ConfigSchema.parse({
           version: 1,
           entry: artifact.entry,

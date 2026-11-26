@@ -1,12 +1,28 @@
-import { lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { dirname, join, posix } from 'node:path'
 
 import type { Artifact } from '../runtime-prototype/state'
 
 import { startupPhase } from '../startup-log'
+import { MAX_FILE_BYTES } from './archive'
 import { privateDirectory, publishDirectory, writePackageFiles } from './cache'
 import { assertRunnable, MANIFEST_PATH, ManifestSchema } from './manifest'
 import { readInstalledPackage, sha256, verifyPackage } from './package'
+
+function fingerprintModules(names: string[], bytes: (name: string) => Buffer): string {
+  return startupPhase('fingerprint-bundle', () => {
+    const hash = createHash('sha256')
+    for (const name of names.sort()) hash.update(name).update('\0').update(bytes(name))
+    return hash.digest('hex')
+  })
+}
+
+export function fingerprintBundle(entry: string): string {
+  const directory = dirname(entry)
+  const modules = readdirSync(directory).filter((name) => name.endsWith('.mjs'))
+  return fingerprintModules(modules, (name) => readFileSync(join(directory, name)))
+}
 
 export function releaseManifest(artifact: Artifact) {
   if (!artifact.release) throw new Error('The runtime has no verified release payload.')
@@ -22,7 +38,7 @@ export function releaseManifest(artifact: Artifact) {
   return manifest
 }
 
-export function verifyReleaseArtifact(artifact: Artifact) {
+function verifiedRelease(artifact: Omit<Artifact, 'bundle'>) {
   return startupPhase('verify-retained-package', () => {
     if (!artifact.release) throw new Error('The runtime has no verified release payload.')
     const { directory, manifestHash } = artifact.release
@@ -33,8 +49,19 @@ export function verifyReleaseArtifact(artifact: Artifact) {
     assertRunnable(manifest)
     if (artifact.entry !== join(directory, manifest.entry))
       throw new Error('Runtime entry differs from its manifest.')
-    return manifest
+    // Match the loose bundle's top-level module names and bytes, already read and verified here.
+    const modules = [...files.keys()]
+      .filter((path) => posix.dirname(path) === 'dist' && path.endsWith('.mjs'))
+      .map((path) => posix.basename(path))
+    const bundle = fingerprintModules(modules, (name) => files.get(`dist/${name}`)!)
+    return { manifest, bundle }
   })
+}
+
+export function verifyReleaseArtifact(artifact: Artifact) {
+  const { manifest, bundle } = verifiedRelease(artifact)
+  if (bundle !== artifact.bundle) throw new Error('Verified runtime bundle changed before launch.')
+  return manifest
 }
 
 /** The installed bootstrap is already trusted. Copy only its inventoried closure
@@ -49,7 +76,7 @@ export async function retainBundledPackage(source: string, cache: string) {
     for (const path of Object.keys(manifest.files)) {
       const fullPath = join(source, path)
       const stat = lstatSync(fullPath)
-      if (!stat.isFile() || realpathSync(fullPath) !== fullPath || stat.size > 16 * 1024 * 1024)
+      if (!stat.isFile() || realpathSync(fullPath) !== fullPath || stat.size > MAX_FILE_BYTES)
         throw new Error(`Invalid bundled runtime file: ${path}`)
       files.set(path, readFileSync(fullPath))
     }
@@ -80,9 +107,7 @@ export async function retainBundledPackage(source: string, cache: string) {
   const artifact = {
     entry: join(directory, manifest.entry),
     version: manifest.packageVersion,
-    bundle: '',
     release: { directory, manifestHash }
   }
-  verifyReleaseArtifact(artifact)
-  return artifact
+  return { ...artifact, bundle: verifiedRelease(artifact).bundle }
 }

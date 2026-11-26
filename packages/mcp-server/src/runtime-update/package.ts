@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
-import { join, posix, relative, resolve } from 'node:path'
+import { join, posix, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
 
-import { readArchive, verifyIntegrity } from './archive'
-import { MANIFEST_PATH, ManifestSchema, PACKAGE_NAME, VersionSchema } from './manifest'
+import { MAX_FILE_BYTES, readArchive, verifyIntegrity } from './archive'
+import { MANIFEST_PATH, ManifestSchema, PACKAGE_NAME, safePath, VersionSchema } from './manifest'
 
 const PackageSchema = z.object({
   name: z.literal(PACKAGE_NAME),
@@ -99,15 +99,19 @@ export function readInstalledPackage(directory: string) {
   let size = 0
   function walk(path: string) {
     const stat = lstatSync(path)
+    const name = relative(directory, path).split(sep).join('/')
+    if (name && !safePath(name)) throw new Error('Invalid runtime package path.')
     if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile()))
       throw new Error('Runtime packages cannot contain links or special files.')
     if (stat.isDirectory()) {
+      if (posix.dirname(name) === 'dist' && name.endsWith('.mjs'))
+        throw new Error('A runtime module must be a regular file.')
       for (const name of readdirSync(path)) walk(join(path, name))
     } else {
       size += stat.size
-      if (size > 256 * 1024 * 1024 || files.size >= 20_000)
+      if (stat.size > MAX_FILE_BYTES || size > 256 * 1024 * 1024 || files.size >= 20_000)
         throw new Error('Runtime package exceeds its limits.')
-      files.set(relative(directory, path).split('\\').join('/'), readFileSync(path))
+      files.set(name, readFileSync(path))
     }
   }
   walk(directory)

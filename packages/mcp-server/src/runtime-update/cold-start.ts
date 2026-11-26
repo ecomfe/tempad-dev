@@ -12,7 +12,6 @@ import { writeDurableJson } from '../durable-json'
 import { readHubRuntimeIdentity } from '../runtime-identity'
 import {
   connectSocket,
-  fingerprintBundle,
   hubSocketPath,
   isSocketPending,
   runtimeProcessStatus,
@@ -215,7 +214,6 @@ export async function prepareManagedEdge(
         const reasons = coldCompatibilityReasons(releaseManifest(journal.active), installed)
         if (reasons.length) throw new Error(`Cold runtime upgrade refused: ${reasons.join('; ')}.`)
         const candidate = await retainBundledPackage(packageDir, join(config.root, 'cache'))
-        candidate.bundle = fingerprintBundle(candidate.entry)
         if (
           candidate.version === journal.active.version &&
           candidate.release?.manifestHash !== journal.active.release?.manifestHash

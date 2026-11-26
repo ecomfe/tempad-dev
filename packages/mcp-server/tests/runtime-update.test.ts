@@ -6,7 +6,11 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createPrivateTempDirectory } from '../src/runtime-platform'
 import { readArchive, verifyIntegrity } from '../src/runtime-update/archive'
-import { retainBundledPackage, verifyReleaseArtifact } from '../src/runtime-update/artifact'
+import {
+  fingerprintBundle,
+  retainBundledPackage,
+  verifyReleaseArtifact
+} from '../src/runtime-update/artifact'
 import {
   cacheDirectory,
   discardUnusedCache,
@@ -21,7 +25,7 @@ import {
   validatePolicyBaseline,
   type RuntimeManifest
 } from '../src/runtime-update/manifest'
-import { sha256, verifyPackage } from '../src/runtime-update/package'
+import { readInstalledPackage, sha256, verifyPackage } from '../src/runtime-update/package'
 import { downloadRelease, releaseCatalog, resolveRelease } from '../src/runtime-update/registry'
 
 function tar(entries: { path: string; data?: string; type?: string }[]) {
@@ -55,6 +59,8 @@ function fixture() {
       'dist/cli.mjs': '',
       'dist/managed-runtime.mjs': '',
       'dist/log-transport.mjs': '',
+      'dist/.mjs': 'bare module name',
+      'dist/nested/helper.mjs': 'not a top-level module',
       'node_modules/test/package.json': JSON.stringify({ name: 'test', version: '1.0.0' })
     }).map(([key, value]) => [key, Buffer.from(value)])
   )
@@ -232,6 +238,22 @@ describe('release manifest and dependency closure', () => {
 })
 
 describe('private release cache', () => {
+  it('requires canonical package paths and regular top-level runtime modules', () => {
+    const root = createPrivateTempDirectory('tp-inventory-')
+    try {
+      const module = join(root, 'dist', '.mjs')
+      mkdirSync(module, { recursive: true })
+      expect(() => readInstalledPackage(root)).toThrow('regular file')
+      rmSync(module, { recursive: true })
+      if (process.platform !== 'win32') {
+        writeFileSync(join(root, 'ordinary\\notes.txt'), 'notes')
+        expect(() => readInstalledPackage(root)).toThrow('Invalid runtime package path')
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('retains an immutable bootstrap closure independently of npm cache cleanup', async () => {
     const root = createPrivateTempDirectory('tp-cache-')
     try {
@@ -246,7 +268,12 @@ describe('private release cache', () => {
       const artifact = await retainBundledPackage(source, cache)
       expect(await retainBundledPackage(source, cache)).toEqual(artifact)
       rmSync(source, { recursive: true })
+      expect(artifact.bundle).toBe(fingerprintBundle(artifact.entry))
       expect(verifyReleaseArtifact(artifact).packageVersion).toBe('0.12.0')
+      expect(() => verifyReleaseArtifact({ ...artifact, bundle: '' })).toThrow('bundle changed')
+      expect(() => verifyReleaseArtifact({ ...artifact, bundle: 'c'.repeat(64) })).toThrow(
+        'bundle changed'
+      )
       const unused = join(cache, 'b'.repeat(64))
       mkdirSync(unused)
       symlinkSync(root, join(cache, 'c'.repeat(64)), 'junction')

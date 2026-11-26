@@ -21,8 +21,7 @@ vi.mock('../src/runtime-update/artifact', async (original) => ({
 vi.mock('../src/runtime-prototype/processes', async (original) => ({
   ...(await original<typeof import('../src/runtime-prototype/processes')>()),
   connectSocket: fake.connect,
-  supervisorConnection: async () => ({}),
-  fingerprintBundle: () => 'a'.repeat(64)
+  supervisorConnection: async () => ({})
 }))
 vi.mock('../src/runtime-prototype/protocol', async (original) => ({
   ...(await original<typeof import('../src/runtime-prototype/protocol')>()),
@@ -83,7 +82,7 @@ function bundledArtifact() {
   return {
     entry: join(packageDir, manifest.entry),
     version: '0.12.0',
-    bundle: '',
+    bundle: 'a'.repeat(64),
     release: { directory: packageDir, manifestHash: 'a'.repeat(64) }
   }
 }

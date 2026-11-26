@@ -1,10 +1,10 @@
 import type { Socket } from 'node:net'
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, writeFileSync, realpathSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync, readFileSync, writeFileSync, realpathSync } from 'node:fs'
 import { connect, type Server } from 'node:net'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import lockfile from 'proper-lockfile'
 
@@ -17,12 +17,13 @@ import {
   protectPipeAsync,
   runtimeEndpoint
 } from '../runtime-platform'
-import { verifyReleaseArtifact } from '../runtime-update/artifact'
+import { fingerprintBundle, verifyReleaseArtifact } from '../runtime-update/artifact'
 import { assertTrustedSocket, ensureFile } from '../shared'
 import { startupPhase } from '../startup-log'
 import { isRuntimeUnavailable, RECOVER_MS, unavailable } from './protocol'
 import { ConfigSchema, readJournal, type Artifact, type PrototypeConfig } from './state'
 export type { PrototypeConfig } from './state'
+export { fingerprintBundle } from '../runtime-update/artifact'
 
 /** Only ESRCH proves a recorded writer has exited. A PID alone cannot identify it. */
 export function runtimeProcessStatus(pid: number): 'present' | 'inaccessible' | 'exited' {
@@ -35,21 +36,6 @@ export function runtimeProcessStatus(pid: number): 'present' | 'inaccessible' | 
     if (code === 'EPERM') return 'inaccessible'
     throw error
   }
-}
-
-export function fingerprintBundle(entry: string): string {
-  return startupPhase('fingerprint-bundle', () => {
-    const directory = dirname(entry)
-    const hash = createHash('sha256')
-    for (const name of readdirSync(directory)
-      .filter((name) => name.endsWith('.mjs'))
-      .sort())
-      hash
-        .update(name)
-        .update('\0')
-        .update(readFileSync(join(directory, name)))
-    return hash.digest('hex')
-  })
 }
 
 export function runtimePaths(config: PrototypeConfig) {
@@ -111,7 +97,7 @@ export function launch(config: PrototypeConfig, role: 'supervisor' | 'hub', arti
           .version,
         release: config.release
       })
-    if (fingerprintBundle(entry) !== (artifact?.bundle ?? config.bundle))
+    else if (fingerprintBundle(entry) !== (artifact?.bundle ?? config.bundle))
       throw new Error('Verified runtime bundle changed before launch.')
     const child = spawn(process.execPath, [entry, '--root', config.root, '--role', role], {
       detached: true,
