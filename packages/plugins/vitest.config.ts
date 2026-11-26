@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config'
 
-import { FULL_COVERAGE_THRESHOLDS } from '../../vitest.coverage'
+import { FULL_COVERAGE_THRESHOLDS } from '../../vitest.coverage.ts'
 
 export default defineConfig({
   test: {
