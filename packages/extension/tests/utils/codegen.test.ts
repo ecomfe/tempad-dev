@@ -90,19 +90,31 @@ describe('utils/codegen', () => {
     expect(result).toEqual(response)
   })
 
-  it('omits component payload when input component is null', async () => {
-    const response = { codeBlocks: [] }
-    mocked.requestPluginSandbox.mockResolvedValue(response)
-
-    await codegen({ color: 'red' }, null, { useRem: false, rootFontSize: 16, scale: 1 })
-
-    expect(mocked.requestPluginSandbox).toHaveBeenCalledWith('codegen', {
-      style: { color: 'red' },
-      component: undefined,
-      options: { useRem: false, rootFontSize: 16, scale: 1 },
-      pluginCode: undefined,
-      returnDevComponent: undefined
+  it('generates built-in CSS and JavaScript from the selected node without a worker or component traversal', async () => {
+    mocked.resolveStylesFromNode.mockImplementationOnce(async (style) => style)
+    const node = { getCSSAsync: vi.fn(async () => ({ color: 'red' })) } as unknown as SceneNode
+    const result = await generateCodeBlocksForNode(node, {
+      cssUnit: 'px',
+      rootFontSize: 16,
+      scale: 1
     })
+    expect(result.codeBlocks.map(({ name, code }) => [name, code])).toEqual([
+      ['css', expect.stringContaining('color: red')],
+      ['js', expect.stringContaining("'red'")]
+    ])
+    expect(node.getCSSAsync).toHaveBeenCalledOnce()
+    expect(mocked.getDesignComponent).not.toHaveBeenCalled()
+    expect(mocked.requestPluginSandbox).not.toHaveBeenCalled()
+  })
+
+  it('keeps oversized built-in formatting in the interruptible worker', async () => {
+    mocked.requestPluginSandbox.mockResolvedValueOnce({ codeBlocks: [] })
+    await codegen({ content: 'a'.repeat(32_768) }, null, {
+      useRem: false,
+      rootFontSize: 16,
+      scale: 1
+    })
+    expect(mocked.requestPluginSandbox).toHaveBeenCalledOnce()
   })
 
   it('resolves node style/component data before sending generation request', async () => {

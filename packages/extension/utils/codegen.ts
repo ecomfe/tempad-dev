@@ -8,7 +8,9 @@ import type {
 } from '@/types/codegen'
 import type { DesignComponent } from '@/types/plugin'
 
+import { generateCodegenPayload } from '@/codegen/generate'
 import { PluginSandboxError } from '@/plugin-sandbox/client'
+import { inspectSandboxValue } from '@/plugin-sandbox/limits'
 import { PLUGIN_SANDBOX_WORKER } from '@/plugin-sandbox/protocol'
 import { requestPluginSandbox } from '@/plugin-sandbox/requester'
 import { validateCodegenBatchResponse, validateCodegenResponse } from '@/plugin-sandbox/validation'
@@ -49,6 +51,11 @@ async function requestCodegen(
   job: CodegenJobPayload,
   pluginCode?: string
 ): Promise<ResponsePayload> {
+  if (!pluginCode) {
+    // Keep unusual, large CSS values off Figma's main thread.
+    const size = inspectSandboxValue(job)
+    if (size.ok && size.bytes <= 16 * 1024) return generateCodegenPayload(job, null)
+  }
   const response = await requestPluginSandbox<RequestPayload, unknown>(
     PLUGIN_SANDBOX_WORKER.codegen,
     {
@@ -187,7 +194,7 @@ async function prepareCodegenJobForNode(
     : undefined
   const ui = formatNodeStyleForUi(style, node)
 
-  const component = getDesignComponent(node)
+  const component = pluginCode ? getDesignComponent(node) : undefined
   const serializeOptions: SerializeOptions = {
     ...workerUnitOptions(config),
     variableDisplay: opts?.variableDisplay
