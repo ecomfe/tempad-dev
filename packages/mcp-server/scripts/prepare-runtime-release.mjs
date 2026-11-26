@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import console from 'node:console'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { isBuiltin } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
@@ -72,6 +80,25 @@ try {
   // symlinks escaping the npm tarball. No registry queries or lifecycle scripts run.
   deployRuntimeDependencies(repo, deploy, { offline: true })
   rmSync(join(deploy, MANIFEST_PATH), { force: true })
+  // Ship line/column mappings for offline stack traces. Keep original source text in
+  // the build maps, which release CI archives alongside this verifiable receipt.
+  const fullSourceMapHashes = {}
+  const dist = join(deploy, 'dist')
+  for (const name of readdirSync(dist)
+    .filter((file) => file.endsWith('.mjs.map'))
+    .sort()) {
+    const path = join(dist, name)
+    const full = readFileSync(path)
+    const map = JSON.parse(full.toString('utf8'))
+    assert.equal(map.file + '.map', name)
+    assert.ok(map.mappings.length && map.sourcesContent.length === map.sources.length)
+    fullSourceMapHashes['dist/' + name] = sha256(full)
+    delete map.sourcesContent
+    // Deployed workspace files may share an inode with the build output.
+    rmSync(path)
+    writeFileSync(path, JSON.stringify(map), { flag: 'wx' })
+  }
+  assert.ok(Object.keys(fullSourceMapHashes).length, 'Missing runtime source maps.')
   const packed = JSON.parse(
     runPackageManagerSync(
       'npm',
@@ -170,7 +197,11 @@ try {
   writeFileSync(values.output, bytes, { flag: 'wx', mode: 0o600 })
   writeFileSync(
     `${values.output}.json`,
-    JSON.stringify({ version: pkg.version, integrity: final.integrity, manifest }, null, 2) + '\n',
+    JSON.stringify(
+      { version: pkg.version, integrity: final.integrity, manifest, fullSourceMapHashes },
+      null,
+      2
+    ) + '\n',
     { flag: 'wx', mode: 0o600 }
   )
   console.log(

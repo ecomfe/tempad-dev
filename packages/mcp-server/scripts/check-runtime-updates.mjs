@@ -748,11 +748,21 @@ try {
     { maxBuffer: 8 * 1024 * 1024 }
   )
   const base = join(root, 'base')
+  const receipt = JSON.parse(await readFile(packaged + '.json', 'utf8'))
+  const mapHashes = {}
   for (const [path, bytes] of verify.readArchive(await readFile(packaged))) {
+    if (path.endsWith('.mjs.map')) {
+      const original = await readFile(join(source, path))
+      const { sourcesContent, ...mapping } = JSON.parse(original.toString('utf8'))
+      assert.equal(sourcesContent.length, mapping.sources.length)
+      assert.deepEqual(JSON.parse(bytes.toString('utf8')), mapping)
+      mapHashes[path] = verify.sha256(original)
+    }
     const target = join(base, path)
     await mkdir(dirname(target), { recursive: true, mode: 0o700 })
     await writeFile(target, bytes, { mode: 0o600 })
   }
+  assert.deepEqual(mapHashes, receipt.fullSourceMapHashes)
   const a = await makeArtifact(versions[0], base, policy.guidanceEpoch)
   const b = await makeArtifact(versions[1], base, policy.guidanceEpoch)
   const c = await makeArtifact(versions[2], base, policy.guidanceEpoch + 1)

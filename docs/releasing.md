@@ -41,6 +41,9 @@ were prepared before their source changes were committed.
    complete dependency closure, and probes the packaged runtime outside the workspace.
    Plain workspace `npm pack` can include pnpm store paths outside the package and is not a
    publishable runtime. Inspect the verified tarball and its `.tgz.json` manifest/integrity receipt.
+   The tarball includes source locations for Node's `--enable-source-maps`. To inspect embedded
+   source text, use the full `dist/*.mjs.map` from that build (CI archives `tempad-mcp.maps.tgz`).
+   Match each full map against `fullSourceMapHashes` in the receipt for the installed tarball.
    Check MCP initialization and tool discovery on supported Node.js versions.
    Run `node packages/mcp-server/scripts/check-bridge-compatibility.mjs <installed-package-directory>`
    against the unpacked archive to verify the frozen extension contracts using the exact shipped

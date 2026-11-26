@@ -89,13 +89,18 @@ jobs:
           node packages/mcp-server/scripts/check-bridge-compatibility.mjs "$release_check_dir"
           node packages/mcp-server/scripts/check-log-transport.mjs "$release_check_dir"
 
-      - name: Archive the reviewed release and manifest
+      - name: Archive full source maps
+        working-directory: packages/mcp-server
+        run: tar -czf "$RUNNER_TEMP/tempad-mcp.maps.tgz" dist/*.mjs.map
+
+      - name: Retain the release, manifest and full source maps
         uses: actions/upload-artifact@v7
         with:
           name: tempad-mcp-release
           path: |
             ${{ runner.temp }}/tempad-mcp.tgz
             ${{ runner.temp }}/tempad-mcp.tgz.json
+            ${{ runner.temp }}/tempad-mcp.maps.tgz
 
       - name: Publish
         run: npm publish "$RUNNER_TEMP/tempad-mcp.tgz" --ignore-scripts --access public --tag "${{ inputs.tag }}"
