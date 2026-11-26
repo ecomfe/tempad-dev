@@ -336,8 +336,8 @@ rather than the `bg-[...]` image/color utilities.
 ### Node semantics snapshot
 
 - Paint arrays are preserved as tri-state values: `missing`, `unsupported`, or `array`.
-- Layout fields include explicit and inferred auto-layout information, sizing, alignment, clipping, and mask state.
-- Geometry includes `relativeTransform` and `constraints` so positioning helpers do not need to re-read live Figma nodes.
+- Mask, paint, layout, and geometry reads are memoized independently. Layout inference and overflow scans wait for consumers that need them.
+- 3D inspection can read its fields without sampling planar transforms or constraints. Positioning helpers reuse those reads when needed.
 
 ### Consumers
 

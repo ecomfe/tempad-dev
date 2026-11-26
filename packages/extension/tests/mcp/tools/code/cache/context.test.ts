@@ -72,6 +72,9 @@ describe('code cache context', () => {
 
   it('extracts inferred-layout semantics once per node across repeated pipeline reads', () => {
     const ctx = createGetCodeCacheContext(new Map(), { metrics: true })
+    const readInferredLayout = vi.fn((index: number) => ({
+      layoutMode: index % 2 ? 'VERTICAL' : 'HORIZONTAL'
+    }))
     const nodes = Array.from(
       { length: 12 },
       (_, index) =>
@@ -79,17 +82,55 @@ describe('code cache context', () => {
           id: `layout-${index}`,
           type: 'FRAME',
           visible: true,
-          inferredAutoLayout: { layoutMode: index % 2 ? 'VERTICAL' : 'HORIZONTAL' }
+          get inferredAutoLayout() {
+            return readInferredLayout(index)
+          }
         }) as unknown as SceneNode
     )
 
-    nodes.forEach((node) => getNodeSemanticsCached(node, ctx))
-    nodes.forEach((node) => getNodeSemanticsCached(node, ctx))
+    nodes.forEach((node) =>
+      expect(getNodeSemanticsCached(node, ctx).paint.fillsState.kind).toBe('missing')
+    )
+    expect(readInferredLayout).not.toHaveBeenCalled()
+    nodes.forEach((node) => {
+      const semantics = getNodeSemanticsCached(node, ctx)
+      const inferred = semantics.layout.inferredAutoLayout
+      expect(inferred?.layoutMode).toMatch(/^(HORIZONTAL|VERTICAL)$/)
+      expect(semantics.layout.inferredAutoLayout).toBe(inferred)
+    })
+    expect(readInferredLayout).toHaveBeenCalledTimes(nodes.length)
 
     expect(ctx.metrics).toMatchObject({
       nodeSemanticHits: nodes.length,
       nodeSemanticMisses: nodes.length
     })
+  })
+
+  it('uses mask and 3D reads without sampling planar geometry or layout', () => {
+    const readTransform = vi.fn(() => [
+      [1, 0, 0],
+      [0, 1, 0]
+    ])
+    const readLayout = vi.fn(() => 'NONE')
+    const node = {
+      id: 'mask',
+      type: 'FRAME',
+      isMask: true,
+      get relativeTransform() {
+        return readTransform()
+      },
+      get layoutMode() {
+        return readLayout()
+      }
+    } as unknown as SceneNode
+    const semantics = getNodeSemanticsCached(node, createGetCodeCacheContext())
+
+    expect(semantics.isMask).toBe(true)
+    expect(semantics.geometry.threeD).toEqual({})
+    expect(readTransform).not.toHaveBeenCalled()
+    expect(readLayout).not.toHaveBeenCalled()
+    expect(semantics.geometry.relativeTransform).toBe(semantics.geometry.relativeTransform)
+    expect(readTransform).toHaveBeenCalledOnce()
   })
 
   it('reuses text range bindings between candidate scanning and style formatting within one call', () => {

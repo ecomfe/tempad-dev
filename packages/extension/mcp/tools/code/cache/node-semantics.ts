@@ -4,7 +4,7 @@ import { isRenderablePaint } from '@/utils/figma-paint'
 
 import type { GetCodeCacheContext, NodeSemanticSnapshot, PaintArrayState } from './types'
 
-import { getInferredAutoLayout, hasClippedOverflow } from '../layout-parent'
+import { getInferredAutoLayout } from '../layout-parent'
 import { computeChildOverflow } from '../styles/overflow'
 
 export function getChildOverflowCached(
@@ -25,7 +25,8 @@ export function getNodeSemanticsCached(
   ctx: GetCodeCacheContext
 ): NodeSemanticSnapshot {
   ctx.checkpoint?.()
-  const cached = ctx.nodeSemantics.get(node.id)
+  const id = node.id
+  const cached = ctx.nodeSemantics.get(id)
   if (cached) {
     if (ctx.metrics) ctx.metrics.nodeSemanticHits += 1
     return cached
@@ -33,55 +34,98 @@ export function getNodeSemanticsCached(
 
   if (ctx.metrics) ctx.metrics.nodeSemanticMisses += 1
 
-  const fillsState = readPaintArrayState(node, 'fills')
-  const strokesState = readPaintArrayState(node, 'strokes')
-  const childOverflow =
-    'clipsContent' in node && node.clipsContent
-      ? getChildOverflowCached(node, ctx)
-      : { x: false, y: false }
-  const clippedOverflow = hasClippedOverflow(node, childOverflow)
+  let paint: NodeSemanticSnapshot['paint'] | undefined
+  let layout: NodeSemanticSnapshot['layout'] | undefined
+  let geometry: NodeSemanticSnapshot['geometry'] | undefined
+  let isMask: boolean | undefined
   const snapshot: NodeSemanticSnapshot = {
-    id: node.id,
-    type: node.type,
-    paint: {
-      fillsState,
-      strokesState,
-      fillStyleId: readStyleId(node, 'fillStyleId'),
-      strokeStyleId: readStyleId(node, 'strokeStyleId'),
-      hasVisibleFill: hasVisiblePaints(fillsState),
-      hasVisibleStroke: hasVisiblePaints(strokesState),
-      hasRenderableStroke: hasRenderableStrokes(node),
-      hasMediaFill: hasMediaFill(fillsState),
-      hasVisibleEffect: hasVisibleEffects(node)
+    get paint() {
+      return (paint ??= readPaintSemantics(node))
     },
-    layout: {
-      layoutMode: readLayoutMode(node),
-      inferredAutoLayout: getInferredAutoLayout(node, clippedOverflow, ctx.checkpoint),
-      childOverflow,
-      clippedOverflow,
-      itemSpacing: readNumericLayoutValue(node, 'itemSpacing'),
-      primaryAxisAlignItems: readStringLayoutValue(node, 'primaryAxisAlignItems'),
-      counterAxisAlignItems: readStringLayoutValue(node, 'counterAxisAlignItems'),
-      paddingTop: readNumericLayoutValue(node, 'paddingTop'),
-      paddingRight: readNumericLayoutValue(node, 'paddingRight'),
-      paddingBottom: readNumericLayoutValue(node, 'paddingBottom'),
-      paddingLeft: readNumericLayoutValue(node, 'paddingLeft'),
-      layoutSizingHorizontal: readLayoutSizing(node, 'layoutSizingHorizontal'),
-      layoutSizingVertical: readLayoutSizing(node, 'layoutSizingVertical'),
-      layoutAlign: readLayoutAlign(node),
-      layoutPositioning: readLayoutPositioning(node),
-      clipsContent: 'clipsContent' in node && node.clipsContent === true,
-      isMask: 'isMask' in node && node.isMask === true
+    get layout() {
+      return (layout ??= readLayoutSemantics(node, ctx))
     },
-    geometry: {
-      threeD: readFigma3d(node),
-      relativeTransform: readRelativeTransform(node),
-      constraints: readConstraints(node)
+    get geometry() {
+      return (geometry ??= readGeometrySemantics(node))
+    },
+    get isMask() {
+      return (isMask ??= 'isMask' in node && node.isMask === true)
     }
   }
 
-  ctx.nodeSemantics.set(node.id, snapshot)
+  ctx.nodeSemantics.set(id, snapshot)
   return snapshot
+}
+
+function readPaintSemantics(node: SceneNode): NodeSemanticSnapshot['paint'] {
+  const fillsState = readPaintArrayState(node, 'fills')
+  const strokesState = readPaintArrayState(node, 'strokes')
+  return {
+    fillsState,
+    strokesState,
+    fillStyleId: readStyleId(node, 'fillStyleId'),
+    strokeStyleId: readStyleId(node, 'strokeStyleId'),
+    hasVisibleFill: hasVisiblePaints(fillsState),
+    hasVisibleStroke: hasVisiblePaints(strokesState),
+    hasRenderableStroke: hasRenderableStrokes(node),
+    hasMediaFill: hasMediaFill(fillsState),
+    hasVisibleEffect: hasVisibleEffects(node)
+  }
+}
+
+function readLayoutSemantics(
+  node: SceneNode,
+  ctx: GetCodeCacheContext
+): NodeSemanticSnapshot['layout'] {
+  const layoutMode = readLayoutMode(node)
+  const clipsContent = 'clipsContent' in node && node.clipsContent === true
+  let overflow: NodeSemanticSnapshot['layout']['childOverflow'] | undefined
+  let inferred: NodeSemanticSnapshot['layout']['inferredAutoLayout'] | undefined
+  return {
+    layoutMode,
+    clipsContent,
+    get childOverflow() {
+      return (overflow ??= clipsContent
+        ? getChildOverflowCached(node, ctx)
+        : { x: false, y: false })
+    },
+    get clippedOverflow() {
+      return clipsContent && layoutMode === 'NONE' && (this.childOverflow.x || this.childOverflow.y)
+    },
+    get inferredAutoLayout() {
+      if (inferred === undefined) {
+        inferred = getInferredAutoLayout(node, this.clippedOverflow, ctx.checkpoint)
+      }
+      return inferred
+    },
+    itemSpacing: readNumericLayoutValue(node, 'itemSpacing'),
+    primaryAxisAlignItems: readStringLayoutValue(node, 'primaryAxisAlignItems'),
+    counterAxisAlignItems: readStringLayoutValue(node, 'counterAxisAlignItems'),
+    paddingTop: readNumericLayoutValue(node, 'paddingTop'),
+    paddingRight: readNumericLayoutValue(node, 'paddingRight'),
+    paddingBottom: readNumericLayoutValue(node, 'paddingBottom'),
+    paddingLeft: readNumericLayoutValue(node, 'paddingLeft'),
+    layoutSizingHorizontal: readLayoutSizing(node, 'layoutSizingHorizontal'),
+    layoutSizingVertical: readLayoutSizing(node, 'layoutSizingVertical'),
+    layoutAlign: readLayoutAlign(node),
+    layoutPositioning: readLayoutPositioning(node)
+  }
+}
+
+function readGeometrySemantics(node: SceneNode): NodeSemanticSnapshot['geometry'] {
+  let relativeTransform: Transform | null | undefined
+  let constraints: Constraints | null | undefined
+  return {
+    threeD: readFigma3d(node),
+    get relativeTransform() {
+      if (relativeTransform === undefined) relativeTransform = readRelativeTransform(node)
+      return relativeTransform
+    },
+    get constraints() {
+      if (constraints === undefined) constraints = readConstraints(node)
+      return constraints
+    }
+  }
 }
 
 export function getPaintsFromState(state: PaintArrayState): readonly Paint[] | null {
@@ -137,21 +181,22 @@ function readStringLayoutValue(
 
 function readLayoutAlign(node: SceneNode): string | null {
   if (!('layoutAlign' in node)) return null
-  return typeof node.layoutAlign === 'string' ? node.layoutAlign : null
+  const value = node.layoutAlign
+  return typeof value === 'string' ? value : null
 }
 
 function readLayoutPositioning(
   node: SceneNode
 ): NodeSemanticSnapshot['layout']['layoutPositioning'] {
   if (!('layoutPositioning' in node)) return null
-  return node.layoutPositioning === 'AUTO' || node.layoutPositioning === 'ABSOLUTE'
-    ? node.layoutPositioning
-    : null
+  const value = node.layoutPositioning
+  return value === 'AUTO' || value === 'ABSOLUTE' ? value : null
 }
 
 function readRelativeTransform(node: SceneNode): Transform | null {
   if (!('relativeTransform' in node)) return null
-  return Array.isArray(node.relativeTransform) ? node.relativeTransform : null
+  const value = node.relativeTransform
+  return Array.isArray(value) ? value : null
 }
 
 function readConstraints(node: SceneNode): Constraints | null {

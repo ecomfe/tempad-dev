@@ -87,8 +87,7 @@ function breaksThemeable(snapshot: NodeSnapshot, ctx?: GetCodeCacheContext): boo
   return (
     snapshot.type === 'TEXT' ||
     snapshot.assetKind === 'image' ||
-    semantics?.layout.isMask === true ||
-    (!semantics && isMaskNode(snapshot.node)) ||
+    (semantics?.isMask ?? isMaskNode(snapshot.node)) ||
     (semantics?.paint.hasVisibleEffect ?? hasVisibleEffects(snapshot.node))
   )
 }

@@ -22,8 +22,7 @@ type CachedAutoLayoutLike = {
 }
 
 export type NodeSemanticSnapshot = {
-  id: string
-  type: SceneNode['type']
+  isMask: boolean
   paint: {
     fillsState: PaintArrayState
     strokesState: PaintArrayState
@@ -52,7 +51,6 @@ export type NodeSemanticSnapshot = {
     clipsContent: boolean
     clippedOverflow: boolean
     childOverflow: { x: boolean; y: boolean }
-    isMask: boolean
   }
   geometry: {
     threeD: Figma3dProperties

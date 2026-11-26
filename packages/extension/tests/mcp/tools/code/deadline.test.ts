@@ -209,9 +209,9 @@ it('checks the same overflow scan when generation populates semantic caches', ()
     layoutMode: 'HORIZONTAL'
   })
   const cache = { ...createGetCodeCacheContext(), checkpoint: createCodeCheckpoint(20) }
-  expect(() => getNodeSemanticsCached(root, cache)).toThrow('timed out')
+  expect(() => getNodeSemanticsCached(root, cache).layout.childOverflow).toThrow('timed out')
   expect(reads).toBe(2)
-  expect(cache.nodeSemantics.has(root.id)).toBe(false)
+  expect(cache.childOverflow.has(root)).toBe(false)
 })
 
 it('reuses the tree’s inferred layout hint when resolving a group’s flow parent', () => {

@@ -122,19 +122,20 @@ export function getPaintStyleCached(
   incrementMetric(ctx.metrics, 'paintStyleMisses')
 
   const style = getStyleByIdFromContext(styleId, ctx)
-  if (!style || !('paints' in style) || !Array.isArray(style.paints)) {
+  const paints = style && 'paints' in style ? style.paints : undefined
+  if (!Array.isArray(paints)) {
     ctx.paintStyles.set(styleId, null)
     return null
   }
 
-  const visiblePaints = style.paints.filter(isRenderablePaint)
+  const visiblePaints = paints.filter(isRenderablePaint)
   const singleVisiblePaint = visiblePaints.length === 1 ? (visiblePaints[0] ?? null) : null
   const singleVisibleSolidPaint =
     singleVisiblePaint?.type === 'SOLID' && singleVisiblePaint.color ? singleVisiblePaint : null
 
   const summary: PaintStyleSummary = {
     id: styleId,
-    paints: style.paints,
+    paints,
     visiblePaintCount: visiblePaints.length,
     singleVisiblePaint,
     singleVisibleSolidPaint

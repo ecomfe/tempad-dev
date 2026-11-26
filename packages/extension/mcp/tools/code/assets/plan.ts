@@ -161,7 +161,7 @@ function hasNative3d(snapshot: NodeSnapshot, ctx?: GetCodeCacheContext): boolean
 }
 
 function isMaskNode(snapshot: NodeSnapshot, ctx?: GetCodeCacheContext): boolean {
-  if (ctx) return getNodeSemanticsCached(snapshot.node, ctx).layout.isMask
+  if (ctx) return getNodeSemanticsCached(snapshot.node, ctx).isMask
   const node = snapshot.node as { isMask?: boolean }
   return node.isMask === true
 }
