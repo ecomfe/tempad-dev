@@ -109,7 +109,11 @@ export function assertRunnable(manifest: RuntimeManifest) {
   if (reasons.length) throw new Error(`This runtime cannot run: ${reasons.join('; ')}.`)
 }
 
-function stateCompatibilityReasons(active: RuntimeManifest, next: RuntimeManifest) {
+function stateCompatibilityReasons(
+  active: RuntimeManifest,
+  next: RuntimeManifest,
+  migrating = false
+) {
   const reasons: string[] = []
   if (
     active.state.family !== next.state.family ||
@@ -117,10 +121,10 @@ function stateCompatibilityReasons(active: RuntimeManifest, next: RuntimeManifes
     !active.state.reads.includes(next.state.writes)
   )
     reasons.push('State rollback compatibility is missing')
-  if (
+  const dropsExtension =
     (active.extension.legacy && !next.extension.legacy) ||
     !active.extension.protocols.every((value) => next.extension.protocols.includes(value))
-  )
+  if (dropsExtension && !(migrating && isBridgeMigration(active, next)))
     reasons.push('Released extension compatibility is missing')
   return reasons
 }
@@ -150,11 +154,34 @@ export function automaticCompatibilityReasons(active: RuntimeManifest, next: Run
 }
 
 /** Cold replacement has no frozen MCP sessions, but must retain safe state/rollback access. */
-export function coldCompatibilityReasons(active: RuntimeManifest, next: RuntimeManifest) {
-  const reasons = [...runtimeCompatibilityReasons(next), ...stateCompatibilityReasons(active, next)]
+export function coldCompatibilityReasons(
+  active: RuntimeManifest,
+  next: RuntimeManifest,
+  migrating = false
+) {
+  const reasons = [
+    ...runtimeCompatibilityReasons(next),
+    ...stateCompatibilityReasons(active, next, migrating)
+  ]
   if (!active.controlProtocols.some((value) => next.controlProtocols.includes(value)))
     reasons.push('No common control protocol for binary rollback')
   return reasons
+}
+
+/** Only the reviewed 1.x/2.x bridge boundary can retire adapters during a cold migration. */
+export function isBridgeMigration(from: RuntimeManifest, to: RuntimeManifest) {
+  const [prior, current] = from.packageVersion.startsWith('1.') ? [from, to] : [to, from]
+  return (
+    prior.packageVersion.startsWith('1.') &&
+    current.packageVersion.startsWith('2.') &&
+    prior.extension.legacy &&
+    prior.extension.protocols.length === 2 &&
+    prior.extension.protocols.includes(13) &&
+    prior.extension.protocols.includes(15) &&
+    !current.extension.legacy &&
+    current.extension.protocols.length === 1 &&
+    current.extension.protocols[0] === 15
+  )
 }
 
 export function validatePolicyBaseline(current: RuntimeManifest, baseline?: RuntimeManifest) {

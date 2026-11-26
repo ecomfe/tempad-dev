@@ -448,8 +448,8 @@ deliberately excluded from the first delivery.
   previous WebSocket port when available; reconnect through existing discovery. Never
   run two writer Hubs on different candidate ports to hide the transition.
 - Drain accepted HTTP transfers before stopping. Persist the asset listener port and
-  current/legacy capability secrets privately and supply them to the successor. The
-  asset server currently needs new constructor support for these inputs. Preserve the
+  capability privately and supply it to the successor. Retain the separate 1.x endpoint
+  record field for rollback. Preserve the
   asset directory and filenames, so existing HTTP URLs and `localPath` values retain
   their ordinary lifetime after a compatible update.
 - If the required HTTP port cannot be rebound, keep admission closed and attempt safe
@@ -541,7 +541,10 @@ owner crash from being mistaken for a cold restart. An interrupted metadata migr
 resumes its recorded decision without restoring task or receipt snapshots. Cold replacement
 may cross a wire/guidance boundary, but still requires state/extension compatibility and a
 common control protocol for binary rollback. It never downgrades, retries quarantined bytes,
-or activates a downloaded candidate merely because it is staged.
+or activates a downloaded candidate merely because it is staged. The change from protocol
+13/15 and the unversioned bridge in 1.x to protocol 15 in 2.x requires a confirmed, offline
+handoff even when launching a freshly installed 2.x CLI. See the
+[migration and retained-release rollback procedure](../../packages/mcp-server/README.md#moving-a-managed-hub-to-20).
 
 The extension's integration status may display a concise pending-update or recovery
 message through a negotiated status capability. Older extensions keep the existing

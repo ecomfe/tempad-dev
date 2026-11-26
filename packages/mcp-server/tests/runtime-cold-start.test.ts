@@ -50,7 +50,11 @@ import {
   type PrototypeConfig
 } from '../src/runtime-prototype/state'
 import { privateDirectory } from '../src/runtime-update/cache'
-import { prepareManagedEdge, resumeColdStart } from '../src/runtime-update/cold-start'
+import {
+  migrateRuntime,
+  prepareManagedEdge,
+  resumeColdStart
+} from '../src/runtime-update/cold-start'
 import { type RuntimeManifest } from '../src/runtime-update/manifest'
 import { sha256 } from '../src/runtime-update/package'
 
@@ -233,6 +237,135 @@ it('admits an installed newer contract only on cold startup and preserves prior 
   expect(readdirSync(join(root, 'edges'))).toHaveLength(1)
   edge.close()
   expect(readdirSync(join(root, 'edges'))).toEqual([])
+})
+
+function bridgeReleases() {
+  const prior = release('1.0.5', 'released')
+  candidate = release('2.0.0', 'current', { extension: { legacy: false, protocols: [15] } })
+  Object.assign(config, {
+    entry: prior.artifact.entry,
+    bundle: prior.artifact.bundle,
+    release: prior.artifact.release
+  })
+  journal.active = prior.artifact
+  saveConfig(config)
+  writeJournal(root, journal)
+  fake.verify.mockImplementation((artifact: Artifact) =>
+    artifact.version === prior.artifact.version ? prior.manifest : candidate.manifest
+  )
+  return prior
+}
+
+it('keeps enrolled 1.x cold launches on their original Hub and identifies the explicit migration', async () => {
+  bridgeReleases()
+  const notice = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+  expect((await prepare()).config).toEqual(config)
+  expect(notice).toHaveBeenCalledWith(expect.stringContaining('--migrate-runtime 2.0.0'))
+  expect(readJournal(root)).toEqual(journal)
+  expect(fake.retain).not.toHaveBeenCalled()
+})
+
+it('uses a confirmed installed bridge release and can restore its retained prior control and Hub', async () => {
+  const prior = bridgeReleases()
+  const confirm = vi.fn().mockResolvedValue(undefined)
+  config = await migrateRuntime(config, candidate.directory, candidate.manifest, '2.0.0', confirm)
+  expect(confirm).toHaveBeenCalledWith(
+    '2.0.0',
+    expect.stringContaining(candidate.artifact.release!.manifestHash)
+  )
+  expect(readJournal(root)).toMatchObject({
+    phase: 'old-stopped',
+    active: prior.artifact,
+    candidate: candidate.artifact
+  })
+  writeJournal(root, { ...journal, active: candidate.artifact, previous: prior.artifact })
+  config = await migrateRuntime(config, candidate.directory, candidate.manifest, '1.0.5', confirm)
+  expect(config.entry).toBe(prior.artifact.entry)
+  expect(readJournal(root)).toMatchObject({
+    phase: 'old-stopped',
+    active: prior.artifact,
+    candidate: prior.artifact
+  })
+  expect(readJournal(root)?.previous).toBeUndefined()
+  config = await migrateRuntime(config, candidate.directory, candidate.manifest, '2.0.0', confirm)
+  expect(config.entry).toBe(candidate.artifact.entry)
+  expect(readJournal(root)).toMatchObject({
+    phase: 'old-stopped',
+    active: prior.artifact,
+    candidate: candidate.artifact
+  })
+  expect(fake.retain).toHaveBeenCalledTimes(2)
+})
+
+it('refuses an unknown rollback, live owners and cancelled migrations before changing the journal', async () => {
+  bridgeReleases()
+  const decline = vi.fn().mockRejectedValue(new Error('cancelled'))
+  const migrate = (version: string) =>
+    migrateRuntime(config, candidate.directory, candidate.manifest, version, decline)
+  await expect(migrate('0.10.0')).rejects.toThrow('neither installed nor retained')
+  await expect(migrate('2.0.0')).rejects.toThrow('cancelled')
+  const edge = await prepare()
+  await expect(migrate('2.0.0')).rejects.toThrow('Close all')
+  edge.close()
+  fake.connect.mockResolvedValue({ destroy: vi.fn() })
+  await expect(migrate('2.0.0')).rejects.toThrow('Close all')
+  expect(readJournal(root)).toEqual(journal)
+  expect(decline).toHaveBeenCalledOnce()
+})
+
+it('admits ordinary clients while awaiting migration approval and rechecks ownership afterward', async () => {
+  bridgeReleases()
+  const confirm = async () => {
+    await prepare()
+  }
+  await expect(
+    migrateRuntime(config, candidate.directory, candidate.manifest, '2.0.0', confirm)
+  ).rejects.toThrow('Close all')
+  expect(readJournal(root)).toEqual(journal)
+})
+
+it('resumes an exact durable selection, including after a missed confirmation response', async () => {
+  const prior = bridgeReleases()
+  const confirm = vi.fn().mockResolvedValue(undefined)
+  const migrate = (version: string) =>
+    migrateRuntime(config, candidate.directory, candidate.manifest, version, confirm)
+  config = await migrate('2.0.0')
+  const pending = readJournal(root)
+  expect(await migrate('2.0.0')).toEqual(config)
+  expect(readJournal(root)).toEqual(pending)
+  config = await migrate('1.0.5')
+  expect(config.entry).toBe(prior.artifact.entry)
+  writeJournal(root, { ...journal, previous: undefined })
+  expect(await migrate('1.0.5')).toEqual(config)
+  config = await migrate('2.0.0')
+  writeJournal(root, { ...journal, active: candidate.artifact, previous: prior.artifact })
+  expect(await migrate('2.0.0')).toEqual(config)
+  expect(confirm).toHaveBeenCalledTimes(3)
+  candidate = release('2.0.0', 'different', { extension: { protocols: [15], legacy: false } })
+  await expect(migrate('2.0.0')).rejects.toThrow('different bytes')
+})
+
+it('refuses cold migration without verified state, control and retained rollback bytes', async () => {
+  const prior = bridgeReleases()
+  const confirm = vi.fn()
+  const migrate = () =>
+    migrateRuntime(config, candidate.directory, candidate.manifest, '2.0.0', confirm)
+  candidate = release('2.0.0', 'current', {
+    extension: { legacy: false, protocols: [15] },
+    controlProtocols: [9],
+    state: { family: 'other', reads: [1], writes: 1 }
+  })
+  await expect(migrate()).rejects.toThrow(/State rollback.*No common control/)
+  candidate = release('2.0.0', 'current', { extension: { legacy: false, protocols: [15, 17] } })
+  await expect(migrate()).rejects.toThrow('only for the reviewed')
+  candidate = release('2.0.0', 'current', { extension: { legacy: false, protocols: [15] } })
+  fake.verify.mockImplementation((artifact: Artifact) => {
+    if (artifact.bundle === prior.artifact.bundle) throw new Error('Damaged fallback')
+    return candidate.manifest
+  })
+  await expect(migrate()).rejects.toThrow('Damaged fallback')
+  expect(readJournal(root)).toEqual(journal)
+  expect(confirm).not.toHaveBeenCalled()
 })
 
 it.each(['edge', 'supervisor', 'hub', 'socket', 'unprotected-pipe', 'timed-out-socket'] as const)(

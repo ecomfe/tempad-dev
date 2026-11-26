@@ -28,25 +28,32 @@ import {
   readPrivateJson,
   writeJournal,
   writeEndpoints,
+  type Artifact,
+  type Journal,
   type PrototypeConfig
 } from '../runtime-prototype/state'
 import { HUB_LOCK_STALE_MS, RUNTIME_PROFILE } from '../shared'
 import { releaseManifest, retainBundledPackage, verifyReleaseArtifact } from './artifact'
 import { privateDirectory } from './cache'
-import { coldCompatibilityReasons, compareVersions, type RuntimeManifest } from './manifest'
+import {
+  coldCompatibilityReasons,
+  compareVersions,
+  isBridgeMigration,
+  type RuntimeManifest
+} from './manifest'
 
 const SnapshotSchema = z.object({ config: ConfigSchema, journal: JournalSchema }).strict()
 const IntentSchema = SnapshotSchema.extend({ before: SnapshotSchema }).strict()
 const EdgeSchema = z.object({ pid: z.number().int().positive() }).strict()
 
-function controlVersion(config: PrototypeConfig) {
+function controlManifest(config: PrototypeConfig) {
   return releaseManifest({
     entry: config.entry,
     bundle: config.bundle,
     version: JSON.parse(readFileSync(join(config.release!.directory, 'package.json'), 'utf8'))
       .version,
     release: config.release
-  }).packageVersion
+  })
 }
 
 /** Called only with startup.lock held, before any control owner is launched. */
@@ -188,6 +195,137 @@ async function refreshEndpoints(root: string) {
   }
 }
 
+/** Record only ownership metadata. The next owner opens the original task and asset stores. */
+async function selectColdRuntime(config: PrototypeConfig, journal: Journal, candidate: Artifact) {
+  if (
+    candidate.version === journal.active.version &&
+    candidate.release?.manifestHash !== journal.active.release?.manifestHash
+  )
+    throw new Error('An installed version cannot replace different bytes of the same release.')
+  if (journal.failedBundles.includes(candidate.bundle))
+    throw new Error('The installed runtime was quarantined after an earlier failure.')
+  const { root, ...saved } = config
+  // A historical supervisor makes the former active Hub its automatic crash fallback.
+  // When restoring 1.x, never let a subsequent 1.x crash silently reactivate 2.x.
+  const restoring = compareVersions(candidate.version, journal.active.version) < 0
+  writeDurableJson(join(root, 'cold-start.json'), {
+    before: { config: saved, journal },
+    config: {
+      ...saved,
+      entry: candidate.entry,
+      bundle: candidate.bundle,
+      release: candidate.release
+    },
+    journal: {
+      ...journal,
+      ...(restoring ? { active: candidate, previous: undefined } : {}),
+      revision: journal.revision + 1,
+      phase: 'old-stopped',
+      candidate,
+      coldStart: true,
+      oldHub: undefined,
+      failure: undefined
+    }
+  })
+  return resumeColdStart(config)
+}
+
+function sameRelease(
+  a: Pick<Artifact, 'bundle' | 'release'>,
+  b: Pick<Artifact, 'bundle' | 'release'>
+) {
+  return a.bundle === b.bundle && !!a.release && a.release.manifestHash === b.release?.manifestHash
+}
+
+async function stoppedMigrationState(original: PrototypeConfig) {
+  const config = await resumeColdStart(original)
+  const journal = readJournal(config.root)
+  if (!journal || (journal.phase !== 'committed' && !journal.coldStart))
+    throw new Error('Finish the current runtime handoff before migrating.')
+  if (hasLiveEdges(config.root) || (await hasOwner(config)))
+    throw new Error(
+      'Close all TemPad MCP connections and wait for the Hub to exit before migrating.'
+    )
+  return { config, journal }
+}
+
+/** Both directions use the new CLI, including rollback to a historical launcher. */
+export async function migrateRuntime(
+  original: PrototypeConfig,
+  packageDir: string,
+  installed: RuntimeManifest,
+  version: string,
+  confirm: (version: string, hash: string) => Promise<void>
+) {
+  const selection = await withStartupLock(
+    original.root,
+    async () => {
+      const state = await stoppedMigrationState(original)
+      const { config, journal } = state
+      const candidate: Artifact | undefined =
+        version === installed.packageVersion
+          ? await retainBundledPackage(packageDir, join(config.root, 'cache'))
+          : [journal.active, journal.previous].find((item) => item?.version === version)
+      if (!candidate?.release)
+        throw new Error('The requested release is neither installed nor retained for rollback.')
+      const active = verifyReleaseArtifact(journal.active)
+      const target = verifyReleaseArtifact(candidate)
+      const control = controlManifest(config)
+      const selected = journal.phase === 'committed' ? journal.active : journal.candidate
+      // An interrupted cold bridge transaction still names its verified participant.
+      // A restored 1.x is its own candidate because it may never fall forward on crash.
+      if (
+        journal.phase !== 'committed' &&
+        (!selected ||
+          !sameRelease(config, selected) ||
+          !(
+            isBridgeMigration(active, control) ||
+            (!journal.previous &&
+              sameRelease(journal.active, selected) &&
+              isBridgeMigration(active, installed))
+          ))
+      )
+        throw new Error('Finish the current runtime handoff before migrating.')
+      if (
+        (control.packageVersion === version && !sameRelease(config, candidate)) ||
+        (selected?.version === version && !sameRelease(selected, candidate))
+      )
+        throw new Error('An installed version cannot replace different bytes of the same release.')
+      if (selected && sameRelease(config, candidate) && sameRelease(selected, candidate))
+        return { state }
+      // A failed new Hub can already have rolled back while its new supervisor is still configured.
+      if (!isBridgeMigration(active, target) && !isBridgeMigration(control, target))
+        throw new Error('This migration is only for the reviewed 1.x/2.x extension bridge change.')
+      const reasons = coldCompatibilityReasons(active, target, true)
+      if (reasons.length) throw new Error(`Cold runtime migration refused: ${reasons.join('; ')}.`)
+      return {
+        state,
+        candidate,
+        identity: candidate.release.integrity ?? `manifest sha256-${candidate.release.manifestHash}`
+      }
+    },
+    true
+  )
+  const { state, candidate, identity } = selection
+  if (!candidate) return state.config
+  await confirm(version, identity)
+  return withStartupLock(
+    original.root,
+    async () => {
+      const next = await stoppedMigrationState(original)
+      if (JSON.stringify(next) !== JSON.stringify(state))
+        throw new Error(
+          'Runtime ownership or selection changed since confirmation. Retry the migration.'
+        )
+      verifyReleaseArtifact(next.journal.active)
+      verifyReleaseArtifact(candidate)
+      await refreshEndpoints(next.config.root)
+      return selectColdRuntime(next.config, next.journal, candidate)
+    },
+    true
+  )
+}
+
 /** An installed CLI may advance a fully stopped runtime, never an attached session. */
 export async function prepareManagedEdge(
   original: PrototypeConfig,
@@ -206,43 +344,23 @@ export async function prepareManagedEdge(
         !(await hasOwner(config))
       if (cold) await refreshEndpoints(config.root)
       if (
+        journal?.phase === 'committed' &&
+        journal.active.version.startsWith('1.') &&
+        installed.packageVersion.startsWith('2.')
+      ) {
+        process.stderr.write(
+          `TemPad: keeping MCP ${journal.active.version}. Update the extension, close all TemPad MCP connections, then run npx -y @tempad-dev/mcp@${installed.packageVersion} --migrate-runtime ${installed.packageVersion}.\n`
+        )
+      } else if (
         cold &&
         journal.phase === 'committed' &&
-        compareVersions(installed.packageVersion, controlVersion(config)) > 0 &&
+        compareVersions(installed.packageVersion, controlManifest(config).packageVersion) > 0 &&
         compareVersions(installed.packageVersion, journal.active.version) >= 0
       ) {
         const reasons = coldCompatibilityReasons(releaseManifest(journal.active), installed)
         if (reasons.length) throw new Error(`Cold runtime upgrade refused: ${reasons.join('; ')}.`)
         const candidate = await retainBundledPackage(packageDir, join(config.root, 'cache'))
-        if (
-          candidate.version === journal.active.version &&
-          candidate.release?.manifestHash !== journal.active.release?.manifestHash
-        )
-          throw new Error(
-            'An installed version cannot replace different bytes of the same release.'
-          )
-        if (journal.failedBundles.includes(candidate.bundle))
-          throw new Error('The installed runtime was quarantined after an earlier failure.')
-        const { root, ...saved } = config
-        writeDurableJson(join(root, 'cold-start.json'), {
-          before: { config: saved, journal },
-          config: {
-            ...saved,
-            entry: candidate.entry,
-            bundle: candidate.bundle,
-            release: candidate.release
-          },
-          journal: {
-            ...journal,
-            revision: journal.revision + 1,
-            phase: 'old-stopped',
-            candidate,
-            coldStart: true,
-            oldHub: undefined,
-            failure: undefined
-          }
-        })
-        config = await resumeColdStart(config)
+        config = await selectColdRuntime(config, journal, candidate)
       }
       const directory = join(config.root, 'edges')
       privateDirectory(directory)

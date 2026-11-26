@@ -701,7 +701,8 @@ export async function startSupervisor(config: PrototypeConfig) {
       const blockers = journal.coldStart
         ? coldCompatibilityReasons(
             releaseManifest(journal.active),
-            releaseManifest(journal.candidate)
+            releaseManifest(journal.candidate),
+            true
           )
         : activationBlockers(journal.candidate)
       if (blockers.length) throw new Error(blockers.join('; '))

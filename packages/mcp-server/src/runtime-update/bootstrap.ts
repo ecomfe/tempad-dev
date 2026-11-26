@@ -32,7 +32,7 @@ import {
 import { finishStartup, startupPhase } from '../startup-log'
 import { retainBundledPackage } from './artifact'
 import { privateDirectory } from './cache'
-import { prepareManagedEdge } from './cold-start'
+import { migrateRuntime, prepareManagedEdge } from './cold-start'
 import { MANIFEST_PATH, ManifestSchema, VersionSchema } from './manifest'
 import { sha256 } from './package'
 
@@ -50,7 +50,12 @@ export function updateIntent(
   )
     throw new Error('Use one --runtime-updates=stable, off or pinned option.')
   const command = args.find((arg) =>
-    ['--check-runtime-update', '--update-runtime', '--runtime-update-status'].includes(arg)
+    [
+      '--check-runtime-update',
+      '--update-runtime',
+      '--runtime-update-status',
+      '--migrate-runtime'
+    ].includes(arg)
   )
   if (checkout && (command || flags.length))
     throw new Error('Checkout runtimes cannot enroll, check or download release updates.')
@@ -82,6 +87,18 @@ async function acquireEnrollmentLock() {
   }
 }
 
+async function confirmUpdate(version: string, identity: string) {
+  const input = createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    const answer = await input.question(
+      `Activate ${version} (${identity})? Type "update ${version}": `
+    )
+    if (answer !== `update ${version}`) throw new Error('Runtime activation cancelled.')
+  } finally {
+    input.close()
+  }
+}
+
 /** Enrollment changes policy, never the release namespace or the task/asset store. */
 export async function maybeManagedRuntime(args: string[], packageDir: string): Promise<boolean> {
   const manifestPath = join(packageDir, MANIFEST_PATH)
@@ -91,7 +108,10 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
     existsSync(manifestPath) ? 'stable' : 'off'
   )
   if (RUNTIME_PROFILE.kind === 'checkout') return false
-  if (intent.command === '--update-runtime' && (!process.stdin.isTTY || !process.stdout.isTTY))
+  if (
+    (intent.command === '--update-runtime' || intent.command === '--migrate-runtime') &&
+    (!process.stdin.isTTY || !process.stdout.isTTY)
+  )
     throw new Error(
       'Runtime activation requires interactive confirmation of the exact staged artifact.'
     )
@@ -106,6 +126,8 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
     return true
   }
   if (!existsSync(path)) {
+    if (intent.command === '--migrate-runtime')
+      throw new Error('No managed runtime exists to migrate.')
     if (args.includes('--runtime-status') || args.includes('--resolve-runtime-block')) return false
     if (args.includes('--recover-runtime')) throw new Error('No managed runtime exists to recover.')
   }
@@ -187,13 +209,19 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
     throw new Error(
       'Managed runtime directories differ from this launch. Keep one release namespace; stop its clients before changing directory overrides.'
     )
-  const config: PrototypeConfig = { ...saved, root }
+  let config: PrototypeConfig = { ...saved, root }
   const command =
     intent.command ??
     args.find((arg) =>
       ['--runtime-status', '--resolve-runtime-block', '--recover-runtime'].includes(arg)
     )
   if (command) {
+    const version =
+      command === '--update-runtime' || command === '--migrate-runtime'
+        ? VersionSchema.parse(args[args.indexOf(command) + 1])
+        : 'latest'
+    if (command === '--migrate-runtime')
+      config = await migrateRuntime(config, packageDir, installed, version, confirmUpdate)
     const peer = new ControlPeer()
     try {
       await peer.connect(
@@ -215,13 +243,18 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
         process.stdout.write(
           JSON.stringify(await request('tempad/runtime-recover'), null, 2) + '\n'
         )
-      } else if (command === '--runtime-update-status') {
-        process.stdout.write(JSON.stringify(await request('tempad/runtime-status'), null, 2) + '\n')
+      } else if (command === '--runtime-update-status' || command === '--migrate-runtime') {
+        const status = await request('tempad/runtime-status')
+        process.stdout.write(JSON.stringify(status, null, 2) + '\n')
+        if (
+          command === '--migrate-runtime' &&
+          (status.phase !== 'committed' ||
+            (status.active as { version?: string })?.version !== version)
+        )
+          throw new Error(
+            `Runtime migration did not commit ${version}: ${status.failure ?? 'verify runtime status'}.`
+          )
       } else {
-        const version =
-          command === '--update-runtime'
-            ? VersionSchema.parse(args[args.indexOf(command) + 1])
-            : 'latest'
         const checked = await request('tempad/runtime-check', { version })
         process.stdout.write(JSON.stringify(checked, null, 2) + '\n')
         if (command === '--update-runtime') {
@@ -230,16 +263,7 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
           ).candidate
           if (candidate?.version !== version || !candidate.release?.integrity)
             throw new Error('The requested release is not staged.')
-          const input = createInterface({ input: process.stdin, output: process.stdout })
-          let answer
-          try {
-            answer = await input.question(
-              `Activate ${version} (${candidate.release.integrity})? Type "update ${version}": `
-            )
-          } finally {
-            input.close()
-          }
-          if (answer !== `update ${version}`) throw new Error('Runtime activation cancelled.')
+          await confirmUpdate(version, candidate.release.integrity)
           process.stdout.write(
             JSON.stringify(
               await request('tempad/runtime-activate', {
