@@ -101,12 +101,12 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
 [Agent Plugin 指南](./agent-plugin/src/README.zh-Hans.md)。
 
 所有 plugin 和直接使用 `npx` 的配置路径都使用 `@tempad-dev/mcp@latest`。
-从 MCP 1.0.0 起，经过校验的正式包默认启用后台下载，并在 MCP 会话空闲时自动更新兼容的 Hub。
-Agent Plugin 1.0.0 和安装命令会明确选择此策略；既有客户端需重启到新版本后生效。
-适用范围和关闭方式见[运行时更新控制](./packages/mcp-server/README.zh-Hans.md#运行时更新100)。
+从 MCP 1.0.0 起，标准配置会在后台查找最新的兼容稳定版 Hub，工具调用期间也会检查。
+在途操作结束、Hub 连续空闲五秒后，如果所有客户端都支持切换并已启用稳定版更新，
+Hub 就会自动更新，客户端保持连接。各宿主的要求和关闭方式见[运行时更新控制](./packages/mcp-server/README.zh-Hans.md#运行时更新100)。
 
-MCP 2.x 要求浏览器扩展为 **1.0.0 或更高版本**。从 MCP 2.0.1 起，使用标准配置时，
-旧连接全部断开且 Hub 退出后，下次启动会自动升级托管的 1.x Hub。详见
+MCP 2.x 要求浏览器扩展为 **1.0.0 或更高版本**。从 1.x 升到 2.x 时，工具契约发生变化，
+旧扩展协议也已退役。这次升级会等旧客户端和运行时全部退出，再由 MCP 2.0.1 在下次启动时自动完成。详见
 [升级与回退说明](./packages/mcp-server/README.zh-Hans.md#将托管-hub-升级到-20)。
 
 使用期间请保持 TemPad Dev 打开并启用 MCP。如果连接了多个 Figma 文件，请点击目标文件面板中的 MCP 徽标；该文件会成为 agent 当前访问的上下文。Agent 也可以列出已连接的会话，在独立只读调用中传入精确的 `sessionId`，无需切换激活徽标。
