@@ -98,9 +98,9 @@ export async function startHookGateway(
       throw error
     }
   }
-  function compact(reserveResult = false) {
-    let nextCutoff = hookRetentionCutoff(cutoff)
-    const legacyCutoff = hookRetentionCutoff(0)
+  function compact(now: number, reserveResult = false) {
+    let nextCutoff = hookRetentionCutoff(cutoff, now)
+    const legacyCutoff = hookRetentionCutoff(0, now)
     if (reserveResult) {
       const completed: number[] = []
       const unresolved: number[] = []
@@ -139,10 +139,9 @@ export async function startHookGateway(
     )
       save(compacted, receiver, nextCutoff)
   }
-  async function flush() {
+  async function drain() {
     if (flushing) return flushing
     const run = async () => {
-      compact()
       while (true) {
         const entry = entries.find(pendingEntry)
         if (!entry) {
@@ -248,7 +247,7 @@ export async function startHookGateway(
             throw new Error('Lifecycle hook belongs to a different runtime profile.')
           const admittedAt = Date.now()
           const known = entries.some((entry) => entry.input.invocationId === input.invocationId)
-          compact()
+          compact(admittedAt)
           hookCutoff(input, cutoff, admittedAt)
           if (input.version === 2 && !known) {
             // A retryable clock skew must not evict completed results before admission.
@@ -256,8 +255,10 @@ export async function startHookGateway(
               throw new FutureHookError(
                 'Lifecycle invocation is ahead of the runtime clock; retry the same invocation.'
               )
-            compact(true)
-            hookCutoff(input, cutoff, admittedAt)
+            if (entries.length >= HOOK_RECEIPT_LIMIT) {
+              compact(admittedAt, true)
+              hookCutoff(input, cutoff, admittedAt)
+            }
           }
           const existing = entries.find((entry) => entry.input.invocationId === input.invocationId)
           if (existing && hookSignature(existing.input) !== hookSignature(input))
@@ -265,7 +266,7 @@ export async function startHookGateway(
           if (existing?.retired) throw new ExpiredHookError(cutoff)
           if (!existing) {
             if (input.version === 1 && legacyExhausted()) {
-              await flush()
+              await drain()
               throw new LegacyHookCapacityError()
             }
             const error = capacityFailure()
@@ -283,12 +284,12 @@ export async function startHookGateway(
             if (legacyExhausted()) onFault(new LegacyHookCapacityError())
           }
           if (input.version === 2) {
-            const applied = flush().catch(() => {})
+            const applied = drain().catch(() => {})
             // The installed hook otherwise reconnects after 30 ms to collect this same result.
             // Slow or failed delivery can acknowledge only the already durable inbox entry.
             if (!existing?.result)
               await Promise.race([applied, delay(30, undefined, { ref: false })])
-          } else await flush()
+          } else await drain()
           const result = entries.find(
             (entry) => entry.input.invocationId === input.invocationId
           )?.result
@@ -344,7 +345,7 @@ export async function startHookGateway(
       }
     })
   })
-  compact()
+  compact(Date.now())
   cleanupEndpoint(socketPath)
   await listenPrivate(server, socketPath, signal)
   onFault(
@@ -356,7 +357,10 @@ export async function startHookGateway(
           : undefined)
   )
   return {
-    flush,
+    async flush() {
+      if (!flushing) compact(Date.now())
+      await drain()
+    },
     setReceiver(hubId: string) {
       if (receiver?.hubId === hubId) return
       // A real Hub replacement requires new evidence. The first receiver still
