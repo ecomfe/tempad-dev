@@ -77,21 +77,22 @@ export function toMarkupAttributes(props: RenderProps): Record<string, string> {
   )
 }
 
+const GRID_ITEM_PROPERTIES = new Set([
+  'grid-area',
+  'grid-column',
+  'grid-column-start',
+  'grid-column-end',
+  'grid-column-span',
+  'grid-row',
+  'grid-row-start',
+  'grid-row-end',
+  'grid-row-span'
+])
+
 export function filterGridProps(style: Record<string, string>): Record<string, string> {
   const res: Record<string, string> = {}
   for (const [k, v] of Object.entries(style)) {
-    if (
-      k === 'grid-row' ||
-      k === 'grid-column' ||
-      k === 'grid-area' ||
-      k === 'grid-row-start' ||
-      k === 'grid-row-end' ||
-      k === 'grid-column-start' ||
-      k === 'grid-column-end'
-    ) {
-      continue
-    }
-    res[k] = v
+    if (!GRID_ITEM_PROPERTIES.has(k)) res[k] = v
   }
   return res
 }

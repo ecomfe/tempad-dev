@@ -131,6 +131,23 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it.each(['grid', 'inline-grid', 'flex'])(
+  'emits placement classes only for grid children (%s)',
+  async (display) => {
+    const spanning = node('spanning', 'FRAME', 0, [], {
+      'grid-row': '1 / span 2',
+      'grid-column': '1 / span 3'
+    })
+    const full = node('full', 'FRAME', 100, [], { 'grid-column': '1 / -1' })
+    const root = node('root', 'FRAME', 0, [spanning, full], { display })
+    const { code } = await pipeline(root)
+
+    expect(code.includes('row-span-2')).toBe(display !== 'flex')
+    expect(code.includes('col-span-3')).toBe(display !== 'flex')
+    expect(code.includes('-col-end-1')).toBe(display !== 'flex')
+  }
+)
+
 it.each([
   { nested: true, absolute: false, inferred: false },
   { nested: true, absolute: false, inferred: true },
