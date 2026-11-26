@@ -135,8 +135,12 @@ function saveConfig(value: PrototypeConfig) {
   return saved
 }
 
-async function prepare(value = candidate) {
-  const edge = await prepareManagedEdge(config, value.directory, value.manifest)
+async function prepare(value = candidate, policy: 'stable' | 'pinned' | 'off' = 'stable') {
+  const edge = await prepareManagedEdge(config, value.directory, {
+    policy,
+    manifest: value.manifest,
+    manifestHash: value.artifact.release!.manifestHash
+  })
   cleanup.push(edge.close)
   return edge
 }
@@ -256,13 +260,72 @@ function bridgeReleases() {
   return prior
 }
 
-it('keeps enrolled 1.x cold launches on their original Hub and identifies the explicit migration', async () => {
+it('admits the installed bridge on an ordinary stable launch after the last 1.x owner exits', async () => {
+  const prior = bridgeReleases()
+  fake.connect.mockResolvedValueOnce({ destroy: vi.fn() })
+  expect((await prepare()).config.entry).toBe(candidate.artifact.entry)
+  expect(fake.verify).toHaveBeenCalledWith(prior.artifact)
+  expect(fake.verify).toHaveBeenCalledWith(candidate.artifact)
+  expect(readJournal(root)).toMatchObject({
+    phase: 'old-stopped',
+    active: prior.artifact,
+    candidate: candidate.artifact
+  })
+})
+
+it('reattaches to a 1.x owner that remains alive after the last edge leaves', async () => {
   bridgeReleases()
-  const notice = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+  fake.connect.mockResolvedValue({ destroy: vi.fn() })
   expect((await prepare()).config).toEqual(config)
-  expect(notice).toHaveBeenCalledWith(expect.stringContaining('--migrate-runtime 2.0.0'))
   expect(readJournal(root)).toEqual(journal)
   expect(fake.retain).not.toHaveBeenCalled()
+})
+
+it('honors the departing supervisor’s final journal when it quarantines the new bridge', async () => {
+  bridgeReleases()
+  const last = {
+    ...journal,
+    revision: journal.revision + 1,
+    failedBundles: [candidate.artifact.bundle]
+  }
+  fake.connect.mockImplementationOnce(async () => {
+    writeJournal(root, last)
+    return { destroy: vi.fn() }
+  })
+  expect((await prepare()).config).toEqual(config)
+  expect(readJournal(root)).toEqual(last)
+  expect(existsSync(join(root, 'cold-start.json'))).toBe(false)
+})
+
+it('detects a changed installed package before selecting a cold runtime', async () => {
+  bridgeReleases()
+  fake.retain.mockResolvedValueOnce(release('2.0.0', 'changed').artifact)
+  await expect(prepare()).rejects.toThrow('installed runtime changed')
+  expect(readJournal(root)).toEqual(journal)
+})
+
+it.each(['off', 'pinned'] as const)(
+  'keeps a %s launch from opting in to bridge migration',
+  async (policy) => {
+    bridgeReleases()
+    expect((await prepare(candidate, policy)).config).toEqual(config)
+    expect(readJournal(root)).toEqual(journal)
+    expect(fake.retain).not.toHaveBeenCalled()
+  }
+)
+
+it('keeps a live 1.x edge and a quarantined bridge release on the original runtime', async () => {
+  const prior = bridgeReleases()
+  const live = await prepare(prior)
+  const attached = await prepare()
+  expect(attached.config).toEqual(config)
+  expect(fake.retain).not.toHaveBeenCalled()
+  live.close()
+  attached.close()
+  journal.failedBundles.push(candidate.artifact.bundle)
+  writeJournal(root, journal)
+  expect((await prepare()).config).toEqual(config)
+  expect(readJournal(root)).toEqual(journal)
 })
 
 it('uses a confirmed installed bridge release and can restore its retained prior control and Hub', async () => {
@@ -287,6 +350,10 @@ it('uses a confirmed installed bridge release and can restore its retained prior
     candidate: prior.artifact
   })
   expect(readJournal(root)?.previous).toBeUndefined()
+  writeJournal(root, { ...journal, previous: undefined })
+  const afterRollback = await prepare()
+  expect(afterRollback.config.entry).toBe(prior.artifact.entry)
+  afterRollback.close()
   config = await migrateRuntime(config, candidate.directory, candidate.manifest, '2.0.0', confirm)
   expect(config.entry).toBe(candidate.artifact.entry)
   expect(readJournal(root)).toMatchObject({
@@ -297,14 +364,29 @@ it('uses a confirmed installed bridge release and can restore its retained prior
   expect(fake.retain).toHaveBeenCalledTimes(2)
 })
 
+it('can reaffirm a retained 1.x selected by a CLI that did not record rollback consent', async () => {
+  const prior = bridgeReleases()
+  const confirm = vi.fn()
+  config = await migrateRuntime(
+    config,
+    candidate.directory,
+    candidate.manifest,
+    prior.artifact.version,
+    confirm
+  )
+  expect((await prepare()).config).toEqual(config)
+  expect(readJournal(root)).toEqual(journal)
+  expect(confirm).not.toHaveBeenCalled()
+})
+
 it('refuses an unknown rollback, live owners and cancelled migrations before changing the journal', async () => {
-  bridgeReleases()
+  const prior = bridgeReleases()
   const decline = vi.fn().mockRejectedValue(new Error('cancelled'))
   const migrate = (version: string) =>
     migrateRuntime(config, candidate.directory, candidate.manifest, version, decline)
   await expect(migrate('0.10.0')).rejects.toThrow('neither installed nor retained')
   await expect(migrate('2.0.0')).rejects.toThrow('cancelled')
-  const edge = await prepare()
+  const edge = await prepare(prior)
   await expect(migrate('2.0.0')).rejects.toThrow('Close all')
   edge.close()
   fake.connect.mockResolvedValue({ destroy: vi.fn() })
@@ -314,9 +396,9 @@ it('refuses an unknown rollback, live owners and cancelled migrations before cha
 })
 
 it('admits ordinary clients while awaiting migration approval and rechecks ownership afterward', async () => {
-  bridgeReleases()
+  const prior = bridgeReleases()
   const confirm = async () => {
-    await prepare()
+    await prepare(prior)
   }
   await expect(
     migrateRuntime(config, candidate.directory, candidate.manifest, '2.0.0', confirm)
@@ -356,14 +438,17 @@ it('refuses cold migration without verified state, control and retained rollback
     state: { family: 'other', reads: [1], writes: 1 }
   })
   await expect(migrate()).rejects.toThrow(/State rollback.*No common control/)
+  await expect(prepare()).rejects.toThrow(/State rollback.*No common control/)
   candidate = release('2.0.0', 'current', { extension: { legacy: false, protocols: [15, 17] } })
   await expect(migrate()).rejects.toThrow('only for the reviewed')
+  await expect(prepare()).rejects.toThrow('only for the reviewed')
   candidate = release('2.0.0', 'current', { extension: { legacy: false, protocols: [15] } })
   fake.verify.mockImplementation((artifact: Artifact) => {
     if (artifact.bundle === prior.artifact.bundle) throw new Error('Damaged fallback')
     return candidate.manifest
   })
   await expect(migrate()).rejects.toThrow('Damaged fallback')
+  await expect(prepare()).rejects.toThrow('Damaged fallback')
   expect(readJournal(root)).toEqual(journal)
   expect(confirm).not.toHaveBeenCalled()
 })

@@ -7,6 +7,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 import lockfile from 'proper-lockfile'
 import { z } from 'zod'
 
+import type { Registration } from '../runtime-prototype/protocol'
+
 import { getMcpServerConfig } from '../config'
 import { writeDurableJson } from '../durable-json'
 import { readHubRuntimeIdentity } from '../runtime-identity'
@@ -45,6 +47,11 @@ import {
 const SnapshotSchema = z.object({ config: ConfigSchema, journal: JournalSchema }).strict()
 const IntentSchema = SnapshotSchema.extend({ before: SnapshotSchema }).strict()
 const EdgeSchema = z.object({ pid: z.number().int().positive() }).strict()
+const BRIDGE_ROLLBACK_FILE = 'bridge-rollback.json'
+
+type InstalledLaunch = Pick<NonNullable<Registration['updates']>, 'policy' | 'manifestHash'> & {
+  manifest: RuntimeManifest
+}
 
 function controlManifest(config: PrototypeConfig) {
   return releaseManifest({
@@ -196,7 +203,12 @@ async function refreshEndpoints(root: string) {
 }
 
 /** Record only ownership metadata. The next owner opens the original task and asset stores. */
-async function selectColdRuntime(config: PrototypeConfig, journal: Journal, candidate: Artifact) {
+async function selectColdRuntime(
+  config: PrototypeConfig,
+  journal: Journal,
+  candidate: Artifact,
+  explicitBridgeSelection = false
+) {
   if (
     candidate.version === journal.active.version &&
     candidate.release?.manifestHash !== journal.active.release?.manifestHash
@@ -205,6 +217,10 @@ async function selectColdRuntime(config: PrototypeConfig, journal: Journal, cand
   if (journal.failedBundles.includes(candidate.bundle))
     throw new Error('The installed runtime was quarantined after an earlier failure.')
   const { root, ...saved } = config
+  // Historical 1.x readers require the original strict journal and config schemas.
+  // Persist confirmed rollback consent before making the retained 1.x selectable.
+  if (explicitBridgeSelection)
+    writeDurableJson(join(root, BRIDGE_ROLLBACK_FILE), candidate.version.startsWith('1.'))
   // A historical supervisor makes the former active Hub its automatic crash fallback.
   // When restoring 1.x, never let a subsequent 1.x crash silently reactivate 2.x.
   const restoring = compareVersions(candidate.version, journal.active.version) < 0
@@ -291,8 +307,13 @@ export async function migrateRuntime(
         (selected?.version === version && !sameRelease(selected, candidate))
       )
         throw new Error('An installed version cannot replace different bytes of the same release.')
-      if (selected && sameRelease(config, candidate) && sameRelease(selected, candidate))
+      if (selected && sameRelease(config, candidate) && sameRelease(selected, candidate)) {
+        // A rollback completed by 2.0.0 left no hold. Repeating the explicit
+        // selection records that preference without restarting an already selected Hub.
+        if (version.startsWith('1.') && isBridgeMigration(target, installed))
+          writeDurableJson(join(config.root, BRIDGE_ROLLBACK_FILE), true)
         return { state }
+      }
       // A failed new Hub can already have rolled back while its new supervisor is still configured.
       if (!isBridgeMigration(active, target) && !isBridgeMigration(control, target))
         throw new Error('This migration is only for the reviewed 1.x/2.x extension bridge change.')
@@ -320,48 +341,75 @@ export async function migrateRuntime(
       verifyReleaseArtifact(next.journal.active)
       verifyReleaseArtifact(candidate)
       await refreshEndpoints(next.config.root)
-      return selectColdRuntime(next.config, next.journal, candidate)
+      return selectColdRuntime(next.config, next.journal, candidate, true)
     },
     true
   )
+}
+
+async function prepareColdRuntime(
+  config: PrototypeConfig,
+  packageDir: string,
+  launch: InstalledLaunch
+) {
+  const observed = readJournal(config.root)
+  if (
+    !observed ||
+    (observed.phase !== 'committed' && !observed.coldStart) ||
+    hasLiveEdges(config.root)
+  )
+    return config
+
+  const version = launch.manifest.packageVersion
+  const automaticBridge =
+    observed.active.version.startsWith('1.') &&
+    version.startsWith('2.') &&
+    launch.policy === 'stable' &&
+    !readPrivateJson(join(config.root, BRIDGE_ROLLBACK_FILE), z.boolean())
+  // The old Hub sweeps for its last disconnected client every second. Give an
+  // immediate host restart time to observe ordinary shutdown, without stopping an owner.
+  const waitForShutdown = automaticBridge && observed.phase === 'committed'
+  const deadline = performance.now() + (waitForShutdown ? 2000 : 0)
+  while (await hasOwner(config)) {
+    if (performance.now() >= deadline) return config
+    await delay(100)
+  }
+  // startup.lock serializes new edges. The departing supervisor owned its
+  // journal until it exited and may have committed or rolled back in the meantime.
+  const journal = readJournal(config.root)
+  if (!journal || (journal.phase !== 'committed' && !journal.coldStart)) return config
+  await refreshEndpoints(config.root)
+  const bridge = journal.active.version.startsWith('1.') && version.startsWith('2.')
+  if (
+    journal.phase !== 'committed' ||
+    (bridge && !automaticBridge) ||
+    compareVersions(version, controlManifest(config).packageVersion) <= 0 ||
+    compareVersions(version, journal.active.version) < 0
+  )
+    return config
+
+  const active = bridge ? verifyReleaseArtifact(journal.active) : releaseManifest(journal.active)
+  if (bridge && !isBridgeMigration(active, launch.manifest))
+    throw new Error('This migration is only for the reviewed 1.x/2.x extension bridge change.')
+  const reasons = coldCompatibilityReasons(active, launch.manifest, bridge)
+  if (reasons.length) throw new Error(`Cold runtime upgrade refused: ${reasons.join('; ')}.`)
+  const candidate = await retainBundledPackage(packageDir, join(config.root, 'cache'))
+  if (candidate.release.manifestHash !== launch.manifestHash)
+    throw new Error('The installed runtime changed during startup.')
+  if (bridge && journal.failedBundles.includes(candidate.bundle)) return config
+  return selectColdRuntime(config, journal, candidate)
 }
 
 /** An installed CLI may advance a fully stopped runtime, never an attached session. */
 export async function prepareManagedEdge(
   original: PrototypeConfig,
   packageDir: string,
-  installed: RuntimeManifest
+  launch: InstalledLaunch
 ) {
   return withStartupLock(
     original.root,
     async () => {
-      let config = await resumeColdStart(original)
-      const journal = readJournal(config.root)
-      const cold =
-        journal &&
-        (journal.phase === 'committed' || journal.coldStart) &&
-        !hasLiveEdges(config.root) &&
-        !(await hasOwner(config))
-      if (cold) await refreshEndpoints(config.root)
-      if (
-        journal?.phase === 'committed' &&
-        journal.active.version.startsWith('1.') &&
-        installed.packageVersion.startsWith('2.')
-      ) {
-        process.stderr.write(
-          `TemPad: keeping MCP ${journal.active.version}. Update the extension, close all TemPad MCP connections, then run npx -y @tempad-dev/mcp@${installed.packageVersion} --migrate-runtime ${installed.packageVersion}.\n`
-        )
-      } else if (
-        cold &&
-        journal.phase === 'committed' &&
-        compareVersions(installed.packageVersion, controlManifest(config).packageVersion) > 0 &&
-        compareVersions(installed.packageVersion, journal.active.version) >= 0
-      ) {
-        const reasons = coldCompatibilityReasons(releaseManifest(journal.active), installed)
-        if (reasons.length) throw new Error(`Cold runtime upgrade refused: ${reasons.join('; ')}.`)
-        const candidate = await retainBundledPackage(packageDir, join(config.root, 'cache'))
-        config = await selectColdRuntime(config, journal, candidate)
-      }
+      const config = await prepareColdRuntime(await resumeColdStart(original), packageDir, launch)
       const directory = join(config.root, 'edges')
       privateDirectory(directory)
       const path = join(directory, `${randomUUID()}.json`)

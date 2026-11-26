@@ -283,15 +283,12 @@ export async function maybeManagedRuntime(args: string[], packageDir: string): P
       endLogging()
     }
   } else {
+    const updates = { policy: intent.policy, manifestHash }
     const prepared = await startupPhase('prepare-edge', () =>
-      prepareManagedEdge(config, packageDir, installed)
+      prepareManagedEdge(config, packageDir, { ...updates, manifest: installed })
     )
     try {
-      await startPrototypeEdge(prepared.config, {
-        policy: intent.policy,
-        version: installed.packageVersion,
-        manifestHash
-      })
+      await startPrototypeEdge(prepared.config, { ...updates, version: installed.packageVersion })
     } finally {
       prepared.close()
     }
