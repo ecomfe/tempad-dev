@@ -3,13 +3,13 @@
   "guidanceEpoch": 1,
   "guidanceReview": {
     "version": "1.0.6",
-    "sourceHash": "c7281e5b50dfc4456f7c55da069ca8f970ec7785af42347dbce749e5f0e9ba5b",
+    "sourceHash": "e9786ffcd49c5e9170cd7dd8940547c41b1c60a116e5a2ab1c67b85dc73f199e",
     "decision": "compatible",
     "baseline": {
       "version": "1.0.5",
       "integrity": "sha512-EM02vlXuNTsPg3d85BwLMVlOhw7Pu9KqleVNdbtW+b7050ugHPTVxKs/kHoRzusbyacasQXT4SleGQwGaG4zKg=="
     },
-    "rationale": "Hub handoffs retain Stop fences and accept an optional private Edge proof from supporting writers; older records or rewrites without that proof stay fenced. OpenCode read presentation preserves structured results, readback notices and byte limits. Direct asset imports keep reservations, and image URLs enforce the documented public-source contract. Legacy reads, tool names, task recovery instructions, and control and hook protocols remain compatible with epoch 1."
+    "rationale": "Hub handoffs retain Stop fences and accept optional private Edge proof. Readback notices, structured results, write identity, hook crash recovery, and byte budgets remain intact. OpenCode receipts may add node IDs. Existing Frame anchors continue to work across versions; additional visual region types require extension 1.1.1. Expired asset reclamation honors the existing TTL, and imports retain admission checks. Cached packages retain the existing bundle fingerprint and full verification before launch. Legacy reads, task recovery instructions, and extension, control and hook protocols remain compatible with epoch 1."
   },
   "controlProtocols": [2],
   "state": { "family": "tempad-runtime", "reads": [1], "writes": 1 },

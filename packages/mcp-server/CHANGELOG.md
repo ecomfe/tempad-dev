@@ -13,6 +13,10 @@
   unrecognized Codex streams and verify Linux process executables during discovery.
 - Import local images directly through the same admission and storage checks as HTTP
   uploads. Report the current usage and reservation when an upload exceeds the quota.
+- Reclaim expired assets before rejecting an upload for lack of space.
+- Include node IDs in OpenCode write receipts when they fit the response budget.
+- Avoid rereading verified cached modules to compute their launch fingerprint. Distribute
+  source locations in the npm package and retain matching full source maps with release artifacts.
 
 ## 1.0.5
 
