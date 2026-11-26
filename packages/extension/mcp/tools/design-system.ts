@@ -45,12 +45,14 @@ import {
   readAuthoringKey
 } from './canvas/identity'
 import {
+  readCatalogScope,
   registerDesignSystemCatalog,
   requireDesignSystemCatalog,
   type CatalogCollection,
   type CatalogComponent,
   type CatalogComponentProperty,
-  type CatalogEntry
+  type CatalogEntry,
+  type DesignSystemCatalog
 } from './design-system-catalog'
 import { queryAvailableFonts } from './fonts'
 
@@ -1256,14 +1258,17 @@ function compactComponentDetailResult(
 }
 
 async function exactCatalogResult(
-  catalogId: string,
+  catalog: DesignSystemCatalog,
   ref: string
 ): Promise<DesignSystemResourcesResult> {
-  const catalog = requireDesignSystemCatalog(catalogId, figma.fileKey)
+  const { id: catalogId } = catalog
   const entry = catalog.entries.get(ref)
   if (!entry) throw new Error(`Unknown design-system ref ${ref} in catalog ${catalogId}`)
   const definition =
     entry.kind === 'component' ? await describeComponentDetail(entry) : entry.definition
+  if (catalog.scope !== readCatalogScope()) {
+    throw new Error('Figma file changed while reading the design-system catalog.')
+  }
   const result = exactCatalogPayload(catalogId, entry, definition)
   if (resultFits(result)) return result
   if (entry.kind === 'component') {
@@ -1385,15 +1390,21 @@ function buildCompactResult(
   return boundCompactResult(build())
 }
 
-function continueCatalog(catalogId: string, cursor: number): DesignSystemResourcesResult {
-  const catalog = requireDesignSystemCatalog(catalogId, figma.fileKey)
+function continueCatalog(
+  catalog: DesignSystemCatalog,
+  cursor: number
+): DesignSystemResourcesResult {
+  const { id: catalogId } = catalog
   if (cursor >= catalog.orderedEntries.length) {
     throw new Error(`Unknown design-system cursor ${cursor} in catalog ${catalogId}`)
   }
   return buildCompactResult(catalogId, catalog.orderedEntries, catalog.warnings, cursor)
 }
 
-async function createCatalog(pageId?: string): Promise<DesignSystemResourcesResult> {
+async function createCatalog(
+  scope: DesignSystemCatalog['scope'],
+  pageId?: string
+): Promise<DesignSystemResourcesResult> {
   const componentWarnings: string[] = pageId
     ? [`Component discovery was limited to page "${pageId}"; other pages were not scanned.`]
     : []
@@ -1518,17 +1529,20 @@ async function createCatalog(pageId?: string): Promise<DesignSystemResourcesResu
     })
   }
 
-  const orderedEntries = orderEntries(entries)
-  const catalog = registerDesignSystemCatalog(
-    entries,
-    figma.fileKey ?? undefined,
-    orderedEntries.map((entry) => entry.ref),
+  if (scope !== readCatalogScope()) {
+    throw new Error('Figma file changed while creating the design-system catalog.')
+  }
+  const catalog = registerDesignSystemCatalog(entries, {
+    orderedRefs: orderEntries(entries).map((entry) => entry.ref),
     warnings
-  )
+  })
   return buildCompactResult(catalog.id, catalog.orderedEntries, warnings)
 }
 
-const pendingCatalogs = new Map<string, Promise<DesignSystemResourcesResult>>()
+const pendingCatalogs = new Map<
+  string | undefined,
+  { scope: DesignSystemCatalog['scope']; result: Promise<DesignSystemResourcesResult> }
+>()
 
 export function handleGetDesignSystem(
   args: GetDesignSystemParametersInput & { scope: 'fonts' }
@@ -1548,17 +1562,16 @@ export async function handleGetDesignSystem(
   if (args.scope === 'fonts') return queryAvailableFonts(args)
   if (args.scope === 'pages') return queryPages(args.cursor)
   if (args.catalogId) {
-    return args.ref
-      ? exactCatalogResult(args.catalogId, args.ref)
-      : continueCatalog(args.catalogId, args.cursor!)
+    const catalog = requireDesignSystemCatalog(args.catalogId)
+    return args.ref ? exactCatalogResult(catalog, args.ref) : continueCatalog(catalog, args.cursor!)
   }
-  const key = args.pageId ?? ''
-  let pendingCatalog = pendingCatalogs.get(key)
-  if (!pendingCatalog) {
-    pendingCatalog = createCatalog(args.pageId).finally(() => {
-      pendingCatalogs.delete(key)
-    })
-    pendingCatalogs.set(key, pendingCatalog)
-  }
-  return pendingCatalog
+  const { pageId } = args
+  const scope = readCatalogScope()
+  const pending = pendingCatalogs.get(pageId)
+  if (pending && pending.scope === scope) return pending.result
+  const result = createCatalog(scope, pageId).finally(() => {
+    if (pendingCatalogs.get(pageId)?.result === result) pendingCatalogs.delete(pageId)
+  })
+  pendingCatalogs.set(pageId, { scope, result })
+  return result
 }

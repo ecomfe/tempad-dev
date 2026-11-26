@@ -1,6 +1,7 @@
 import { buildGetDesignSystemToolResult, measureCallToolResultBytes } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { resolveCanvasInput } from '@/mcp/tools/canvas/resolve'
 import { handleGetDesignSystem } from '@/mcp/tools/design-system'
 import {
   registerDesignSystemCatalog,
@@ -1062,7 +1063,7 @@ describe('mcp/tools/design-system', () => {
       definition: {}
     }))
     const warnings = ['资源来自可访问的页面。']
-    const catalog = registerDesignSystemCatalog(entries, undefined, undefined, warnings)
+    const catalog = registerDesignSystemCatalog(entries, { warnings })
     for (const cursor of [0, 4, 8]) {
       const result = await handleGetDesignSystem({ catalogId: catalog.id, cursor })
       expect(result).toEqual({
@@ -1252,6 +1253,73 @@ describe('mcp/tools/design-system', () => {
     await expect(handleGetDesignSystem({ catalogId: result.catalogId, ref: 'c1' })).rejects.toThrow(
       'Unknown or expired'
     )
+  })
+
+  it.each([
+    { path: '/design/document-a/Name', nextPath: '/file/document-b/Name' },
+    { path: '/file/document-a/Name', nextPath: '/design/document-a/branch/branch-b/Name' },
+    {
+      path: '/design/document-a/branch/branch-a/Name',
+      nextPath: '/design/document-a/branch/branch-b/Name',
+      fileKey: 'document-a'
+    },
+    { path: '/other', nextPath: '/other' }
+  ])(
+    'isolates catalog reads and consumption after navigation from $path',
+    async ({ path, nextPath, fileKey }) => {
+      vi.stubGlobal('location', { pathname: path })
+      stubFigma({ fileKey, components: [component('component:1', 'Button')] })
+      const { catalogId } = await handleGetDesignSystem()
+      const detail = { catalogId, ref: 'c1' }
+      const page = { catalogId, cursor: 0 }
+      const canvas = { catalogId, mode: 'create' as const, markup: '<Button data-key="button" />' }
+
+      expect((await handleGetDesignSystem(detail)).details?.ref).toBe('c1')
+      expect((await handleGetDesignSystem(page)).components[0]?.ref).toBe('c1')
+      expect(resolveCanvasInput(canvas).catalog?.id).toBe(catalogId)
+
+      vi.stubGlobal('location', { pathname: nextPath })
+      if (path === nextPath) stubFigma({ components: [component('component:1', 'Another Button')] })
+      await expect(handleGetDesignSystem(detail)).rejects.toThrow('Unknown or expired')
+      await expect(handleGetDesignSystem(page)).rejects.toThrow('Unknown or expired')
+      expect(() => resolveCanvasInput(canvas)).toThrow('Unknown or expired')
+    }
+  )
+
+  it('does not share or publish in-flight discovery after changing files', async () => {
+    vi.stubGlobal('location', { pathname: '/design/before/Name' })
+    stubFigma({ components: [component('component:1', 'Before')] })
+    const paintStyles = Promise.withResolvers<PaintStyle[]>()
+    vi.mocked(figma.getLocalPaintStylesAsync).mockReturnValueOnce(paintStyles.promise)
+    const stale = handleGetDesignSystem({ pageId: 'page:current' })
+
+    vi.stubGlobal('location', { pathname: '/design/after/Name' })
+    stubFigma({ components: [component('component:1', 'After')] })
+    const current = handleGetDesignSystem({ pageId: 'page:current' })
+    paintStyles.resolve([])
+
+    const [discovered] = await Promise.all([
+      current,
+      expect(stale).rejects.toThrow('Figma file changed')
+    ])
+    expect(discovered.components.map(({ name }) => name)).toEqual(['After'])
+  })
+
+  it('rejects exact details if the active file changes during a live ref read', async () => {
+    const button = component('component:1', 'Button')
+    vi.stubGlobal('location', { pathname: '/design/before/Name' })
+    stubFigma({ components: [button] })
+    const { catalogId } = await handleGetDesignSystem()
+    // The same document can be opened by either URL shape.
+    vi.stubGlobal('location', { pathname: '/file/before/Renamed' })
+    const node = Promise.withResolvers<BaseNode | null>()
+    vi.mocked(figma.getNodeByIdAsync).mockReturnValueOnce(node.promise)
+    const pending = handleGetDesignSystem({ catalogId, ref: 'c1' })
+
+    vi.stubGlobal('location', { pathname: '/design/after/Name' })
+    node.resolve(button)
+
+    await expect(pending).rejects.toThrow('Figma file changed')
   })
 
   it('bounds verbose component details instead of failing the inline result', async () => {

@@ -1,11 +1,12 @@
 import type { FigmaSession } from '@tempad-dev/shared'
 
-/** URL identity also works when Figma does not expose fileKey to the Plugin API. */
+/** A branch URL identifies the active document even when the API returns its parent file key. */
 export function readFigmaFileKey(api: Pick<PluginAPI, 'fileKey'>): string | null {
+  const pathname = globalThis.location?.pathname
   return (
+    pathname?.match(/^\/(?:design|file)\/[^/]+\/branch\/([^/]+)/)?.[1] ||
     api.fileKey ||
-    location.pathname.match(/^\/(?:design|file)\/[^/]+\/branch\/([^/]+)/)?.[1] ||
-    location.pathname.match(/^\/(?:design|file)\/([^/]+)/)?.[1] ||
+    pathname?.match(/^\/(?:design|file)\/([^/]+)/)?.[1] ||
     null
   )
 }

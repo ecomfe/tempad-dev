@@ -5,6 +5,8 @@ import type {
   CanvasVariableValue
 } from '@tempad-dev/shared'
 
+import { readFigmaFileKey } from '../figma-session'
+
 export type CatalogComponentProperty = {
   name: string
   type: 'boolean' | 'instance' | 'text' | 'variant'
@@ -87,7 +89,7 @@ export type CatalogEntry =
 export type DesignSystemCatalog = {
   componentReferences: Map<string, CanvasDesignReference>
   id: string
-  fileKey?: string
+  scope: CatalogScope
   entries: Map<string, CatalogEntry>
   orderedEntries: CatalogEntry[]
   tags: Map<string, CatalogComponent>
@@ -96,6 +98,14 @@ export type DesignSystemCatalog = {
 
 const catalogs = new Map<string, DesignSystemCatalog>()
 const MAX_CATALOGS = 8
+
+type CatalogScope = string | object | undefined
+
+export function readCatalogScope(): CatalogScope {
+  if (typeof figma === 'undefined') return undefined
+  // Root IDs are only unique within a file. Compare the live document object instead.
+  return readFigmaFileKey(figma) ?? figma.root ?? figma
+}
 
 function resourceSlug(name: string): string {
   return name
@@ -144,9 +154,10 @@ function withResourceAliases(entries: CatalogEntry[]): CatalogEntry[] {
 
 export function registerDesignSystemCatalog(
   entries: CatalogEntry[],
-  fileKey?: string,
-  orderedRefs = entries.filter((entry) => entry.kind !== 'mode').map((entry) => entry.ref),
-  warnings: string[] = []
+  {
+    orderedRefs = entries.filter((entry) => entry.kind !== 'mode').map((entry) => entry.ref),
+    warnings = []
+  }: { orderedRefs?: string[]; warnings?: string[] } = {}
 ): DesignSystemCatalog {
   entries = withResourceAliases(entries)
   const id = `ds_${crypto.randomUUID()}`
@@ -163,7 +174,7 @@ export function registerDesignSystemCatalog(
         )
     ),
     id,
-    ...(fileKey ? { fileKey } : {}),
+    scope: readCatalogScope(),
     entries: entriesByRef,
     orderedEntries: orderedRefs.map((ref) => entriesByRef.get(ref)!),
     tags: new Map(components.map((entry) => [entry.tag, entry])),
@@ -176,12 +187,9 @@ export function registerDesignSystemCatalog(
   return catalog
 }
 
-export function requireDesignSystemCatalog(
-  id: string,
-  fileKey?: string | null
-): DesignSystemCatalog {
+export function requireDesignSystemCatalog(id: string): DesignSystemCatalog {
   const catalog = catalogs.get(id)
-  if (!catalog || (catalog.fileKey && catalog.fileKey !== fileKey)) {
+  if (!catalog || catalog.scope !== readCatalogScope()) {
     throw new Error(`Unknown or expired design-system catalog: ${id}`)
   }
   catalogs.delete(id)

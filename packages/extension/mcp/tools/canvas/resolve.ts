@@ -98,12 +98,7 @@ function resolveNativeBinding(
 }
 
 export function resolveCanvasInput(input: ApplyCanvasParameters): Resolution {
-  const catalog = input.catalogId
-    ? requireDesignSystemCatalog(
-        input.catalogId,
-        typeof figma === 'undefined' ? undefined : figma.fileKey
-      )
-    : undefined
+  const catalog = input.catalogId ? requireDesignSystemCatalog(input.catalogId) : undefined
   const candidate = {
     mode: input.mode,
     ...(input.targetNodeId ? { targetNodeId: input.targetNodeId } : {}),
