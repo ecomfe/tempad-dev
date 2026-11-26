@@ -54,6 +54,19 @@ type AssetUploadResultMessage = Extract<BridgeToPageMessage, { type: 'mcp.assetU
 type AssetDownloadResultMessage = Extract<BridgeToPageMessage, { type: 'mcp.assetDownloadResult' }>
 type AssetDownloadPayload = NonNullable<AssetDownloadResultMessage['payload']>
 
+function isDesignRegion(
+  node: BaseNode | null
+): node is FrameNode | SectionNode | ComponentNode | ComponentSetNode {
+  return (
+    !!node &&
+    !node.removed &&
+    (node.type === 'FRAME' ||
+      node.type === 'SECTION' ||
+      node.type === 'COMPONENT' ||
+      node.type === 'COMPONENT_SET')
+  )
+}
+
 export const useMcp = createSharedComposable(() => {
   const sessionId = crypto.randomUUID()
   const pageMessageBase = {
@@ -480,11 +493,11 @@ export const useMcp = createSharedComposable(() => {
         TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_INACTIVE,
         'The design task changed while resolving its anchor.'
       )
-    const page = node ? getContainingPage(node) : null
-    if (!node || node.removed || node.type !== 'FRAME' || !page)
+    const page = isDesignRegion(node) && getContainingPage(node)
+    if (!page)
       throw createCodedError(
         TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
-        'Choose an existing Frame as the design region.'
+        'Choose an existing Frame, Section, Component, or ComponentSet as the design region.'
       )
     saveDesignAnchor(node)
     return { nodeId: node.id, pageId: page.id }
@@ -534,8 +547,7 @@ export const useMcp = createSharedComposable(() => {
         readFigmaSession(sessionId, taskGuard.busy)?.fileKey !== task.target.fileKey
       )
         return
-      if (node && !node.removed && node.type === 'FRAME' && getContainingPage(node))
-        designAnchor.value = node
+      if (isDesignRegion(node) && getContainingPage(node)) designAnchor.value = node
     } catch {
       // Missing native nodes or unavailable storage leave controls in the panel.
     }

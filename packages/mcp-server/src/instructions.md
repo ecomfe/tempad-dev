@@ -6,7 +6,7 @@ the same file sequentially, including reads.
 
 For new design work, call `manage_design_task` with action `begin` before research or writing,
 then carry its `taskId`.
-Choose a known Frame with `set_design_anchor` once the region is clear; otherwise the first new
+Choose an existing region with `set_design_anchor` once the region is clear; otherwise the first new
 top-level Frame anchors automatically. Reads, selections, and later writes never change the anchor
 unless `set_design_anchor` does. Task identity survives turns. A pause or idle lease expiry releases
 canvas ownership without cancelling the task;

@@ -2,6 +2,9 @@
 
 ## 1.1.1
 
+- Place task controls on an existing Section, Component or ComponentSet. Automatic binding
+  still uses the first new top-level Frame.
+
 - Honor a restored Stop on the first session update and block writes from other tabs on
   the same Figma file, including while browser storage is unavailable.
 - Keep design-system references and catalog pages scoped to the Figma file that issued them.

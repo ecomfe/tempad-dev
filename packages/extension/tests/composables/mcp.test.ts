@@ -965,6 +965,10 @@ describe('composables/mcp', () => {
 
   it.each([
     'valid',
+    'SECTION',
+    'COMPONENT',
+    'COMPONENT_SET',
+    'INSTANCE',
     'legacy-completed',
     'removed',
     'missing',
@@ -975,7 +979,9 @@ describe('composables/mcp', () => {
   ])('restores only a usable anchor for the recovered local task (%s)', async (scenario) => {
     const node = {
       id: 'frame-a',
-      type: 'FRAME',
+      type: ['SECTION', 'COMPONENT', 'COMPONENT_SET', 'INSTANCE'].includes(scenario)
+        ? scenario
+        : 'FRAME',
       removed: scenario === 'removed',
       parent: { id: 'page-a', type: 'PAGE' }
     }
@@ -1037,7 +1043,9 @@ describe('composables/mcp', () => {
     publish({ ...task, revision: 2, target: { ...task.target, sessionId: mcp.sessionId } })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(mcp.designAnchor.value).toBe(
-      ['valid', 'legacy-completed'].includes(scenario) ? node : null
+      ['valid', 'SECTION', 'COMPONENT', 'COMPONENT_SET', 'legacy-completed'].includes(scenario)
+        ? node
+        : null
     )
     expect(api.currentPage.id).toBe('page-a')
     expect(mocks.runMcpTool).not.toHaveBeenCalled()
@@ -1253,6 +1261,13 @@ describe('composables/mcp', () => {
       error: { code: 'DESIGN_TASK_INACTIVE' }
     })
     expect(mcp.designAnchor.value).toBe(node)
+    for (const type of ['SECTION', 'COMPONENT', 'COMPONENT_SET']) {
+      nextNode.type = type
+      expect(await anchor(nextNode.id)).toMatchObject({
+        payload: { nodeId: nextNode.id, pageId: page.id }
+      })
+    }
+    nextNode.type = 'FRAME'
     expect(await anchor(nextNode.id)).toMatchObject({
       payload: { nodeId: nextNode.id, pageId: page.id }
     })

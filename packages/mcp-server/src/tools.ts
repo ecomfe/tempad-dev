@@ -180,7 +180,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'set_design_anchor',
     description:
-      'Choose an existing Frame as this task’s stable design region once its scope is known, or explicitly switch to a different region. Beginning a task does not require an anchor; the first created top-level Frame binds automatically. Reads, selections, and later writes never switch the anchor. This only places task UI and does not modify the frame, page, viewport, or selection.',
+      'Place this task’s controls on an existing design region or explicitly switch regions. The first created top-level Frame binds automatically. Reads, selections, and later writes never switch the anchor. This only places task UI and does not modify the node, page, viewport, or selection.',
     annotations: ASSET_WRITE_ANNOTATIONS,
     parameters: SetDesignAnchorParametersSchema,
     target: 'extension',

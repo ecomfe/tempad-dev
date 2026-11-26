@@ -366,7 +366,7 @@ becomes available; fixtures alone cannot establish host support.
 
 ## Canvas controls and comments
 
-The stable design anchor is an existing Frame chosen through `set_design_anchor`, or the
+The stable design anchor is an existing Frame, Section, Component or ComponentSet chosen through `set_design_anchor`, or the
 first created top-level Frame after its actual position is known. Beginning a task needs
 no speculative geometry. Reads, selections, updates, and later creates never change the
 anchor. The tool does not modify nodes or move the viewport. Exact task/file/node identity

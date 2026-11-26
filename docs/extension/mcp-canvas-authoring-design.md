@@ -43,7 +43,7 @@ checks required for safe reconciliation.
 
 The model-visible surface includes these tools:
 
-- `set_design_anchor` binds an active task to an exact existing Frame without moving
+- `set_design_anchor` binds an active task to an existing Frame, Section, Component or ComponentSet without moving
   the viewport; the first created top-level Frame otherwise anchors automatically.
   The region stays stable until explicitly changed; beginning a task needs no anchor.
 - `manage_design_task` begins, resumes, completes, or cancels a design task bound to

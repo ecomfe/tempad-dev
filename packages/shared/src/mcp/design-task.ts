@@ -277,7 +277,7 @@ export const SetDesignAnchorParametersSchema = z
       .string()
       .min(1)
       .describe(
-        'Exact existing Frame to use as this task’s stable design region. Does not select, move, or modify it.'
+        'Exact existing design region. Choose a Frame, or with extension 1.1.1+ a Section, Component, or ComponentSet. Does not select, move, or modify it.'
       )
   })
   .strict()
