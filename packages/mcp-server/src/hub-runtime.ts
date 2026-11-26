@@ -61,7 +61,12 @@ import { ClientBindingSubscribeSchema, ClientBindingUpdateSchema } from './clien
 import { getMcpServerConfig } from './config'
 import { ConsumerTransport } from './consumer-transport'
 import { DesignTaskStore } from './design-task-store'
-import { DesignTasks, resolveDesignTarget, type DesignTaskRecord } from './design-tasks'
+import {
+  DesignTasks,
+  managedEdgeOwner,
+  resolveDesignTarget,
+  type DesignTaskRecord
+} from './design-tasks'
 import { ExtensionRegistry } from './extension-registry'
 import { attachExtensionSocket } from './extension-socket'
 import {
@@ -86,7 +91,6 @@ import {
   RECOVER_MS,
   RuntimeDataTransport,
   SocketTransport,
-  unavailable,
   type Registration
 } from './runtime-prototype/protocol'
 import { readEndpoints, writeEndpoints } from './runtime-prototype/state'
@@ -961,7 +965,6 @@ export async function startHub(
       let requestId: string | undefined
       let readTarget: { fileKey: string; taskId?: string } | undefined
       try {
-        if (runtimeControl && !runtimeControl.admitting()) throw unavailable()
         noteActivity()
         activeCalls.set(
           activity,
@@ -1251,7 +1254,6 @@ export async function startHub(
     ) => {
       const activity = Symbol()
       try {
-        if (runtimeControl && !runtimeControl.admitting()) throw unavailable()
         noteActivity()
         activeCalls.set(activity, Date.now() + toolTimeoutMs)
         extra.signal.throwIfAborted()
@@ -1554,9 +1556,11 @@ export async function startHub(
   }
 
   function attachConsumer(sock: Socket, registration?: Registration): void {
-    const ownerId = registration?.sessionId ?? randomUUID()
+    const ownerId = registration
+      ? managedEdgeOwner(registration.sessionId, registration.token)
+      : randomUUID()
     if (registration) {
-      runtimeDataSockets.set(ownerId, sock)
+      runtimeDataSockets.set(registration.sessionId, sock)
       agentClients.registerContext(ownerId, registration.context)
     }
     const mcp = createMcpServer(ownerId)
@@ -1569,7 +1573,8 @@ export async function startHub(
       registration && runtimeControl
         ? new RuntimeDataTransport(new SocketTransport(sock), {
             generation: () => runtimeControl.currentGeneration,
-            admit: (generation, method) => runtimeControl.admits(ownerId, generation, method),
+            admit: (generation, method) =>
+              runtimeControl.admits(registration.sessionId, generation, method),
             role: 'hub'
           })
         : new ConsumerTransport(sock, sock)
@@ -1586,8 +1591,10 @@ export async function startHub(
     })
     const closeConsumer = async () => {
       agentClients.disconnect(ownerId)
-      runtimeDataSockets.delete(ownerId)
-      runtimeControl?.forget(ownerId)
+      if (registration) {
+        runtimeDataSockets.delete(registration.sessionId)
+        runtimeControl?.forget(registration.sessionId)
+      }
       await transport
         .close()
         .catch((closeErr) => log.warn({ err: closeErr }, 'Transport close failed.'))

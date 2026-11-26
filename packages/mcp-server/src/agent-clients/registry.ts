@@ -234,6 +234,7 @@ export class AgentClients {
       this.pendingClaudeBindings.delete(connectionId)
       this.publishBinding(connectionId, next)
       this.bindings.set(ownerId, next)
+      delete record.edgeOwner
       record.ownerId = ownerId
       record.task.client = next.client
       this.tasks.attachClient(
@@ -331,7 +332,8 @@ export class AgentClients {
     const previous = this.bindings.get(ownerId)
     if (previous?.client.kind === binding.client.kind) binding.turnId ??= previous.turnId
     this.bindings.set(ownerId, binding)
-    // Reconnect only after runtime metadata has supplied an exact client conversation.
+    // A transport-only binding can reclaim persisted tasks on its first request.
+    if (previous?.client.kind === binding.client.kind && !binding.client.sessionId) return ownerId
     const mismatchedTasks = this.tasks.attachClient(
       ownerId,
       binding.client,

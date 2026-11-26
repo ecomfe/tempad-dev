@@ -13,6 +13,7 @@ import {
   MCP_DESIGN_TASK_LEASE_MS,
   RESUMABLE_DESIGN_TASK_STATUSES
 } from '@tempad-dev/shared'
+import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 
 import type { HostContext } from './agent-clients/host-context'
@@ -45,6 +46,7 @@ const RUNNING_STATUSES: DesignTask['status'][] = ['active', 'stopping']
 export type DesignTaskRecord = {
   task: DesignTask
   ownerId: string
+  edgeOwner?: string
   extensionId: string
   requestId: string
   ready: boolean
@@ -59,6 +61,15 @@ export type DesignTaskRecord = {
 /** Only a Hub begin request establishes a client binding; browser migration leaves it empty. */
 export function getVerifiedTaskClient(record: DesignTaskRecord): AgentClient | undefined {
   return record.requestId ? record.task.client : undefined
+}
+
+/** A public session ID alone cannot prove that the original edge survived a Hub switch. */
+export function managedEdgeOwner(sessionId: string, token: string): string {
+  return `edge:${createHash('sha256').update(`${sessionId}/${token}`).digest('hex')}`
+}
+
+function isGenericEdge(ownerId: string, client?: AgentClient): boolean {
+  return ownerId.startsWith('edge:') && client?.kind === 'other' && !client.sessionId
 }
 
 type Operation = {
@@ -211,6 +222,7 @@ export class DesignTasks {
     const { busy: _busy, tabId, documentId, ...target } = session
     const record: DesignTaskRecord = {
       ownerId,
+      ...(isGenericEdge(ownerId, client) ? { edgeOwner: ownerId } : {}),
       extensionId,
       requestId,
       ready: false,
@@ -285,7 +297,7 @@ export class DesignTasks {
     return record
   }
 
-  /** Runtime identity may reconnect the same conversation, never a focused/last caller. */
+  /** Reconnect an exact native conversation or its original transport-only edge. */
   attachClient(
     ownerId: string,
     client: AgentClient,
@@ -293,8 +305,10 @@ export class DesignTasks {
     hostContext?: HostContext
   ): string[] {
     const mismatched: string[] = []
-    if (!client.sessionId || ['other', 'unknown'].includes(client.kind)) return mismatched
+    const transport = !client.sessionId || ['other', 'unknown'].includes(client.kind)
+    if (transport && !isGenericEdge(ownerId, client)) return mismatched
     for (const record of this.records.values()) {
+      if (transport && record.edgeOwner !== ownerId) continue
       const verified = getVerifiedTaskClient(record)
       if (verified?.kind !== client.kind || verified.sessionId !== client.sessionId) continue
       // Cancelled history remains readable; only an in-flight lease keeps its transport owner.
@@ -1189,6 +1203,7 @@ export class DesignTasks {
         ({
           task,
           requestId,
+          edgeOwner,
           browser,
           resultNodeIds,
           retiredAt,
@@ -1197,6 +1212,7 @@ export class DesignTasks {
         }) => ({
           task: { ...task, capabilities: undefined, operation: null },
           requestId,
+          edgeOwner,
           browser,
           resultNodeIds,
           retiredAt,

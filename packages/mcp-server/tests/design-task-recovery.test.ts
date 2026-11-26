@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { DesignTaskSnapshot } from '../src/design-task-store'
 import type { ExtensionConnection } from '../src/types'
 
-import { DesignTasks } from '../src/design-tasks'
+import { DesignTasks, managedEdgeOwner } from '../src/design-tasks'
 
 const client = { kind: 'codex-app' as const, name: 'Codex', sessionId: 'original-conversation' }
 const session: FigmaSession = {
@@ -57,6 +57,48 @@ function fixture() {
 }
 
 describe('durable design reviews', () => {
+  it('recovers a transport-only review with its original managed edge registration', () => {
+    const f = fixture()
+    const generic = { kind: 'other' as const, name: 'Generic' }
+    const owner = managedEdgeOwner('edge-a', 'token-a')
+    const { task } = f.tasks.begin(owner, 'extension', session, 'Review', 'request', generic)
+    const restored = f.restart()
+    for (const other of [
+      managedEdgeOwner('edge-a', 'token-b'),
+      managedEdgeOwner('edge-b', 'token-a'),
+      'edge-a'
+    ]) {
+      restored.attachClient(other, generic)
+      expect(() => restored.owned(task.taskId, other)).toThrow('another MCP caller')
+    }
+    restored.attachClient(owner, client)
+    expect(() => restored.owned(task.taskId, owner)).toThrow('another MCP caller')
+    restored.attachClient(owner, generic)
+    expect(restored.owned(task.taskId, owner).task).toMatchObject({
+      status: 'paused',
+      epoch: 1,
+      needsRead: true
+    })
+    expect(restored.retry(owner, 'request')?.task.taskId).toBe(task.taskId)
+  })
+
+  it('keeps a generic task from an older snapshot unclaimed without edge evidence', () => {
+    const f = fixture()
+    const owner = managedEdgeOwner('edge-a', 'token-a')
+    const generic = { kind: 'other' as const, name: 'Generic' }
+    const { task } = f.tasks.begin(
+      'old-transport',
+      'extension',
+      session,
+      'Review',
+      'request',
+      generic
+    )
+    const restored = f.restart()
+    restored.attachClient(owner, generic)
+    expect(() => restored.owned(task.taskId, owner)).toThrow('another MCP caller')
+  })
+
   it('retains taskless read requirements across restart until a successful read', () => {
     const f = fixture()
     f.tasks.requireFileRead(session.fileKey)

@@ -32,8 +32,10 @@ inherited Codex environment or request metadata; only Claude hooks bind its conv
 After a Hub reconnect without a client handshake, inherited Codex environment alone
 cannot establish conversation identity; request metadata must identify that conversation.
 Task titles, display names, and focused windows never determine routing.
-Without a conversation identity, ownership stays with the
-MCP transport. Reconnection can reclaim an inactive task only for its exact conversation.
+Without a conversation identity, ownership stays with the MCP transport. After a Hub
+switch, an ordinary MCP client can reclaim its task through the same running managed
+edge. The Hub matches a digest of that edge's session ID and private registration token.
+A new edge process or an older snapshot without this proof cannot reclaim the task.
 
 `AGENT_CLIENTS` distinguishes integration support from live capabilities. Codex App and
 host-reported Codex conversations retain comments and drafts while native delivery is
@@ -127,8 +129,8 @@ indefinitely. Snapshot downgrade to a Hub without these retention fences is unsu
 
 On restart the Hub restores
 metadata with fresh epochs and inactive leases; it never restores transport authority,
-running operations, or advertised capabilities. The exact conversation must reconnect,
-resume explicitly, and reread before writing.
+running operations, or advertised capabilities. The original conversation or owning
+managed edge must reconnect, resume explicitly, and reread before writing.
 
 The original browser tab can recover its current task when browser identity, extension
 origin, tab ID, and file match, the old session is absent, and a new document ID proves

@@ -82,7 +82,7 @@ import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
 import { writeDurableJson } from '../src/durable-json'
 import { removeHubRuntimeIdentityIfOwned, writeHubRuntimeIdentity } from '../src/runtime-identity'
-import { LeaseSchema } from '../src/runtime-prototype/hub-control'
+import { HubControl, LeaseSchema } from '../src/runtime-prototype/hub-control'
 import {
   ControlPeer,
   RuntimeDataTransport,
@@ -458,6 +458,49 @@ it('requires initialized clients for automatic switches and records activity bet
     expect(await inspect()).toMatchObject({ drained: true, autoBlockers: [] })
     await claude.close()
     await vi.waitFor(async () => expect((await inspect()).autoBlockers).toEqual([]))
+    // Expire the control lease between transport admission and SDK dispatch.
+    // A frame already accepted by the Hub is allowed to finish once.
+    const extension = connectExtension()
+    for (const call of [
+      { name: 'list_design_sessions', arguments: {} },
+      { name: 'get_structure', arguments: {} },
+      { name: 'apply_canvas', arguments: { mode: 'create', markup: '<div></div>' } }
+    ]) {
+      const admits = HubControl.prototype.admits
+      const admission = vi.spyOn(HubControl.prototype, 'admits').mockImplementationOnce(function (
+        this: HubControl,
+        ...args
+      ) {
+        const accepted = admits.apply(this, args)
+        now = 600_000
+        return accepted
+      })
+      try {
+        const before = extension.calls.length
+        const proxied = call.name !== 'list_design_sessions'
+        const result = codex.callTool(call)
+        if (proxied) {
+          const dispatched = await extension.call(before)
+          expect(dispatched.payload.name).toBe(call.name)
+          extension.send({
+            type: 'toolResult',
+            id: dispatched.id,
+            error: { message: 'Fixture completed' }
+          })
+          expect(JSON.stringify(await result)).toContain('Fixture completed')
+        } else {
+          expect((await result).isError).not.toBe(true)
+        }
+        await expect(codex.callTool(call)).rejects.toMatchObject({
+          code: -32001,
+          data: { dispatched: false }
+        })
+        expect(extension.calls).toHaveLength(before + (proxied ? 1 : 0))
+      } finally {
+        admission.mockRestore()
+        now = 7500
+      }
+    }
     // An inherited Codex environment cannot overrule a pending Claude identity.
     await codex.notification({
       method: 'notifications/tempad/client-event',

@@ -24,6 +24,10 @@ const SnapshotSchema = z.object({
     z.object({
       task: DesignTaskSchema.strip(),
       requestId: z.string(),
+      edgeOwner: z
+        .string()
+        .regex(/^edge:[a-f0-9]{64}$/)
+        .optional(),
       hostContext: HostContextSchema.optional(),
       claudeStopNotice: ClaudeStopNoticeSchema.optional(),
       retiredAt: z.number().nonnegative().optional(),

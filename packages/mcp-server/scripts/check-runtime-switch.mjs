@@ -246,6 +246,11 @@ const written = {
 const call = (client, name, args = {}) =>
   client.callTool({ name, arguments: args }, undefined, { timeout: 30000 })
 
+function assertToolError(result, message) {
+  assert.equal(result.isError, true, JSON.stringify(result))
+  assert.match(result.content[0].text, message)
+}
+
 async function scenario(a, b, mode, incompatible) {
   const root = await fixtureRoot('tp-sw-')
   const clients = []
@@ -300,7 +305,7 @@ async function scenario(a, b, mode, incompatible) {
   }
   try {
     for (let index = 0; index < 2; index++)
-      await openClient(claudeStop && index === 0 ? 'claude-code' : `switch-${index}`)
+      await openClient(claudeStop && index === 0 ? 'claude-code' : 'switch-client')
     const initial = await record(root, 'supervisor.json')
     const endpoints = await record(root, 'endpoints.json')
     const catalog = await clients[0].listTools()
@@ -643,6 +648,39 @@ async function scenario(a, b, mode, incompatible) {
       assert.equal(settled.candidate.version, '0.11.1')
       assert.equal(saved.task.epoch, epoch)
     } else assert.ok(saved.task.epoch > epoch)
+    if (mode === 'normal') {
+      const [owner, other] = clients
+      assertToolError(
+        await call(other, 'get_design_task', { taskId }),
+        /DESIGN_TASK_OWNER_MISMATCH/
+      )
+      const restored = (await call(owner, 'get_design_task', { taskId })).structuredContent
+      assert.equal(restored.taskId, taskId)
+      assert.equal(restored.status, 'paused')
+      assert.equal(restored.needsRead, true)
+      assertToolError(
+        await call(owner, 'manage_design_task', { action: 'resume', taskId, epoch }),
+        /Stale task lease/
+      )
+      const resume = { action: 'resume', taskId, epoch: restored.epoch }
+      assertToolError(await call(other, 'manage_design_task', resume), /DESIGN_TASK_OWNER_MISMATCH/)
+      const resumed = (await call(owner, 'manage_design_task', resume)).structuredContent
+      assert.equal(resumed.status, 'active')
+      assert.ok(resumed.epoch > restored.epoch)
+      const target = { taskId, taskEpoch: resumed.epoch }
+      const edit = {
+        mode: 'update',
+        targetNodeId: '1:2',
+        markup: '<frame key="after" />',
+        ...target
+      }
+      assertToolError(await call(owner, 'apply_canvas', edit), /require readback/)
+      assert.ok(!(await call(owner, 'get_structure', { nodeId: '1:2', ...target })).isError)
+      const freshWrite = call(owner, 'apply_canvas', edit)
+      await until(() => held?.payload.args.markup === edit.markup, 'explicit post-read write')
+      extension.send(JSON.stringify({ type: 'toolResult', id: held.id, payload: written }))
+      assert.ok(!(await freshWrite).isError)
+    }
     if (mode === 'normal' || mode === 'claude-stop-rollback') {
       assert.deepEqual(JSON.parse((await command('--recover-runtime')).stdout), {
         status: 'recovered',
@@ -655,7 +693,7 @@ async function scenario(a, b, mode, incompatible) {
           JSON.stringify({
             type: 'designAction',
             sessionId: session.sessionId,
-            action: { requestId: randomUUID(), taskId, epoch: saved.task.epoch, action: 'stop' }
+            action: { requestId: randomUUID(), taskId, epoch: review.epoch, action: 'stop' }
           })
         )
       await until(
@@ -695,6 +733,24 @@ async function scenario(a, b, mode, incompatible) {
         'cancelled'
       )
       assert.deepEqual(await clients[0].listTools(), catalog)
+      if (mode === 'normal') {
+        extension?.terminate()
+        await attach()
+        const cancelled = (await call(clients[0], 'get_design_task', { taskId })).structuredContent
+        assert.equal(cancelled.status, 'cancelled')
+        assertToolError(
+          await call(clients[0], 'manage_design_task', {
+            action: 'resume',
+            taskId,
+            epoch: cancelled.epoch
+          }),
+          /cannot resume/
+        )
+        assertToolError(
+          await call(clients[1], 'get_design_task', { taskId }),
+          /DESIGN_TASK_OWNER_MISMATCH/
+        )
+      }
       assert.equal(await (await fetch(url)).text(), body.toString())
       await assert.rejects(command('--switch', b), /quarantined/)
     }
@@ -717,14 +773,22 @@ async function scenario(a, b, mode, incompatible) {
       )
     }
     assert.ok(edgePids.every(alive), 'The original initialized edges must survive handoff.')
-    assert.equal(calls.filter((value) => value.payload.name === 'apply_canvas').length, 1)
+    const writes = calls
+      .filter((value) => value.payload.name === 'apply_canvas')
+      .map((value) => value.payload.args.markup)
+    assert.deepEqual(
+      writes,
+      mode === 'normal'
+        ? ['<frame key="root" />', '<frame key="after" />']
+        : ['<frame key="root" />']
+    )
     results.push({
       mode,
       outcome,
       active: settled.active.version,
       initializedClients: clients.length,
       initializeMs,
-      writes: 1
+      writes: writes.length
     })
     passed = true
   } catch (error) {
