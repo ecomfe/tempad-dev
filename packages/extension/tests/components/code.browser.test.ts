@@ -13,6 +13,26 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it('loads packaged grammars once when Prism becomes available to displayed code', async () => {
+  vi.stubGlobal('Prism', undefined)
+  vi.stubGlobal('__TEMPAD_PLUGIN_SANDBOX_URL__', 'chrome-extension://fixture/plugin-sandbox.html')
+  const append = vi.spyOn(document.head, 'append').mockImplementation((...items) => {
+    for (const item of items) {
+      if (item instanceof HTMLScriptElement)
+        queueMicrotask(() => item.dispatchEvent(new Event('load')))
+    }
+  })
+  const props = { title: 'CSS', code: 'color: red;', lang: 'css' }
+  mount(defineComponent(() => () => [h(Code, props), h(Code, props)]))
+  expect(append).not.toHaveBeenCalled()
+  vi.stubGlobal('Prism', Prism)
+  await expect.poll(() => append.mock.calls.length).toBe(1)
+  expect((append.mock.calls[0]![0] as HTMLScriptElement).src).toBe(
+    'chrome-extension://fixture/prism.js'
+  )
+  append.mockRestore()
+})
+
 it.each([false, true])(
   'preserves code whitespace when displaying and copying (highlighted: %s)',
   async (highlighted) => {

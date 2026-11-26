@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { useEventListener } from '@vueuse/core'
-import { computed, shallowRef, toRef, useTemplateRef } from 'vue'
+import { computed, toRef, useTemplateRef } from 'vue'
 
 import { useCopy, useScrollbar } from '@/composables'
-import { PRISM_LANGUAGES_READY_EVENT } from '@/entrypoints/ui/prism'
+import { usePrismLanguages } from '@/composables/prism'
 import { transformHTML } from '@/utils/dom'
 import { escapeHTML } from '@/utils/string'
 
@@ -32,7 +32,7 @@ const prismAlias: Record<string, string> = {
   vue: 'html'
 }
 
-const prismRevision = shallowRef(0)
+const prismReady = usePrismLanguages()
 
 const code = toRef(props, 'code')
 
@@ -40,7 +40,7 @@ const lang = computed(() => prismAlias[props.lang] || props.lang)
 
 const highlighted = computed(() => {
   // Recompute after asynchronously loaded grammars become available.
-  void prismRevision.value
+  void prismReady.value
   const Prism = window.Prism
   const grammar = Prism?.languages[lang.value]
   if (!Prism || !grammar) {
@@ -102,10 +102,6 @@ useEventListener(content, 'keydown', (event: KeyboardEvent) => {
   if (!token) return
   event.preventDefault()
   void copy(token)
-})
-
-useEventListener(window, PRISM_LANGUAGES_READY_EVENT, () => {
-  prismRevision.value += 1
 })
 </script>
 

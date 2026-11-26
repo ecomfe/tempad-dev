@@ -95,6 +95,7 @@ export default defineConfig({
         resources: [
           '/ui.js',
           '/loader.js',
+          '/prism.js',
           '/figma.js',
           '/plugin-sandbox.html',
           '/chunks/plugin-sandbox-*.js'
