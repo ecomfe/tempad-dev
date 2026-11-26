@@ -28,6 +28,7 @@
     "test:run": "wxt build && pnpm run test:built",
     "test:built": "vitest run --config vitest.config.ts && pnpm run check:worker-sandbox && pnpm run check:built-runtime",
     "test:node": "vitest run --config vitest.node.config.ts",
+    "test:integration": "vitest run --config vitest.config.ts --project extension-integration",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:browser:headed": "vitest run --config vitest.browser.config.ts --browser.headless=false",
     "test:setup": "pnpm exec playwright install chromium",

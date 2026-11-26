@@ -138,8 +138,9 @@ and uploads per-step logs. Push a validation branch under `ci/` to run it withou
 and contributor documentation; manual build dispatch and MCP publication run the full selected
 platform matrix. Runtime manual dispatch selects Linux or Windows.
 
-Build checks retain both Node versions. Node 24 runs Node tests once with coverage, then browser
-and built-extension checks; Node 22 runs the package-owned suites. Static checks run separately.
+Node 22 builds the workspace and runs the Node suites. Node 24 adds coverage, Chromium,
+the Node-driven browser integration fixture and the built-extension checks. Runtime changes
+also exercise the MCP bridge on Node 26.
 The `ci` job is the aggregate check to require in branch protection, including intentionally
 skipped jobs. New pushes cancel outdated build runs for the same branch or pull request.
 
@@ -221,8 +222,9 @@ Per package:
 - `pnpm --filter @tempad-dev/site test:browser`
 - `pnpm --filter @tempad-dev/site test:setup` (install Chromium for site browser tests)
 
-The official TypeScript compatibility job installs `typescript@6.0.3` and `vue-tsc@3.3.12`
-in a temporary directory outside the workspace and verifies the compiler's package identity.
+The official TypeScript compatibility job installs the TypeScript API version reported by the
+workspace compiler and the extension's installed vue-tsc version in a temporary directory.
+It verifies the official compiler's package identity before using it.
 Use an explicit official `typescript/bin/tsc` path rather than `pnpm dlx tsc`: a cached dlx
 installation can contain the workspace's compiler fork even when invoked outside the workspace.
 `node scripts/check-declarations.mjs /absolute/path/to/typescript/bin/tsc` also builds shared

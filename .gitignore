@@ -27,6 +27,7 @@ packages/extension/tests/**/__screenshots__/
 !.vscode/extensions.json
 .idea
 .DS_Store
+.eslintcache
 *.suo
 *.ntvs*
 *.njsproj

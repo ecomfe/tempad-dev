@@ -42,11 +42,15 @@ jobs:
               - '!docs/**'
               - '!**/AGENTS.md'
               - '!TESTING.md'
+              - '!**/README.md'
+              - '!**/README.zh-Hans.md'
+              - '!**/CHANGELOG.md'
               - '!packages/extension/**'
               - '!packages/plugins/**'
               - '!packages/site/**'
 
   quality:
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -94,6 +98,10 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      - name: Check MCP on Node 26
+        if: needs.changes.outputs.runtime == 'true'
+        run: pnpm mcp:check-bridge
+
   build:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -112,16 +120,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install browser runtime
+        if: matrix.node == '24.x'
         run: pnpm --filter @tempad-dev/extension test:setup
 
       - name: Build project
         run: pnpm build
 
-      - name: Test the built project
+      - name: Test Node behavior on the minimum supported major
         if: matrix.node == '22.x'
-        run: |
-          pnpm -r --filter '!@tempad-dev/extension' --if-present test:run
-          pnpm --filter @tempad-dev/extension test:built
+        run: pnpm exec vitest run
 
       # Coverage executes every Node test; only browser and bundle checks remain.
       - name: Test with coverage
@@ -132,6 +139,7 @@ jobs:
         if: matrix.node == '24.x'
         run: |
           pnpm -r --if-present test:browser
+          pnpm --filter @tempad-dev/extension test:integration
           pnpm --filter @tempad-dev/extension check:worker-sandbox
           pnpm --filter @tempad-dev/extension check:built-runtime
 
@@ -165,17 +173,18 @@ jobs:
         run: |
           tools=$(mktemp -d)
           trap 'rm -rf "$tools"' EXIT
-          pnpm --dir "$tools" --ignore-workspace add --ignore-scripts typescript@6.0.3 vue-tsc@3.3.12
-          node -e 'const p = require(process.argv[1]); if (p.name !== "typescript" || p.version !== "6.0.3") throw new Error("Expected official TypeScript 6.0.3")' "$tools/node_modules/typescript/package.json"
+          ts_version=$(node -p "require(process.env.GITHUB_WORKSPACE + '/node_modules/typescript').version")
+          vue_version=$(node -p "require(process.env.GITHUB_WORKSPACE + '/packages/extension/node_modules/vue-tsc/package.json').version")
+          pnpm --dir "$tools" --ignore-workspace add --ignore-scripts "typescript@$ts_version" "vue-tsc@$vue_version"
           tsc="$tools/node_modules/typescript/bin/tsc"
           vue_tsc="$tools/node_modules/vue-tsc/bin/vue-tsc.js"
+          node "$GITHUB_WORKSPACE/scripts/check-declarations.mjs" "$tsc"
           node "$tsc" -p "$GITHUB_WORKSPACE/tsconfig.configs.json"
           for package in shared plugins mcp-server; do
             node "$tsc" -p "$GITHUB_WORKSPACE/packages/$package/tsconfig.json" --noEmit
           done
           node "$vue_tsc" -p "$GITHUB_WORKSPACE/packages/extension/tsconfig.json" --noEmit
           node "$vue_tsc" --build "$GITHUB_WORKSPACE/packages/site/tsconfig.json"
-          node "$GITHUB_WORKSPACE/scripts/check-declarations.mjs" "$tsc"
 
   runtime:
     needs: changes

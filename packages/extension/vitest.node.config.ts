@@ -30,7 +30,7 @@ export default defineConfig({
     name: 'extension-node',
     environment: 'node',
     include: ['tests/**/*.test.ts'],
-    exclude: ['tests/**/*.browser.test.ts'],
+    exclude: ['tests/**/*.browser.test.ts', 'tests/**/*.integration.test.ts'],
     setupFiles: ['./tests/setup.node.ts'],
     coverage: {
       provider: 'istanbul',

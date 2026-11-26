@@ -12,13 +12,14 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-if (!process.argv[2]) throw new Error('Pass the official TypeScript 6.0.3 bin/tsc path.')
+if (!process.argv[2]) throw new Error('Pass the official TypeScript bin/tsc path.')
 const compiler = realpathSync(resolve(process.argv[2]))
 const compilerPackage = JSON.parse(readFileSync(join(dirname(compiler), '../package.json'), 'utf8'))
-if (compilerPackage.name !== 'typescript' || compilerPackage.version !== '6.0.3')
-  throw new Error('Expected official typescript@6.0.3, not a compiler alias or fork.')
+if (compilerPackage.name !== 'typescript' || compilerPackage.version !== ts.version)
+  throw new Error(`Expected the official typescript@${ts.version} package.`)
 const directory = mkdtempSync(join(tmpdir(), 'tempad-declarations-'))
 
 function run(command, args, cwd) {

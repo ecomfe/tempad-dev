@@ -1,7 +1,7 @@
 import { chromium, type Browser, type Page } from 'playwright'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { reinstallInApp, resumeThreadInApp } from '@/scripts/reinstall-codex-dev-plugin-ui'
+import { reinstallInApp, resumeThreadInApp } from '../../scripts/reinstall-codex-dev-plugin-ui'
 
 let browser: Browser
 let page: Page
