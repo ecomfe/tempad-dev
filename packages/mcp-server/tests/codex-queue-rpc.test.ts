@@ -2,8 +2,12 @@ import { EventEmitter } from 'node:events'
 import { PassThrough, Writable } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ spawn: vi.fn(), execFile: vi.fn() }))
+const mocks = vi.hoisted(() => ({ spawn: vi.fn(), execFile: vi.fn(), readlink: vi.fn() }))
 vi.mock('node:child_process', () => mocks)
+vi.mock('node:fs/promises', async (original) => ({
+  ...(await original<typeof import('node:fs/promises')>()),
+  readlink: mocks.readlink
+}))
 
 import { CodexQueueRpc, codexQueueExecutable } from '../src/agent-clients/codex-queue-rpc'
 import { captureHostContext } from '../src/agent-clients/host-context'
@@ -242,10 +246,32 @@ describe('queue-only native RPC', () => {
 
 describe('desktop executable discovery', () => {
   function processes(stdout: string) {
-    mocks.execFile.mockImplementation((_file, _args, _options, callback) =>
-      callback(null, { stdout, stderr: '' })
+    const paths = stdout.trim().split('\n')
+    mocks.readlink.mockImplementation(
+      async (path: string) => paths[Number(path.split('/')[2]) - 100]
+    )
+    mocks.execFile.mockImplementation((_file, args, _options, callback) =>
+      callback(null, {
+        stdout: args.includes('pid=,comm=')
+          ? paths.map((_, index) => `${100 + index} codex`).join('\n')
+          : stdout,
+        stderr: ''
+      })
     )
   }
+
+  it.skipIf(process.platform === 'win32')(
+    'uses Linux kernel executable links and tolerates a process that exited',
+    async () => {
+      processes('/opt/Codex/resources/codex\n/usr/local/bin/codex')
+      mocks.readlink.mockRejectedValueOnce(Object.assign(new Error('Exited'), { code: 'ENOENT' }))
+      await expect(codexQueueExecutable(context, 'linux')).rejects.toThrow(
+        'could not be identified'
+      )
+      expect(await codexQueueExecutable(context, 'linux')).toBe('/opt/Codex/resources/codex')
+      expect(mocks.readlink).toHaveBeenCalledWith('/proc/100/exe')
+    }
+  )
 
   it('selects the unique running desktop binary instead of PATH executables', async () => {
     processes(

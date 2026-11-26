@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CodexAppLifecycle } from '../src/agent-clients/codex-lifecycle'
@@ -6,6 +7,7 @@ import { DesignTasks } from '../src/design-tasks'
 import { log } from '../src/shared'
 
 vi.mock('../src/shared', () => ({ log: { info: vi.fn(), warn: vi.fn() } }))
+vi.mock('node:timers/promises', { spy: true })
 
 const cleanups: (() => void)[] = []
 afterEach(() => {
@@ -265,6 +267,20 @@ describe('Codex native lifecycle', () => {
       expect(f.lifecycle.state('thread-a')?.turns[0]?.status).toBe('inProgress')
     }
   )
+
+  it('backs off repeated incompatible streams and resets after a supported snapshot', async () => {
+    const f = await fixture()
+    vi.mocked(delay).mockClear()
+    for (const [attempt, ms] of [20, 40, 80].entries()) {
+      f.emit({}, { version: 12 })
+      await vi.waitFor(() => expect(f.open).toHaveBeenCalledTimes(attempt + 2))
+      expect(delay).toHaveBeenLastCalledWith(ms, undefined, expect.any(Object))
+    }
+    f.snapshot()
+    for (const listener of f.disconnects) listener()
+    await vi.waitFor(() => expect(f.open).toHaveBeenCalledTimes(5))
+    expect(delay).toHaveBeenLastCalledWith(10, undefined, expect.any(Object))
+  })
 
   it('interrupts only the expected turn through its current owner and validates acknowledgement', async () => {
     const f = await fixture()

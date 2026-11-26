@@ -98,6 +98,7 @@ export class CodexAppLifecycle {
     context?: HostContext
   ): Promise<void> {
     const signal = watch.controller.signal
+    let retryDelay = this.retryMs
     const publish = (state?: CodexLifecycleState) => {
       if (signal.aborted) return
       const changed = JSON.stringify(watch.state) !== JSON.stringify(state)
@@ -174,7 +175,11 @@ export class CodexAppLifecycle {
                   return
                 }
                 if (message.method !== 'thread-stream-state-changed') return
-                if (message.version !== 11) throw new Error('Unsupported Codex stream version.')
+                if (message.version !== 11) {
+                  retryDelay = Math.min(retryDelay * 2, 60_000)
+                  end()
+                  return
+                }
                 const change = object(params.change)
                 if (!Number.isSafeInteger(change.revision))
                   throw new Error('Invalid Codex stream revision.')
@@ -182,6 +187,7 @@ export class CodexAppLifecycle {
                   if (revision !== undefined && (change.revision as number) < revision) return
                   turns = new CodexTurnState(change.conversationState, conversationId)
                   const state = turns.state()
+                  retryDelay = this.retryMs
                   clearTimeout(timer)
                   awaitingSnapshot = false
                   revision = change.revision as number
@@ -229,7 +235,7 @@ export class CodexAppLifecycle {
         connection?.close()
         publish()
       }
-      if (!signal.aborted) await delay(this.retryMs, undefined, { signal }).catch(() => {})
+      if (!signal.aborted) await delay(retryDelay, undefined, { signal }).catch(() => {})
     }
   }
 

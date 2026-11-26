@@ -1,4 +1,5 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { readlink } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 import { promisify } from 'node:util'
 
@@ -14,10 +15,13 @@ export type ServerQueuedMessage = {
 }
 
 /** Use the running desktop's bundled binary, never an unrelated CLI on PATH. */
-export async function codexQueueExecutable(context: HostContext): Promise<string> {
+export async function codexQueueExecutable(
+  context: HostContext,
+  platform = process.platform
+): Promise<string> {
   const options = { timeout: 3000, env: hostEnvironment(context) }
   const { stdout } =
-    process.platform === 'win32'
+    platform === 'win32'
       ? await promisify(execFile)(
           'powershell.exe',
           [
@@ -28,8 +32,29 @@ export async function codexQueueExecutable(context: HostContext): Promise<string
           ],
           options
         )
-      : await promisify(execFile)('ps', ['-U', String(process.getuid!()), '-o', 'comm='], options)
-  const paths = [...new Set(stdout.split(/\r?\n/).map((path) => path.trim()))].filter((path) =>
+      : await promisify(execFile)(
+          'ps',
+          ['-U', String(process.getuid!()), '-o', platform === 'linux' ? 'pid=,comm=' : 'comm='],
+          options
+        )
+  let executables = stdout.split(/\r?\n/).map((path) => path.trim())
+  if (platform === 'linux') {
+    // Linux comm is a short process name. The kernel link identifies the actual executable.
+    executables = await Promise.all(
+      executables.flatMap((line) => {
+        const match = /^(\d+)\s+codex$/.exec(line)
+        return match
+          ? [
+              readlink(`/proc/${match[1]}/exe`).catch((error: NodeJS.ErrnoException) => {
+                if (error.code === 'ENOENT') return ''
+                throw error
+              })
+            ]
+          : []
+      })
+    )
+  }
+  const paths = [...new Set(executables)].filter((path) =>
     /[/\\]resources[/\\](?:codex-cli[/\\]CodexCLI\.app[/\\]Contents[/\\]MacOS[/\\])?codex(?:\.exe)?$/i.test(
       path
     )

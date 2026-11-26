@@ -30,6 +30,11 @@ export async function readCodexServerQueue(
       database.close()
     }
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ERR_UNKNOWN_BUILTIN_MODULE')
+      throw new Error(
+        'This Codex server queue requires node:sqlite. Use Node 22.13 or later in a supported Node release line. Comments remain saved.',
+        { cause: error }
+      )
     throw new Error('The Codex server queue could not be checked. Comments remain saved.', {
       cause: error
     })
