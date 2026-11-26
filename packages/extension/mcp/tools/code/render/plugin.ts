@@ -24,7 +24,8 @@ export async function resolvePluginComponent(
   preferredLang?: CodeLanguage
 ): Promise<PluginComponent | null> {
   const response = await generateCodeBlocksForNode(node, config, pluginCode, {
-    returnDevComponent: true
+    returnDevComponent: true,
+    componentOnly: true
   })
   return resolvePluginComponentResponse(response, preferredLang)
 }
@@ -43,6 +44,7 @@ export async function resolvePluginComponents(
   if (missing.length) {
     const generated = await generateCodeBlocksForNodes(missing, config, pluginCode, {
       returnDevComponent: true,
+      componentOnly: true,
       ...(cache ? { readCss: (node) => getRawCssCached(node, cache), signal: cache.signal } : {})
     })
     cache?.signal?.throwIfAborted()

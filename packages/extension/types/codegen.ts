@@ -17,6 +17,7 @@ export interface RequestPayload {
   options: SerializeOptions
   pluginCode?: string
   returnDevComponent?: boolean
+  componentOnly?: boolean
 }
 
 export type CodegenJobPayload = Omit<RequestPayload, 'pluginCode'>

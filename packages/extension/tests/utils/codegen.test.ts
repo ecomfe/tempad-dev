@@ -242,12 +242,16 @@ describe('utils/codegen', () => {
       [node],
       { cssUnit: 'px', rootFontSize: 16, scale: 1 },
       'plugin',
-      { readCss }
+      { readCss, componentOnly: true }
     )
 
     expect(readCss).toHaveBeenCalledWith(node)
     expect(node.getCSSAsync).not.toHaveBeenCalled()
     expect(css).toEqual({ width: '100px' })
+    expect(mocked.requestPluginSandbox).toHaveBeenCalledWith('codegen', {
+      pluginCode: 'plugin',
+      jobs: [expect.objectContaining({ componentOnly: true })]
+    })
     expect(mocked.requestPluginSandbox.mock.calls[0]?.[1].jobs[0].style).toEqual({ width: '50px' })
   })
 

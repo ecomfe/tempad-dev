@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { CodegenBatchResponsePayload } from '@/types/codegen'
+
+import { inspectSandboxValue } from '@/plugin-sandbox/limits'
+
 const mocks = vi.hoisted(() => ({
   serializeComponent: vi.fn(),
   stringifyComponent: vi.fn(),
@@ -63,6 +67,7 @@ type WorkerJob = {
   }
   pluginCode?: string
   returnDevComponent?: boolean
+  componentOnly?: boolean
 }
 
 async function importWorker() {
@@ -108,6 +113,53 @@ afterEach(() => {
 })
 
 describe('codegen/worker', () => {
+  it('fits component-only batches without changing style callbacks or component output', async () => {
+    const { serializeCSS } = await vi.importActual<typeof import('@/utils/css')>('@/utils/css')
+    mocks.serializeCSS.mockImplementation(serializeCSS)
+    mocks.evaluate.mockImplementation(async () => {
+      let styleCalls = 0
+      return {
+        default: {
+          name: 'Stateful plugin',
+          code: {
+            component: { transformComponent: () => `<Card styleCalls={${styleCalls}} />` },
+            css: {
+              transform: () => {
+                styleCalls += 1
+                return 'a'.repeat(140_000)
+              }
+            },
+            js: false
+          }
+        }
+      }
+    })
+    await importWorker()
+
+    for (const [id, componentOnly] of [false, true].entries()) {
+      await dispatch({
+        id,
+        payload: {
+          pluginCode: 'export default plugin',
+          jobs: Array.from({ length: 32 }, () => ({
+            style: { color: 'red' },
+            component: { name: 'Card' },
+            options: baseOptions,
+            componentOnly
+          }))
+        }
+      })
+    }
+
+    const full = mocks.postMessage.mock.calls[0]?.[0]?.payload
+    const selective = mocks.postMessage.mock.calls[1]?.[0]?.payload as CodegenBatchResponsePayload
+    expect(inspectSandboxValue(full)).toEqual({ ok: false, reason: 'payload-too-large' })
+    expect(inspectSandboxValue(selective)).toMatchObject({ ok: true })
+    expect(selective.results.map(({ codeBlocks }) => codeBlocks.map(({ code }) => code))).toEqual(
+      Array.from({ length: 32 }, (_, index) => [`<Card styleCalls={${index}} />`])
+    )
+  })
+
   it('locks down the worker on module load', async () => {
     await importWorker()
     expect(mocks.lockdownWorker).toHaveBeenCalledWith('codegen')

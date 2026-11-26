@@ -78,7 +78,8 @@ describe('mcp/code render plugin', () => {
     } as never)
 
     expect(mocked.generateCodeBlocksForNode).toHaveBeenCalledWith(node, config, 'plugin()', {
-      returnDevComponent: true
+      returnDevComponent: true,
+      componentOnly: true
     })
     expect(result).toEqual({
       component: devComponent,
@@ -140,7 +141,7 @@ describe('mcp/code render plugin', () => {
       nodes,
       createConfig(),
       'plugin-code',
-      { returnDevComponent: true }
+      { returnDevComponent: true, componentOnly: true }
     )
     expect(result).toEqual([
       { component: undefined, code: '<One />', lang: 'jsx' },

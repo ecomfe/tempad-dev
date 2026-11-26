@@ -111,7 +111,10 @@ export function generateCodegenPayload(
   )
 
   return {
-    codeBlocks,
+    // Style callbacks can update plugin state used by the next component in a batch.
+    codeBlocks: payload.componentOnly
+      ? codeBlocks.filter(({ name }) => name === 'component')
+      : codeBlocks,
     ...(plugin?.name !== undefined ? { pluginName: plugin.name } : {}),
     ...(payload.returnDevComponent && devComponent ? { devComponent } : {})
   }

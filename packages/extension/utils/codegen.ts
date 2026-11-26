@@ -92,6 +92,7 @@ export type CodegenConfig = {
 
 type CodegenOptions = {
   returnDevComponent?: boolean
+  componentOnly?: boolean
   variableDisplay?: VariableDisplayMode
   readCss?: (node: SceneNode) => Promise<Record<string, string>>
 }
@@ -208,7 +209,8 @@ async function prepareCodegenJobForNode(
       : {}),
     component: component ?? undefined,
     options: serializeOptions,
-    returnDevComponent: opts?.returnDevComponent
+    returnDevComponent: opts?.returnDevComponent,
+    ...(opts?.componentOnly ? { componentOnly: true } : {})
   }
 }
 
