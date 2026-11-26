@@ -14,7 +14,8 @@ import {
   createScreenshotToolResponse,
   createStructureToolResponse,
   createToolErrorResponse,
-  createUploadAssetToolResponse
+  createUploadAssetToolResponse,
+  presentClientReadResult
 } from '../src/tools'
 
 const codePayload: ToolResultMap['get_code'] = {
@@ -38,6 +39,39 @@ function textContent(block: unknown): string {
 }
 
 describe('tools response helpers', () => {
+  it('delivers code to the text adapter and plugins in released OpenCode clients', () => {
+    const modern = { name: 'opencode', version: '1.19.6' }
+    const older = { name: 'opencode', version: '1.1.51' }
+    const result = createCodeToolResponse(codePayload)
+    const current = presentClientReadResult('get_code', modern, result)
+    expect(current.content).toEqual([])
+    expect(current.structuredContent).toEqual(codePayload)
+    const legacy = presentClientReadResult('get_code', older, result)
+    expect(JSON.parse(textContent(legacy.content.at(-1)))).toEqual(codePayload)
+    expect(legacy.structuredContent).toEqual(codePayload)
+    expect(presentClientReadResult('get_code', { ...modern, name: 'other' }, result)).toBe(result)
+  })
+
+  it('preserves readback notices, resources, errors and the final UTF-8 budget', () => {
+    const client = { name: 'opencode', version: '1.17.12' }
+    const result = createCodeToolResponse(codePayload)
+    const notice = { type: 'text' as const, text: 'Read the original target before writing.' }
+    const provisional = { ...result, content: [notice, ...result.content] }
+    expect(presentClientReadResult('get_code', client, provisional, true).content[0]).toEqual(
+      notice
+    )
+    const large = createCodeToolResponse({ ...codePayload, code: '设'.repeat(16_000) })
+    expect(presentClientReadResult('get_code', { ...client, version: 'dev' }, large)).toBe(large)
+    expect(presentClientReadResult('get_code', client, large).structuredContent).toEqual(
+      large.structuredContent
+    )
+    for (const name of ['get_screenshot', 'apply_canvas'] as const) {
+      expect(presentClientReadResult(name, client, result)).toBe(result)
+    }
+    const failed = { ...result, isError: true }
+    expect(presentClientReadResult('get_structure', client, failed)).toBe(failed)
+  })
+
   it('formats independent code results, failures, and exact continuation', () => {
     const payload: ToolResultMap['get_code'] = {
       results: [

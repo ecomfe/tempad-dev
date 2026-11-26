@@ -119,7 +119,8 @@ import {
   createDesignTaskToolResponse,
   createInlineBudgetExceededToolResponse,
   createToolErrorResponse,
-  createUploadAssetToolResponse
+  createUploadAssetToolResponse,
+  presentClientReadResult
 } from './tools'
 import { assertVersionedToolSupport, versionedReadNotice } from './versioned-extension'
 import { startExtensionWebSocketServer } from './websocket-server'
@@ -960,6 +961,8 @@ export async function startHub(
     const schema = tool.parameters
     const connectionId = ownerId
     const isCanvasWrite = tool.name === 'apply_canvas'
+    const present = (result: CallToolResult, preserveNotices = false) =>
+      presentClientReadResult(tool.name, mcp.server.getClientVersion(), result, preserveNotices)
     const handler = async (args: unknown, extra: { _meta?: unknown; signal: AbortSignal }) => {
       const activity = Symbol()
       let requestId: string | undefined
@@ -1030,7 +1033,7 @@ export async function startHub(
           } catch (error) {
             reject(requestId, legacy.id, coerceToolError(error))
           }
-          return createToolResponse(tool, await registration.promise)
+          return present(createToolResponse(tool, await registration.promise))
         }
         const { extension: activeExt, session } = resolveDesignRoute(
           ownerId,
@@ -1153,17 +1156,16 @@ export async function startHub(
           }
         }
         const readEvidence = hasCanvasReadEvidence(tool.name, payload)
-        const response = createToolResponse(tool, payload, {
-          runtime,
-          notice: versionedReadNotice(protocolVersion, tool.name)
-        })
+        const notice = versionedReadNotice(protocolVersion, tool.name)
+        const response = createToolResponse(tool, payload, { runtime, notice })
         if (!response.isError && readGeneration !== undefined)
           designTasks.acknowledgeFileRead(session.fileKey, readGeneration)
         if (!response.isError && readEvidence) {
           if (taskId) designTasks.acknowledgeRead(taskId, ownerId, taskEpoch)
           designTasks.acknowledgeFileRead(session.fileKey)
         }
-        return withCanvasReadNotice(tool.name, response, readTarget)
+        const final = withCanvasReadNotice(tool.name, response, readTarget)
+        return present(final, !!notice || final !== response)
       } catch (error) {
         const normalized = coerceToolError(error)
         log.error(

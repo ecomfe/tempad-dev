@@ -110,7 +110,8 @@ const structure = {
 async function connectConsumer(
   clientEventFirst = false,
   clientName = 'isolated-test',
-  context?: HostContext
+  context?: HostContext,
+  version = '1'
 ) {
   const socket = connect(fixture.socketPath)
   consumerSockets.push(socket)
@@ -153,7 +154,7 @@ async function connectConsumer(
     params: {
       protocolVersion: '2024-11-05',
       capabilities: {},
-      clientInfo: { name: clientName, version: '1' }
+      clientInfo: { name: clientName, version }
     }
   })
   await reply(0)
@@ -230,6 +231,23 @@ async function loadRuntime() {
   previousBeforeExit = process.listeners('beforeExit')
   return runtime
 }
+
+it.each(['1.1.51', '1.17.12'])(
+  'delivers structure through the OpenCode %s model adapter',
+  async (version) => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const client = await connectConsumer(false, 'opencode', undefined, version)
+    client.send({ id: 1, method: 'tools/call', params: { name: 'get_structure', arguments: {} } })
+    const call = await extension.call(0)
+    extension.send({ type: 'toolResult', id: call.id, payload: structure })
+    const { result } = await client.reply(1)
+    expect(result).toMatchObject({ structuredContent: structure })
+    if (version === '1.17.12') expect(result?.content).toEqual([])
+    else expect(result?.content).toContainEqual({ type: 'text', text: JSON.stringify(structure) })
+  }
+)
 
 it('keeps a hot handoff pinned when an unrelated listener occupies its HTTP port', async () => {
   const other = createHttpServer()
