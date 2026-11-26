@@ -15,9 +15,13 @@ import {
   runtimeDirectories,
   runtimeSocketPath
 } from './runtime-profile.mjs'
+import { openWindowsHook } from './windows-hook.mjs'
 
-let socket
-const deadline = setTimeout(() => process.exit(0), 750)
+let windowsHook
+const deadline = setTimeout(() => {
+  windowsHook?.close()
+  process.exit(0)
+}, 750)
 try {
   let text = ''
   process.stdin.setEncoding('utf8')
@@ -101,9 +105,8 @@ try {
     path = runtimeSocketPath(runtimeDirectories(env, profile).runtime, profile)
   } else {
     const runtimeDir = process.env.TEMPAD_MCP_RUNTIME_DIR || join(resolveDefaultRoot(), 'run')
-    path = process.platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(runtimeDir, 'mcp.sock')
+    path = runtimeSocketPath(runtimeDir, profile)
   }
-  assertTrustedSocket(path)
   const lifecycle = {
     ...identity,
     event,
@@ -112,19 +115,19 @@ try {
     ...(typeof input.turn_id === 'string' ? { turnId: input.turn_id } : {})
   }
   const params = { ...lifecycle, version: 2, profile, issuedAt: Date.now() }
+  if (process.platform === 'win32') windowsHook = openWindowsHook(path)
   let legacy = false
-  async function request() {
-    socket = connect(path).setEncoding('utf8')
-    const connection = socket
-    let timer
+  async function unixRequest(frame) {
+    const reply = connect(path).setEncoding('utf8')
+    reply.once('connect', () => reply.write(frame))
+    const timer = setTimeout(() => reply.destroy(), 200)
     try {
       return await new Promise((resolve, reject) => {
-        timer = setTimeout(() => reject(new Error('Hook reply timed out.')), 200)
         let buffer = ''
-        socket.on('data', (data) => {
+        reply.on('data', (data) => {
           buffer += data
           if (buffer.length > 1_000_000) {
-            socket.destroy()
+            reject(new Error('Oversized hook reply.'))
             return
           }
           let index
@@ -138,38 +141,37 @@ try {
               continue
             }
             if (message?.id !== 1) continue
-            if (message.error)
-              reject(
-                Object.assign(new Error('The Hub does not support this hook request.'), {
-                  code: message.error.code
-                })
-              )
-            else resolve(message.result)
+            resolve(message)
             return
           }
         })
-        socket.on('error', reject)
-        socket.once('close', () => reject(new Error('The Hub hook connection closed.')))
-        socket.once('connect', () => {
-          socket.write(
-            JSON.stringify({
-              jsonrpc: '2.0',
-              id: 1,
-              method: 'tempad/client-hook',
-              params: legacy ? lifecycle : params
-            }) + '\n'
-          )
-        })
+        reply.on('error', reject)
+        reply.once('close', () => reject(new Error('The Hub hook connection closed.')))
       })
     } finally {
       clearTimeout(timer)
-      connection.destroy()
+      reply.destroy()
     }
   }
   let result
   for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt) await new Promise((resolve) => setTimeout(resolve, 30))
+    if (process.platform !== 'win32') assertTrustedSocket(path)
     try {
-      result = await request()
+      const frame =
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tempad/client-hook',
+          params: legacy ? lifecycle : params
+        }) + '\n'
+      const message = await (windowsHook ? windowsHook.request(frame) : unixRequest(frame))
+      if (message?.id !== 1) throw new Error('Invalid hook reply.')
+      if (message.error)
+        throw Object.assign(new Error('The Hub does not support this hook request.'), {
+          code: message.error.code
+        })
+      result = message.result
       if (legacy) break
       const receipt = result?.receipt
       if (receipt?.version !== 2 || receipt.invocationId !== params.invocationId)
@@ -179,20 +181,25 @@ try {
       result = undefined
     } catch (error) {
       result = undefined
+      if (!attempt && (error?.code === 'ENOENT' || error?.code === 'ECONNREFUSED')) break
       // Only a definite old-schema rejection permits fallback. A lost reply
       // retries the same v2 invocation, never a second lifecycle effect.
       if (error?.code === -32602 && !legacy) legacy = true
     }
-    await new Promise((resolve) => setTimeout(resolve, 30))
   }
   // Old Hubs may still offer comment batches; never emit or acknowledge those.
+  const notice = result?.output?.hookSpecificOutput
   if (
     !result?.receiptId &&
-    result?.output?.hookSpecificOutput?.hookEventName === event &&
-    typeof result.output.hookSpecificOutput.additionalContext === 'string'
+    (event === 'PreToolUse' || event === 'PostToolUse') &&
+    notice?.hookEventName === event &&
+    typeof notice.additionalContext === 'string'
   ) {
+    const output = {
+      hookSpecificOutput: { hookEventName: event, additionalContext: notice.additionalContext }
+    }
     await new Promise((resolve, reject) => {
-      process.stdout.write(JSON.stringify(result.output) + '\n', (error) =>
+      process.stdout.write(JSON.stringify(output) + '\n', (error) =>
         error ? reject(error) : resolve()
       )
     })
@@ -200,6 +207,6 @@ try {
 } catch {
   // Missing/old runtimes never prevent the host from continuing, pausing, or exiting.
 } finally {
-  socket?.destroy()
+  windowsHook?.close()
   clearTimeout(deadline)
 }

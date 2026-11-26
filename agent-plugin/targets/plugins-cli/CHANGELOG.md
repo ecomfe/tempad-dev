@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.3
+
+- Claude lifecycle hooks on Windows verify the connected Hub pipe's owner and access rules
+  before sending session details or accepting a Stop notice.
+- Idle Claude hooks return promptly when the Hub is absent. A ready Hub can confirm a
+  durable lifecycle update on the first connection.
+- The canvas skill links directly to each visual asset reference and leaves element counting
+  to the markup validator.
+
 ## 1.0.2
 
 - Documented native 3D transforms, origins, perspective, Preserve 3D, and disabled-state

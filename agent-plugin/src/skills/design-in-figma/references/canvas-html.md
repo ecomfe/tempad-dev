@@ -9,9 +9,8 @@ Figma result: use routed native bindings for gradients beyond the linear subset 
 effects, masks, transforms, exact fonts, and rich text.
 
 One `apply_canvas` markup tree may contain at most 160 elements and 12 levels.
-This is a safety ceiling, not a target. Before calling, count the tree, include
-only assets referenced by that call, and split larger work at meaningful screen
-or section boundaries.
+The compiler checks these limits. Split larger work at meaningful screen or
+section boundaries and include only assets referenced by that call.
 
 Prefer supported Tailwind utilities; use arbitrary pixels only off the default
 scale. Numeric spacing follows Tailwind v4's `4px` unit. Selected Figma resources
@@ -43,9 +42,7 @@ tree once:
 - trace every `w-full`, `h-full`, and `grow` against its direct parent's axis and
   the element's required dimensions;
 - give a fixed-height grid explicit row tracks when its children should fill or
-  divide that height; omitted rows remain content-sized;
-- count at most 160 elements and 12 levels, and include only assets referenced by
-  this call.
+  divide that height; omitted rows remain content-sized.
 
 Correct the complete set before calling instead of serializing until validation
 reveals issues one at a time.

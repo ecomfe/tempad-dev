@@ -84,9 +84,10 @@ canvas unless the user requested that treatment.
 When selecting or changing fonts, or when script coverage is uncertain, read
 [typefaces.md](references/typefaces.md) to resolve candidates and native identities.
 
-Choose representations by their role in the work. Once an image, icon, diagram,
-or visualization matters to the direction, read
-[visual-assets.md](references/visual-assets.md) and its selected branch. Do not
+Choose representations by their role in the work. For a material visual asset,
+read [source and editability guidance](references/visual-assets.md) alongside
+[icons](references/icons.md) or [images and illustrations](references/images.md)
+when that medium is involved. Do not
 silently replace the chosen content or medium to simplify sourcing or markup.
 For content-bearing graphics, preserve meaningful marks and editable
 relationships with native shapes, vectors, text, and groups; styled FRAME

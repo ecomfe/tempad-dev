@@ -334,7 +334,11 @@ describe('plugin hook transport', () => {
               jsonrpc: '2.0',
               id: message.id,
               result: {
-                output,
+                output: {
+                  ...output,
+                  metadata: 'Hub-only',
+                  hookSpecificOutput: { ...output.hookSpecificOutput, metadata: 'Hub-only' }
+                },
                 receipt: { version: 2, invocationId: request.params.invocationId, state: 'applied' }
               }
             }) +
