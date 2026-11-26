@@ -2,14 +2,14 @@
   "version": 1,
   "guidanceEpoch": 1,
   "guidanceReview": {
-    "version": "1.0.5",
-    "sourceHash": "53931f66c440bb642ed8b49e84faf149f6bdb79c15328c94f4a02bb7b2b8ecd1",
+    "version": "1.0.6",
+    "sourceHash": "c7281e5b50dfc4456f7c55da069ca8f970ec7785af42347dbce749e5f0e9ba5b",
     "decision": "compatible",
     "baseline": {
-      "version": "1.0.4",
-      "integrity": "sha512-v85SbcCThHuU0/CX35qm5h+zRGQaAdve5kxJ8vzm41laWHF1PRIOOs0nO5Gc/0Nti5z9SLyp8e0WwLzFSfbvvQ=="
+      "version": "1.0.5",
+      "integrity": "sha512-EM02vlXuNTsPg3d85BwLMVlOhw7Pu9KqleVNdbtW+b7050ugHPTVxKs/kHoRzusbyacasQXT4SleGQwGaG4zKg=="
     },
-    "rationale": "Windows startup can recover an eligible default runtime root with inherited access while preserving the ACL allowlist and enrolled path. The dependency updates include bounded automatic Pong buffering in ws. These changes preserve the shipped tool guidance, wire contracts, supported protocols and durable state format across guidance epoch 1."
+    "rationale": "Hub handoffs retain Stop fences and accept an optional private Edge proof from supporting writers; older records or rewrites without that proof stay fenced. OpenCode read presentation preserves structured results, readback notices and byte limits. Direct asset imports keep reservations, and image URLs enforce the documented public-source contract. Legacy reads, tool names, task recovery instructions, and control and hook protocols remain compatible with epoch 1."
   },
   "controlProtocols": [2],
   "state": { "family": "tempad-runtime", "reads": [1], "writes": 1 },

@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.1
+
+- Honor a restored Stop on the first session update and block writes from other tabs on
+  the same Figma file, including while browser storage is unavailable.
+- Keep design-system references and catalog pages scoped to the Figma file that issued them.
+- Apply the same Figma bootstrap rewrites to dynamically inserted scripts, and preserve
+  script execution order and native loading when a rewrite cannot be applied.
+- Emit grid spans only for grid children in exported code.
+- Preserve zero lengths and full-grid spans across canvas markup and code export. Reuse
+  parsed class lists and read native layout and paint properties on demand.
+- Skip descendants of plugin-replaced instances in code export and credit a plugin when
+  its replacement or variable naming affects the exported result.
+- Format built-in selection output without starting a plugin worker, load syntax highlighting
+  with the code view, and reduce idle Hub discovery and hover sampling.
+- Use an asset key for private images. Direct image URLs accept public HTTP(S) destinations
+  without embedded credentials.
+
 ## 1.1.0
 
 - Added Figma's beta 3D transforms, transform origins, perspective, and Preserve 3D to

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.6
+
+- Let an ordinary MCP client resume its own design task after a Hub switch on the same
+  running Edge. Tasks started on an older Hub still require their original host binding
+  or a fresh task. Stop continues to fence the old task.
+- Let tool calls admitted before a runtime handoff finish once. Keep new calls gated while
+  the Hub drains, and preserve runtime state when process ownership cannot be determined.
+- Deliver successful code, structure and design-system reads to OpenCode's text adapter,
+  preserving structured results, the wire budget and outstanding readback notices.
+- Confirm fast Claude lifecycle updates on the initial hook connection. Back off on
+  unrecognized Codex streams and verify Linux process executables during discovery.
+- Import local images directly through the same admission and storage checks as HTTP
+  uploads. Report the current usage and reservation when an upload exceeds the quota.
+
 ## 1.0.5
 
 - Fixed Windows startup when the default runtime directory inherits access for another
