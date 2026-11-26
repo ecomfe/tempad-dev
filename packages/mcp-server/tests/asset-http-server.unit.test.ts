@@ -258,7 +258,7 @@ beforeEach(() => {
   )
 
   mocks.createHash.mockImplementation(() => ({
-    update: vi.fn(),
+    update: vi.fn().mockReturnThis(),
     digest: vi.fn(() => state.digest)
   }))
 
@@ -425,9 +425,19 @@ describe('asset-http-server unit branches', () => {
 
     expect(rejectedRequest.resume).toHaveBeenCalled()
     expect(rejectedResponse.statusCode).toBe(507)
-    expect(readJson(rejectedResponse)).toEqual({ error: 'Asset Store Quota Exceeded' })
+    expect(readJson(rejectedResponse)).toEqual({
+      error: 'Asset Store Quota Exceeded',
+      storedBytes: 0,
+      reservedBytes: 4,
+      incomingBytes: 4,
+      limitBytes: 6
+    })
     expect(mocks.pipeline).toHaveBeenCalledOnce()
 
+    await expect(
+      server.importImage('data:image/png;base64,Zm91cg==', new AbortController().signal)
+    ).rejects.toThrow('Quota Exceeded')
+    expect(mocks.pipeline).toHaveBeenCalledOnce()
     finishFirst?.(new Error('test cleanup'))
   })
 

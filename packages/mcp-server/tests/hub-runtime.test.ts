@@ -101,6 +101,7 @@ let previousSignals: Map<
 let previousBeforeExit: NodeJS.BeforeExitListener[]
 const assetStart = vi.fn<() => Promise<void>>()
 const assetStop = vi.fn()
+const importImage = vi.fn<ReturnType<typeof createAssetHttpServer>['importImage']>()
 let websocket: WebSocketServer
 const consumerSockets: Socket[] = []
 const structure = {
@@ -550,6 +551,7 @@ beforeEach(() => {
   vi.mocked(createAssetHttpServer).mockReturnValue({
     start: assetStart,
     stop: assetStop,
+    importImage,
     pendingTransfers: 0,
     getBaseUrl: () => 'http://127.0.0.1:0'
   } as ReturnType<typeof createAssetHttpServer>)
@@ -1267,7 +1269,6 @@ describe('Hub runtime module', () => {
   it.each([1, 0, ''])(
     'does not dispatch an upload cancelled before its local handler starts (ID %j)',
     async (requestId) => {
-      const fetch = vi.spyOn(globalThis, 'fetch')
       const { startHub } = await loadRuntime()
       await startHub()
       const consumer = await connectConsumer()
@@ -1293,56 +1294,47 @@ describe('Hub runtime module', () => {
         params: { name: 'list_design_sessions', arguments: {} }
       })
       await consumer.reply(2)
-      expect(fetch).not.toHaveBeenCalled()
+      expect(importImage).not.toHaveBeenCalled()
       expect(consumer.replies.has(1)).toBe(false)
     }
   )
 
   it.each(['notification', 'disconnect'] as const)(
-    'aborts local upload response reads on consumer %s and closes unused success bodies',
+    'aborts an admitted local upload on consumer %s',
     async (cancellation) => {
-      let requests = 0
-      const closed = vi.fn()
-      const http = createHttpServer((request, response) => {
-        request.resume()
-        requests++
-        response.once('close', closed)
-        response.writeHead(requests === 1 ? 500 : 200)
-        response.write('unfinished response')
-      })
-      try {
-        await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
-        const address = http.address()
-        if (!address || typeof address === 'string') throw new Error('Expected isolated HTTP port')
-        vi.mocked(createAssetHttpServer).mockReturnValue({
-          start: assetStart,
-          stop: assetStop,
-          pendingTransfers: 0,
-          getBaseUrl: () => `http://127.0.0.1:${address.port}`
-        } as ReturnType<typeof createAssetHttpServer>)
-        const { startHub } = await loadRuntime()
-        await startHub()
-        let consumer = await connectConsumer()
-        const survivor = cancellation === 'disconnect' ? await connectConsumer() : consumer
-        const params = {
-          name: 'upload_asset',
-          arguments: { dataUrl: 'data:image/png;base64,aGVsbG8=' }
-        }
-        consumer.send({ id: 1, method: 'tools/call', params })
-        await vi.waitFor(() => expect(requests).toBe(1), { interval: 1 })
-        if (cancellation === 'notification')
-          consumer.send({ method: 'notifications/cancelled', params: { requestId: 1 } })
-        else consumer.socket.destroy()
-        await vi.waitFor(() => expect(closed).toHaveBeenCalledTimes(1), { interval: 1 })
-        expect(consumer.replies.has(1)).toBe(false)
-        if (cancellation === 'disconnect') consumer = survivor
-        consumer.send({ id: 2, method: 'tools/call', params })
-        expect((await consumer.reply(2)).result?.isError).not.toBe(true)
-        await vi.waitFor(() => expect(closed).toHaveBeenCalledTimes(2), { interval: 1 })
-      } finally {
-        http.closeAllConnections()
-        await new Promise<void>((resolve) => http.close(() => resolve()))
+      const cancelled = vi.fn()
+      importImage
+        .mockImplementationOnce(
+          (_url, signal) =>
+            new Promise((_resolve, reject) => {
+              signal.addEventListener(
+                'abort',
+                () => {
+                  cancelled()
+                  reject(signal.reason)
+                },
+                { once: true }
+              )
+            })
+        )
+        .mockResolvedValueOnce({ assetHash: 'a'.repeat(64), mimeType: 'image/png', size: 5 })
+      const { startHub } = await loadRuntime()
+      await startHub()
+      const consumer = await connectConsumer()
+      const survivor = cancellation === 'disconnect' ? await connectConsumer() : consumer
+      const params = {
+        name: 'upload_asset',
+        arguments: { dataUrl: 'data:image/png;base64,aGVsbG8=' }
       }
+      consumer.send({ id: 1, method: 'tools/call', params })
+      await vi.waitFor(() => expect(importImage).toHaveBeenCalledOnce(), { interval: 1 })
+      if (cancellation === 'notification')
+        consumer.send({ method: 'notifications/cancelled', params: { requestId: 1 } })
+      else consumer.socket.destroy()
+      await vi.waitFor(() => expect(cancelled).toHaveBeenCalledOnce(), { interval: 1 })
+      expect(consumer.replies.has(1)).toBe(false)
+      survivor.send({ id: 2, method: 'tools/call', params })
+      expect((await survivor.reply(2)).result?.isError).not.toBe(true)
     }
   )
 

@@ -1,3 +1,4 @@
+import type { UploadAssetResult } from '@tempad-dev/shared'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import { MCP_HASH_HEX_LENGTH } from '@tempad-dev/shared'
@@ -14,12 +15,13 @@ import {
 } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
-import { pipeline, Transform } from 'node:stream'
+import { pipeline, Readable, Transform } from 'node:stream'
 import { URL } from 'node:url'
 
 import type { AssetStore } from './asset-store'
 import type { AssetRecord } from './types'
 
+import { decodeImageDataUrl } from './asset-data-url'
 import { buildAssetFilename, getHashFromAssetFilename, normalizeMimeType } from './asset-utils'
 import { getMcpServerConfig } from './config'
 import {
@@ -51,6 +53,7 @@ export interface AssetHttpServerOptions {
 }
 
 export interface AssetHttpServer {
+  importImage(dataUrl: string, signal: AbortSignal): Promise<UploadAssetResult>
   start(): Promise<void>
   stop(): void
   getBaseUrl(legacy?: boolean): string
@@ -294,8 +297,6 @@ export function createAssetHttpServer(
     }
 
     const mimeType = normalizeMimeType(getHeader(req, 'content-type'))
-    const filename = buildAssetFilename(hash, mimeType)
-    const filePath = join(ASSET_DIR, filename)
 
     const width = parseInt(getHeader(req, 'x-asset-width') ?? '', 10)
     const height = parseInt(getHeader(req, 'x-asset-height') ?? '', 10)
@@ -306,12 +307,56 @@ export function createAssetHttpServer(
     if (themeable) metadata.themeable = true
     const assetMetadata = Object.keys(metadata).length ? metadata : undefined
 
+    upload(req, { hash, mimeType, declaredSize, assetMetadata }, (status, payload) => {
+      if (status === 429) res.setHeader('Connection', 'close')
+      if (status !== 500 || !res.headersSent) sendJson(res, status, payload)
+    })
+  }
+
+  async function importImage(dataUrl: string, signal: AbortSignal): Promise<UploadAssetResult> {
+    signal.throwIfAborted()
+    if (options.admit && !options.admit())
+      throw new Error('Runtime recovery is in progress; request was not admitted.')
+    const { hash, mimeType, bytes } = decodeImageDataUrl(dataUrl, maxAssetSizeBytes)
+    const stream = Readable.from([bytes])
+    await new Promise<void>((resolve, reject) => {
+      upload(
+        stream,
+        { hash, mimeType, declaredSize: bytes.length, localImport: signal },
+        (status, payload) => {
+          if (status < 300) resolve()
+          else reject(new Error(`Hub asset import failed (${status}): ${JSON.stringify(payload)}`))
+        }
+      )
+    })
+    signal.throwIfAborted()
+    return { assetHash: hash, mimeType, size: bytes.length }
+  }
+
+  function upload(
+    stream: Readable,
+    {
+      hash,
+      mimeType,
+      declaredSize,
+      assetMetadata,
+      localImport
+    }: {
+      hash: string
+      mimeType: string
+      declaredSize: number | null
+      assetMetadata?: AssetRecord['metadata']
+      localImport?: AbortSignal
+    },
+    reply: (status: number, payload: Record<string, unknown>) => void
+  ): void {
+    const filePath = join(ASSET_DIR, buildAssetFilename(hash, mimeType))
     const reuseExisting = (record: AssetRecord) => {
       if (assetMetadata) record.metadata = { ...record.metadata, ...assetMetadata }
       if (record.mimeType !== mimeType) record.mimeType = mimeType
       record.lastAccess = Date.now()
       store.upsert(record)
-      sendJson(res, 200, { message: 'Asset Already Exists' })
+      reply(200, { message: 'Asset Already Exists' })
     }
 
     const existing = store.get(hash)
@@ -327,32 +372,41 @@ export function createAssetHttpServer(
       if (existsSync(existingPath)) {
         // Previously returned localPath values stay valid across MIME metadata updates.
         // Drain request to ensure connection is clean
-        req.resume()
+        stream.resume()
         reuseExisting(existing)
         return
       }
     }
 
     if (activeUploads >= maxConcurrentUploads) {
-      req.resume()
-      res.setHeader('Connection', 'close')
-      sendError(res, 429, 'Too Many Concurrent Uploads')
+      stream.resume()
+      reply(429, { error: 'Too Many Concurrent Uploads' })
       return
     }
 
     const reservationBytes = declaredSize ?? maxAssetSizeBytes
-    if (
-      getStoredAssetBytes(store, hash) + reservedUploadBytes + reservationBytes >
-      maxAssetStoreBytes
-    ) {
-      req.resume()
-      sendError(res, 507, 'Asset Store Quota Exceeded')
+    const quota = (incomingBytes: number) => {
+      const storedBytes = getStoredAssetBytes(store, hash)
+      return storedBytes + reservedUploadBytes + incomingBytes > maxAssetStoreBytes
+        ? {
+            error: 'Asset Store Quota Exceeded',
+            storedBytes,
+            reservedBytes: reservedUploadBytes,
+            incomingBytes,
+            limitBytes: maxAssetStoreBytes
+          }
+        : undefined
+    }
+    const denied = quota(reservationBytes)
+    if (denied) {
+      stream.resume()
+      reply(507, denied)
       return
     }
 
     const tmpPath = `${filePath}.tmp.${nanoid()}`
     const writeStream = createWriteStream(tmpPath)
-    const hasher = createHash('sha256')
+    const hasher = localImport ? undefined : createHash('sha256')
     let size = 0
     activeUploads += 1
     options.onActivity?.()
@@ -375,41 +429,48 @@ export function createAssetHttpServer(
           callback(new Error('PayloadTooLarge'))
           return
         }
-        hasher.update(chunk)
+        hasher?.update(chunk)
         callback(null, chunk)
       }
     })
 
-    pipeline(req, monitor, writeStream, (err) => {
+    const abort = () => stream.destroy()
+    localImport?.addEventListener('abort', abort, { once: true })
+    pipeline(stream, monitor, writeStream, (err) => {
+      localImport?.removeEventListener('abort', abort)
       activeUploads -= 1
       options.onActivity?.()
       reservedUploadBytes -= reservationBytes
       if (err) {
         cleanup()
         if (err.message === 'PayloadTooLarge') {
-          sendError(res, 413, 'Payload Too Large')
+          reply(413, { error: 'Payload Too Large' })
         } else if (err.code === 'ERR_STREAM_PREMATURE_CLOSE') {
           log.warn({ hash }, 'Upload request closed prematurely.')
-          sendError(res, 400, 'Upload Incomplete')
+          reply(400, { error: 'Upload Incomplete' })
         } else {
           log.error({ error: err, hash }, 'Upload pipeline failed.')
-          if (!res.headersSent) {
-            sendError(res, 500, 'Internal Server Error')
-          }
+          reply(500, { error: 'Internal Server Error' })
         }
         return
       }
 
-      const computedHash = hasher.digest('hex')
+      if (localImport?.aborted) {
+        cleanup()
+        reply(400, { error: 'Upload Incomplete' })
+        return
+      }
+      const computedHash = hasher?.digest('hex') ?? hash
       if (computedHash.slice(0, hash.length) !== hash) {
         cleanup()
-        sendError(res, 400, 'Hash Mismatch')
+        reply(400, { error: 'Hash Mismatch' })
         return
       }
 
-      if (getStoredAssetBytes(store, hash) + reservedUploadBytes + size > maxAssetStoreBytes) {
+      const denied = quota(size)
+      if (denied) {
         cleanup()
-        sendError(res, 507, 'Asset Store Quota Exceeded')
+        reply(507, denied)
         return
       }
 
@@ -427,7 +488,7 @@ export function createAssetHttpServer(
             .digest('hex')
           cleanup()
           if (previousHash !== computedHash) {
-            sendError(res, 409, 'Legacy Asset Hash Collision; update the TemPad Dev extension')
+            reply(409, { error: 'Legacy Asset Hash Collision; update the TemPad Dev extension' })
             return
           }
           store.upsert({
@@ -435,14 +496,14 @@ export function createAssetHttpServer(
             metadata: { ...previous.metadata, ...assetMetadata },
             lastAccess: Date.now()
           })
-          sendJson(res, 200, { message: 'Asset Already Exists' })
+          reply(200, { message: 'Asset Already Exists' })
           return
         }
         renameSync(tmpPath, filePath)
       } catch (error) {
         log.error({ error, hash }, 'Failed to rename temp file to asset.')
         cleanup()
-        sendError(res, 500, 'Internal Server Error')
+        reply(500, { error: 'Internal Server Error' })
         return
       }
 
@@ -453,8 +514,8 @@ export function createAssetHttpServer(
         size,
         metadata: assetMetadata
       })
-      log.info({ hash, size }, 'Stored uploaded asset via HTTP.')
-      sendJson(res, 201, { message: 'Created', hash, size })
+      log.info({ hash, size }, 'Stored uploaded asset.')
+      reply(201, { message: 'Created', hash, size })
     })
   }
 
@@ -493,6 +554,7 @@ export function createAssetHttpServer(
   }
 
   return {
+    importImage,
     start,
     stop,
     getBaseUrl,

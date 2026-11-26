@@ -524,9 +524,44 @@ describe('asset-http-server', () => {
 
     expect(res.status).toBe(507)
     expect((await res.json()) as { error: string }).toEqual({
-      error: 'Asset Store Quota Exceeded'
+      error: 'Asset Store Quota Exceeded',
+      storedBytes: 5,
+      reservedBytes: 0,
+      incomingBytes: 4,
+      limitBytes: 8
     })
     expect(store.upsert).not.toHaveBeenCalled()
+    await expect(
+      server.importImage('data:image/png;base64,Zm91cg==', new AbortController().signal)
+    ).rejects.toThrow('Quota Exceeded')
     server.stop()
+  })
+
+  it('shares import admission, atomic storage and cancellation with HTTP uploads', async () => {
+    const body = Buffer.from('local import contract')
+    const hash = createHash('sha256').update(body).digest('hex')
+    const dataUrl = `data:image/png;base64,${body.toString('base64')}`
+    const path = join(ASSET_DIR, `${hash}.png`)
+    createdPaths.push(path)
+    const store = createStoreMock()
+    let admit = false
+    const server = createAssetHttpServer(store, { admit: () => admit })
+    const controller = new AbortController()
+    await expect(server.importImage(dataUrl, controller.signal)).rejects.toThrow('not admitted')
+    admit = true
+    const interrupted = server.importImage(dataUrl, controller.signal)
+    expect(server.pendingTransfers).toBe(1)
+    controller.abort()
+    await expect(interrupted).rejects.toThrow()
+    expect(store.upsert).not.toHaveBeenCalled()
+    expect(readdirSync(ASSET_DIR).filter((file) => file.startsWith(hash))).toEqual([])
+    await expect(server.importImage(dataUrl, new AbortController().signal)).resolves.toEqual({
+      assetHash: hash,
+      mimeType: 'image/png',
+      size: body.length
+    })
+    expect(readFileSync(path)).toEqual(body)
+    expect(server.pendingTransfers).toBe(0)
+    expect(store.upsert).toHaveBeenCalledOnce()
   })
 })

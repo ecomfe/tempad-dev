@@ -14,8 +14,7 @@ import type {
   ToolCallMessage,
   ToolName,
   ToolResultMap,
-  UploadAssetParametersInput,
-  UploadAssetResult
+  UploadAssetParametersInput
 } from '@tempad-dev/shared'
 import type { ZodType } from 'zod'
 
@@ -53,10 +52,8 @@ import { ClientHookRequestSchema, type ClientHook } from './agent-clients/hooks'
 import { HostContextNotificationSchema } from './agent-clients/host-context'
 import { ClientEventSchema } from './agent-clients/identity'
 import { AgentClients } from './agent-clients/registry'
-import { decodeImageDataUrl } from './asset-data-url'
 import { createAssetHttpServer } from './asset-http-server'
 import { createAssetStore } from './asset-store'
-import { buildAssetFilename } from './asset-utils'
 import { ClientBindingSubscribeSchema, ClientBindingUpdateSchema } from './client-binding'
 import { getMcpServerConfig } from './config'
 import { ConsumerTransport } from './consumer-transport'
@@ -175,7 +172,6 @@ export async function startHub(
     pageStructureTimeoutMs,
     applyCanvasTimeoutMs,
     maxPayloadBytes,
-    maxAssetSizeBytes,
     maxExtensionConnections,
     autoActivateGraceMs,
     assetTtlMs,
@@ -1430,35 +1426,7 @@ export async function startHub(
     _ownerId: string,
     signal: AbortSignal
   ): Promise<ToolResponse> {
-    const decoded = decodeImageDataUrl(dataUrl, maxAssetSizeBytes)
-    const filename = buildAssetFilename(decoded.hash, decoded.mimeType)
-    const response = await fetch(`${assetHttpServer.getBaseUrl()}/assets/${filename}`, {
-      signal,
-      method: 'POST',
-      headers: {
-        'Content-Length': String(decoded.bytes.length),
-        'Content-Type': decoded.mimeType
-      },
-      body: new Uint8Array(decoded.bytes)
-    })
-
-    try {
-      if (!response.ok) {
-        const detail = (await response.text()).slice(0, 500)
-        throw new Error(`Hub asset import failed (${response.status}): ${detail}`)
-      }
-      signal.throwIfAborted()
-      const payload: UploadAssetResult = {
-        assetHash: decoded.hash,
-        mimeType: decoded.mimeType,
-        size: decoded.bytes.length
-      }
-      return createUploadAssetToolResponse(payload)
-    } finally {
-      await response.body?.cancel().catch(() => {
-        // Fetch abort or response.text() may already have closed/consumed the body.
-      })
-    }
+    return createUploadAssetToolResponse(await assetHttpServer.importImage(dataUrl, signal))
   }
 
   function unrefTimer(timer: TimeoutHandle): void {
