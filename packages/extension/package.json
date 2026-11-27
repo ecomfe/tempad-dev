@@ -40,15 +40,15 @@
     "@tempad-dev/plugins": "workspace:^1.0.0",
     "@tempad-dev/shared": "workspace:^0.1.0",
     "@vueuse/core": "^15.0.0",
-    "es-module-lexer": "3.0.4",
-    "overlayscrollbars": "^2.17.0",
+    "es-module-lexer": "3.0.5",
+    "overlayscrollbars": "^2.17.1",
     "p-wait-for": "^7.0.0",
     "stringify-object": "^7.0.0",
     "svgson": "^5.3.1",
-    "vue": "^3.5.45"
+    "vue": "^3.5.46"
   },
   "devDependencies": {
-    "@figma/plugin-typings": "^1.142.0",
+    "@figma/plugin-typings": "^1.143.0",
     "@types/node": "^26.6.6",
     "@types/prismjs": "^1.26.6",
     "@types/stringify-object": "^4.0.5",
